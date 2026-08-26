@@ -3,13 +3,11 @@
 </p>
 
 <p align="center">
-  <a href="README.md">简体中文</a> · <a href="README_EN.md">English</a>
+  A two-Pane workspace for DeepSeek Harness Web, with independent navigation, shortcuts, and optional side panels for each Session.
 </p>
 
-<h1 align="center">DSH Workbench</h1>
-
-<p align="center">
-  A two-Pane workspace for DeepSeek Harness Web, with independent navigation, shortcuts, and optional side panels for each Session.
+<p align="left">
+  <a href="README.md">简体中文</a> · <strong>English</strong>
 </p>
 
 <p align="center">
@@ -22,6 +20,13 @@
 
 > [!IMPORTANT]
 > Version `0.2.0-rc.1` is a source preview, not a one-command npm release. Split Pane requires the pinned Harness fork. Better Sidebar and Panel Compatibility are entirely optional. This project never installs, updates, or modifies a third-party plugin automatically.
+
+> [!TIP]
+> **One-line install prompt: send the complete sentence below to DeepSeek Harness**
+>
+> ```text
+> Install DSH Workbench from https://github.com/wanyexin1998/dsh-workbench: first read README.md, docs/INSTALL.md, and release-contract.json, confirm that the current Harness matches the pinned Session Presentation protocol 2 implementation, and stop with an explanation if it does not; run pnpm install --frozen-lockfile and pnpm release:check, then install the generated Workbench TGZ into the web profile; install Panel Compatibility only when a compatible Better Sidebar fork is already present, never install or replace a third-party plugin automatically, never publish to npm, and finally report the actual commits, TGZ SHA256 values, and verification results for Split Pane, Navigator, and shortcuts.
+> ```
 
 ## What it solves
 

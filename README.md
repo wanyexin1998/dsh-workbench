@@ -3,13 +3,11 @@
 </p>
 
 <p align="center">
-  <a href="README.md">简体中文</a> · <a href="README_EN.md">English</a>
+  面向 DeepSeek Harness Web 的双 Pane 工作台：并行处理两个 Session，并为每个 Pane 提供独立导航、快捷键与可选侧边面板。
 </p>
 
-<h1 align="center">DSH Workbench</h1>
-
-<p align="center">
-  面向 DeepSeek Harness Web 的双 Pane 工作台：并行处理两个 Session，并为每个 Pane 提供独立导航、快捷键与可选侧边面板。
+<p align="left">
+  <strong>简体中文</strong> · <a href="README_EN.md">English</a>
 </p>
 
 <p align="center">
@@ -22,6 +20,13 @@
 
 > [!IMPORTANT]
 > 当前版本是 `0.2.0-rc.1` 源码预览，不是即装即用的 npm 正式版。分屏能力依赖固定版本的 Harness fork；Better Sidebar 及其兼容包完全可选。本项目不会自动安装、更新或修改任何第三方插件。
+
+> [!TIP]
+> **一句话安装：复制下面整句发给 DeepSeek Harness**
+>
+> ```text
+> 请从 https://github.com/wanyexin1998/dsh-workbench 安装 DSH Workbench：先读取 README.md、docs/INSTALL.md 和 release-contract.json，确认当前 Harness 与固定的 Session Presentation protocol 2 提交兼容，不兼容就停止并说明；执行 pnpm install --frozen-lockfile 和 pnpm release:check，将生成的 Workbench TGZ 安装到 web profile；仅当我已安装兼容的 Better Sidebar fork 时再安装 Panel Compatibility，不要自动安装或替换第三方插件，不要发布 npm，最后报告实际提交、TGZ SHA256 以及双 Pane、Navigator 和快捷键的验证结果。
+> ```
 
 ## 它解决什么问题
 
