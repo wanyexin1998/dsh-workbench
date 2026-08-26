@@ -20,6 +20,10 @@
     "detachedHeadProof": true,
     "cleanWorktreeBeforeRepositoryCode": true,
     "exactHeadEqualityBeforeRepositoryCode": true,
+    "externalPinnedSourcesBeforeExecution": true,
+    "failClosedWorkingDirectory": true,
+    "wholeDocumentExecutableScan": true,
+    "instructionOrderAnchors": true,
     "signedReleaseAvailable": false
   },
   "harness": {

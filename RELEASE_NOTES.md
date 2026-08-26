@@ -22,4 +22,4 @@ Status: source preview. No npm package or automatic installer is published.
 
 The repository is public source, not an official DeepSeek Harness distribution. Forked Harness and Better Sidebar packages retain their original names and must not be republished under upstream package namespaces.
 
-End-user source installation requires a user-approved full Workbench commit and detached HEAD verification before repository code executes. The Workbench TGZ includes the complete MIT notice for its bundled Schemastery and Cosmokit code.
+End-user source installation requires a user-approved full Workbench commit and detached HEAD verification before repository code executes. Pinned Harness and optional Better Sidebar checkouts receive the same error, HEAD, detached, and clean-worktree verification before their instructions run. The Workbench TGZ includes the complete MIT notice for its bundled Schemastery and Cosmokit code.

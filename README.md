@@ -103,7 +103,7 @@ if ($LASTEXITCODE -ne 1) { throw '无法验证 detached HEAD' }
 $WorktreeState = git status --porcelain=v1 --untracked-files=all
 if ($LASTEXITCODE -ne 0) { throw '无法验证 Workbench 工作树' }
 if ($WorktreeState) { throw 'Workbench 工作树不是 clean 状态' }
-# SOURCE-VERIFIED-BEFORE-REPOSITORY-CODE
+# WORKBENCH-SOURCE-VERIFIED-BEFORE-REPOSITORY-CODE
 pnpm install --frozen-lockfile
 pnpm release:check
 ```

@@ -15,6 +15,7 @@ This statement covers the `0.2.0-rc.1` source preview.
 - The project publishes no upstream-named Harness or Better Sidebar npm package.
 - The release bundle contains only the two Workbench TGZ files, SHA256 checksums, and a manifest pointing to pinned source commits.
 - End-user source installation requires a user-approved full Workbench commit, detached checkout, and exact HEAD comparison before any repository code executes.
+- Every executable pinned dependency checkout, including the Harness fork and optional Better Sidebar fork, must pass per-command error checks, exact HEAD comparison, detached-HEAD proof, and clean-worktree verification before its repository instructions run.
 - Every supported bundle invocation requires a committed clean worktree, rebuilds both packages, and scans generated runtime before packing.
 - The Workbench TGZ carries complete MIT notices for bundled Schemastery and Cosmokit code.
 - No automatic installer downloads or modifies third-party packages.

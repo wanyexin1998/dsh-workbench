@@ -40,17 +40,17 @@ function hasSecureSourceFlow(document) {
   const targetAbsent = flow.indexOf("Test-Path -LiteralPath 'dsh-workbench'")
   const clone = flow.indexOf('git clone --no-checkout')
   const cloneExit = flow.indexOf('if ($LASTEXITCODE -ne 0)', clone)
-  const checkout = flow.indexOf('git checkout --detach $WorkbenchCommit')
+  const checkout = flow.indexOf('checkout --detach $WorkbenchCommit')
   const checkoutExit = flow.indexOf('if ($LASTEXITCODE -ne 0)', checkout)
-  const resolveHead = flow.indexOf('git rev-parse --verify HEAD')
+  const resolveHead = flow.indexOf('rev-parse --verify HEAD')
   const resolveExit = flow.indexOf('if ($LASTEXITCODE -ne 0)', resolveHead)
   const compare = flow.indexOf('$ResolvedCommit -ne $WorkbenchCommit')
-  const detached = flow.indexOf('git symbolic-ref -q HEAD')
+  const detached = flow.indexOf('symbolic-ref -q HEAD')
   const detachedCheck = flow.indexOf('if ($LASTEXITCODE -eq 0)', detached)
-  const status = flow.indexOf('git status --porcelain=v1 --untracked-files=all')
+  const status = flow.indexOf('status --porcelain=v1 --untracked-files=all')
   const statusExit = flow.indexOf('if ($LASTEXITCODE -ne 0)', status)
   const cleanCheck = flow.indexOf('if ($WorktreeState)', status)
-  const verified = flow.indexOf('SOURCE-VERIFIED-BEFORE-REPOSITORY-CODE')
+  const verified = flow.indexOf('WORKBENCH-SOURCE-VERIFIED-BEFORE-REPOSITORY-CODE')
   const firstPnpm = flow.indexOf('pnpm install --frozen-lockfile')
   return format >= 0
     && targetAbsent > format
@@ -70,6 +70,74 @@ function hasSecureSourceFlow(document) {
     && firstPnpm > verified
 }
 
+function hasPinnedExternalFlow(document, spec) {
+  const start = document.indexOf(`$${spec.commitVariable} = '${spec.commit}'`)
+  if (start < 0) return false
+  const flow = document.slice(start)
+  const format = flow.indexOf("^[0-9a-f]{40}$")
+  const targetAbsent = flow.indexOf(`Test-Path -LiteralPath '${spec.target}'`)
+  const clone = flow.indexOf(`git clone --no-checkout ${spec.repository}.git ${spec.target}`)
+  const cloneExit = flow.indexOf('if ($LASTEXITCODE -ne 0)', clone)
+  const checkout = flow.indexOf(`checkout --detach $${spec.commitVariable}`)
+  const checkoutExit = flow.indexOf('if ($LASTEXITCODE -ne 0)', checkout)
+  const resolveHead = flow.indexOf('rev-parse --verify HEAD')
+  const resolveExit = flow.indexOf('if ($LASTEXITCODE -ne 0)', resolveHead)
+  const compare = flow.indexOf(`$${spec.resolvedVariable} -ne $${spec.commitVariable}`)
+  const detached = flow.indexOf('symbolic-ref -q HEAD')
+  const detachedCheck = flow.indexOf('if ($LASTEXITCODE -eq 0)', detached)
+  const status = flow.indexOf('status --porcelain=v1 --untracked-files=all')
+  const statusExit = flow.indexOf('if ($LASTEXITCODE -ne 0)', status)
+  const cleanCheck = flow.indexOf(`if ($${spec.worktreeVariable})`, status)
+  const verified = flow.indexOf(spec.marker)
+  const executionDirectory = spec.executionDirectory === undefined
+    ? -1
+    : flow.indexOf(`Push-Location -LiteralPath '${spec.executionDirectory}' -ErrorAction Stop`)
+  const instructionAnchor = spec.instructionAnchor === undefined
+    ? -1
+    : flow.indexOf(spec.instructionAnchor)
+  const firstPnpm = flow.indexOf('pnpm ')
+  return format >= 0
+    && targetAbsent > format
+    && clone > targetAbsent
+    && cloneExit > clone && cloneExit < checkout
+    && checkout > cloneExit
+    && checkoutExit > checkout && checkoutExit < resolveHead
+    && resolveHead > checkoutExit
+    && resolveExit > resolveHead && resolveExit < compare
+    && compare > resolveExit
+    && detached > compare
+    && detachedCheck > detached && detachedCheck < status
+    && status > detachedCheck
+    && statusExit > status && statusExit < cleanCheck
+    && cleanCheck > statusExit
+    && verified > cleanCheck
+    && (!spec.requiresPnpm || (executionDirectory > verified && firstPnpm > executionDirectory))
+    && (spec.instructionAnchor === undefined || instructionAnchor > verified)
+}
+
+function hasNoRepositoryExecutionBefore(document, marker) {
+  const markerIndex = document.indexOf(marker)
+  if (markerIndex < 0) return false
+  const prefix = document.slice(0, markerIndex)
+  let inPowerShell = false
+  for (const rawLine of prefix.split(/\r?\n/u)) {
+    const line = rawLine.trim()
+    if (line === '```powershell') {
+      inPowerShell = true
+      continue
+    }
+    if (line === '```') {
+      inPowerShell = false
+      continue
+    }
+    if (!inPowerShell || line === '' || line.startsWith('#')) continue
+    if (/^(?:pnpm(?:\.cmd)?|npm|node|corepack|pwsh|powershell|dsh|Push-Location|Start-Process|Invoke-Expression|&|\.\s)/u.test(line)) {
+      return false
+    }
+  }
+  return true
+}
+
 check('contract schema version is 3', contract.schemaVersion === 3)
 check('release is explicitly a source preview', contract.releaseStatus === 'source-preview')
 check('root and Workbench versions match the contract',
@@ -87,7 +155,11 @@ check('source verification precedes repository code',
   && contract.sourceVerification?.failOnGitError === true
   && contract.sourceVerification?.detachedHeadProof === true
   && contract.sourceVerification?.cleanWorktreeBeforeRepositoryCode === true
-  && contract.sourceVerification?.exactHeadEqualityBeforeRepositoryCode === true)
+  && contract.sourceVerification?.exactHeadEqualityBeforeRepositoryCode === true
+  && contract.sourceVerification?.externalPinnedSourcesBeforeExecution === true
+  && contract.sourceVerification?.failClosedWorkingDirectory === true
+  && contract.sourceVerification?.wholeDocumentExecutableScan === true
+  && contract.sourceVerification?.instructionOrderAnchors === true)
 check('Workbench guard pins protocol 2', /protocol:\s*2\b/.test(read('packages/dsh-workbench/src/client/contract.ts')))
 check('Workbench guard requests capacity 2', /WORKBENCH_VISIBLE_CAPACITY\s*=\s*2\b/.test(guard))
 
@@ -122,6 +194,36 @@ check('bundle validates required packed files from pnpm JSON',
 check('Chinese README verifies immutable source before pnpm', hasSecureSourceFlow(readme))
 check('English README verifies immutable source before pnpm', hasSecureSourceFlow(readmeEn))
 check('install guide verifies immutable source before pnpm', hasSecureSourceFlow(install))
+check('install guide verifies the pinned Harness before pnpm', hasPinnedExternalFlow(install, {
+  commitVariable: 'HarnessCommit',
+  resolvedVariable: 'ResolvedHarnessCommit',
+  worktreeVariable: 'HarnessWorktreeState',
+  commit: contract.harness.implementationCommit,
+  repository: contract.harness.repository,
+  target: 'deepseek-harness',
+  marker: 'HARNESS-SOURCE-VERIFIED-BEFORE-REPOSITORY-CODE',
+  requiresPnpm: true,
+  executionDirectory: 'deepseek-harness',
+}))
+check('install guide verifies optional Better Sidebar before its instructions', hasPinnedExternalFlow(install, {
+  commitVariable: 'BetterSidebarCommit',
+  resolvedVariable: 'ResolvedBetterSidebarCommit',
+  worktreeVariable: 'BetterSidebarWorktreeState',
+  commit: contract.panelCompatibility.implementationCommit,
+  repository: contract.panelCompatibility.repository,
+  target: 'DSH-better-sidebar',
+  marker: 'BETTER-SIDEBAR-SOURCE-VERIFIED-BEFORE-REPOSITORY-CODE',
+  requiresPnpm: false,
+  instructionAnchor: 'BETTER-SIDEBAR-INSTRUCTIONS-AFTER-SOURCE-VERIFICATION',
+}))
+const firstInstallPnpm = install.indexOf('pnpm ')
+check('complete install guide verifies Workbench and Harness before its first pnpm',
+  install.indexOf('WORKBENCH-SOURCE-VERIFIED-BEFORE-REPOSITORY-CODE') >= 0
+  && install.indexOf('HARNESS-SOURCE-VERIFIED-BEFORE-REPOSITORY-CODE') >= 0
+  && firstInstallPnpm > install.indexOf('WORKBENCH-SOURCE-VERIFIED-BEFORE-REPOSITORY-CODE')
+  && firstInstallPnpm > install.indexOf('HARNESS-SOURCE-VERIFIED-BEFORE-REPOSITORY-CODE'))
+check('complete install guide has no repository execution before source verification',
+  hasNoRepositoryExecutionBefore(install, 'HARNESS-SOURCE-VERIFIED-BEFORE-REPOSITORY-CODE'))
 check('agent install prompt stops without an approved commit',
   /若我未提供则停止/.test(readme) && /stop if I do not provide one/i.test(readmeEn))
 check('contributor workflow distinguishes a trusted baseline',
