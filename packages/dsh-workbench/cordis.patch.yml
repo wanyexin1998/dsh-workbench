@@ -1,0 +1,7 @@
+# @wanyexin1998/dsh-workbench profile overlay — wires the plugin into a DSH
+# web profile. `dsh plugin add` auto-applies it via dsh.bundle.patch.
+# Install: dsh plugin --profile web add @wanyexin1998/dsh-workbench
+# (or file: install from this directory; bundle row id stays dsh-workbench).
+- insert:
+    - id: dsh-workbench
+      name: '@wanyexin1998/dsh-workbench'

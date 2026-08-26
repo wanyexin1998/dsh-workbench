@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 2,
+  "releaseStatus": "source-preview",
+  "workbenchVersion": "0.2.0-rc.1",
+  "presentationProtocol": 2,
+  "maxVisiblePanes": 2,
+  "thirdSessionDisposition": "replace-focused",
+  "repository": {
+    "url": "https://github.com/wanyexin1998/dsh-workbench",
+    "visibility": "public",
+    "githubActions": false
+  },
+  "harness": {
+    "upstreamVersion": "0.1.1-rc.2",
+    "upstreamCommit": "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e",
+    "repository": "https://github.com/wanyexin1998/deepseek-harness",
+    "branch": "codex/presentation-v2",
+    "implementationCommit": "53015a6f39710dac52ed08f05aca0c6bad7444ac",
+    "distribution": "source-only"
+  },
+  "panelCompatibility": {
+    "packageVersion": "0.1.0-rc.1",
+    "provider": "dsh-better-sidebar",
+    "providerVersion": "0.16.1",
+    "paneProtocol": 1,
+    "repository": "https://github.com/wanyexin1998/DSH-better-sidebar",
+    "branch": "feat/pane-scoped-panel-mounts",
+    "implementationCommit": "91e772a09e5f66a14c36036f69adb4d866f06ac3",
+    "distribution": "optional-source-only"
+  },
+  "distribution": {
+    "npmPublished": false,
+    "automaticInstaller": false,
+    "automaticThirdPartyInstall": false,
+    "artifacts": [
+      "@wanyexin1998/dsh-workbench",
+      "@wanyexin1998/dsh-workbench-panel-compat"
+    ]
+  }
+}

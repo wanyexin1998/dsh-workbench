@@ -1,0 +1,79 @@
+{
+  "name": "@wanyexin1998/dsh-workbench-panel-compat",
+  "version": "0.1.0-rc.1",
+  "description": "Pane-scoped compatibility adapters for DSH Workbench panel plugins",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wanyexin1998/dsh-workbench.git",
+    "directory": "packages/dsh-workbench-panel-compat"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "build": "npm run build:clean && tsdown && npm run build:types",
+    "build:clean": "node --eval \"import { rmSync } from 'node:fs'; rmSync('lib', { recursive: true, force: true })\"",
+    "build:types": "tsc -p tsconfig.types.json",
+    "pretest": "npm run build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-client-runtime": "0.1.1-rc.2",
+    "@wanyexin1998/dsh-workbench": ">=0.2.0-rc.1 <0.3.0",
+    "dsh-better-sidebar": "0.16.1"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": { "optional": true },
+    "@deepseek-ai/dsh-client-runtime": { "optional": true },
+    "@wanyexin1998/dsh-workbench": { "optional": true },
+    "dsh-better-sidebar": { "optional": true }
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-client-runtime": "0.1.1-rc.2",
+    "@wanyexin1998/dsh-workbench": "workspace:*",
+    "@types/react": "~18.3.1",
+    "jsdom": "^29.1.1",
+    "react": "^18.3.1",
+    "tsdown": "^0.22.2",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.8"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "lib/types/**/*.d.ts",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ]
+}
