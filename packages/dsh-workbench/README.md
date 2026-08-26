@@ -15,7 +15,7 @@ pnpm --filter @wanyexin1998/dsh-workbench test
 pnpm --filter @wanyexin1998/dsh-workbench build
 ```
 
-Use the repository root `pnpm bundle` command to create an installable local TGZ with SHA256 metadata. The package is marked private to prevent accidental npm publication.
+Use the repository root `pnpm bundle` command to rebuild from a committed clean worktree, scan generated runtime, and create an installable local TGZ with SHA256 metadata. The package is marked private to prevent accidental npm publication.
 
 ## Behavior
 

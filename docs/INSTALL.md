@@ -26,6 +26,8 @@ pnpm release:check
 
 The two TGZ files and `SHA256SUMS` are written under `dist/`.
 
+The bundle step requires a committed clean worktree, rebuilds both packages, scans generated runtime, and records that source commit in `release-manifest.json` before packing.
+
 Install the Workbench TGZ into the Web profile:
 
 ```powershell

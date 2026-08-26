@@ -9,8 +9,6 @@ const commands = [
   { display: 'node scripts/release-contract-check.mjs', command: 'node', args: ['scripts/release-contract-check.mjs'] },
   { display: 'pnpm typecheck', command: pnpmCommand, args: pnpmArgs(['typecheck']) },
   { display: 'pnpm test', command: pnpmCommand, args: pnpmArgs(['test']) },
-  { display: 'pnpm build', command: pnpmCommand, args: pnpmArgs(['build']) },
-  { display: 'node scripts/scan-secrets.mjs --include-build', command: 'node', args: ['scripts/scan-secrets.mjs', '--include-build'] },
   { display: 'pnpm audit --audit-level=low', command: pnpmCommand, args: pnpmArgs(['audit', '--audit-level=low']) },
   { display: 'node scripts/build-release-bundle.mjs', command: 'node', args: ['scripts/build-release-bundle.mjs'] },
 ]

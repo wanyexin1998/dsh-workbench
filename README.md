@@ -33,7 +33,7 @@ pnpm install --frozen-lockfile
 pnpm release:check
 ```
 
-`release:check` runs the local privacy/secret scan, release-contract verification, typechecks, 185 tests, builds, dependency audit, TGZ packing, and SHA256 manifest generation. It performs no publication.
+`release:check` runs the local privacy/secret scan, release-contract verification, typechecks, 185 tests, dependency audit, a clean rebuild, generated-runtime scan, TGZ packing, and SHA256 manifest generation. The bundle builder itself always rebuilds and scans generated runtime before packing. It performs no publication.
 
 ## Installation
 

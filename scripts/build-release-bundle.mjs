@@ -8,10 +8,21 @@ const root = resolve(import.meta.dirname, '..')
 const output = join(root, 'dist')
 const pnpmEntry = process.env.npm_execpath
 const pnpmCommand = pnpmEntry === undefined ? (process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm') : process.execPath
+const pnpmArgs = args => pnpmEntry === undefined ? args : [pnpmEntry, ...args]
 const packages = [
   'packages/dsh-workbench',
   'packages/dsh-workbench-panel-compat',
 ]
+
+function run(command, args, shell = false) {
+  const result = spawnSync(command, args, {
+    cwd: root,
+    stdio: 'inherit',
+    shell,
+  })
+  if (result.error !== undefined) throw result.error
+  if (result.status !== 0) process.exit(result.status ?? 1)
+}
 
 const sourceRevision = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], {
   cwd: root,
@@ -27,18 +38,15 @@ const sourceStatus = spawnSync('git', ['status', '--porcelain', '--untracked-fil
 if (sourceStatus.status !== 0) throw new Error('unable to verify Git source state')
 if (sourceStatus.stdout.trim() !== '') throw new Error('release bundle requires a clean Git worktree')
 
+run(pnpmCommand, pnpmArgs(['build']), pnpmEntry === undefined && process.platform === 'win32')
+run(process.execPath, ['scripts/scan-secrets.mjs', '--include-build'])
+
 rmSync(output, { recursive: true, force: true })
 mkdirSync(output, { recursive: true })
 
 for (const packagePath of packages) {
   const args = ['--dir', packagePath, 'pack', '--pack-destination', output]
-  const result = spawnSync(pnpmCommand, pnpmEntry === undefined ? args : [pnpmEntry, ...args], {
-    cwd: root,
-    stdio: 'inherit',
-    shell: pnpmEntry === undefined && process.platform === 'win32',
-  })
-  if (result.error !== undefined) throw result.error
-  if (result.status !== 0) process.exit(result.status ?? 1)
+  run(pnpmCommand, pnpmArgs(args), pnpmEntry === undefined && process.platform === 'win32')
 }
 
 const contract = JSON.parse(readFileSync(join(root, 'release-contract.json'), 'utf8'))

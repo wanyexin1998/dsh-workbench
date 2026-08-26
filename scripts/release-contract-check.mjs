@@ -21,6 +21,10 @@ const panelCompat = json('packages/dsh-workbench-panel-compat/package.json')
 const guard = read('packages/dsh-workbench/src/client/guard.ts')
 const readme = read('README.md')
 const install = read('docs/INSTALL.md')
+const bundle = read('scripts/build-release-bundle.mjs')
+const bundleBuild = bundle.indexOf("pnpmArgs(['build'])")
+const bundleScan = bundle.indexOf("['scripts/scan-secrets.mjs', '--include-build']")
+const bundlePack = bundle.indexOf("'pack', '--pack-destination'")
 
 check('contract schema version is 2', contract.schemaVersion === 2)
 check('release is explicitly a source preview', contract.releaseStatus === 'source-preview')
@@ -52,6 +56,8 @@ check('third-party auto-install is disabled', contract.distribution?.automaticTh
 check('both source packages are private against accidental publish', workbench.private === true && panelCompat.private === true)
 check('GitHub Actions are disabled by contract', contract.repository?.githubActions === false)
 check('repository contains no workflow files', !existsSync(join(root, '.github', 'workflows')))
+check('bundle rebuilds and scans generated runtime before packing',
+  bundleBuild >= 0 && bundleScan > bundleBuild && bundlePack > bundleScan)
 
 check('README states source-preview status', /source preview|源码预览/i.test(readme))
 check('README states protocol 2', /protocol 2/i.test(readme))

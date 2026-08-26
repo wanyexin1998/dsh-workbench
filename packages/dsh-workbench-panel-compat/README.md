@@ -17,4 +17,4 @@ Stock Better Sidebar 0.16.1 has no multi-instance Pane capability. In that confi
 - Both Panes may show independent right and bottom panels simultaneously.
 - Provider attach failures are contained per Pane.
 
-The package is marked private to prevent accidental npm publication; build a local TGZ through the repository root `pnpm bundle` command.
+The package is marked private to prevent accidental npm publication; the repository root `pnpm bundle` command rebuilds and scans generated runtime before creating a local TGZ.

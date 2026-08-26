@@ -14,6 +14,7 @@ This statement covers the `0.2.0-rc.1` source preview.
 - Both local package manifests are `private: true` to prevent accidental npm publication.
 - The project publishes no upstream-named Harness or Better Sidebar npm package.
 - The release bundle contains only the two Workbench TGZ files, SHA256 checksums, and a manifest pointing to pinned source commits.
+- Every supported bundle invocation requires a committed clean worktree, rebuilds both packages, and scans generated runtime before packing.
 - No automatic installer downloads or modifies third-party packages.
 - GitHub Actions are disabled; local gates are authoritative.
 
