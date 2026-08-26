@@ -8,6 +8,7 @@ Contributions are welcome in this independent downstream project.
 2. Keep the two-Pane limit and `visible + focused` state model.
 3. Do not copy Harness Conversation code or patch private third-party DOM/store state.
 4. Do not add npm publication, automatic third-party installation, or GitHub Actions without a maintainer decision.
+5. Establish a trusted baseline through the full-commit detached-checkout flow in `docs/INSTALL.md` before executing a newly cloned or third-party checkout. Create your development branch from that baseline and inspect proposed diffs before running contributor code.
 
 ## Verify locally
 
@@ -17,6 +18,8 @@ pnpm release:check
 ```
 
 GitHub Actions are disabled. Include the command, exit code, Node/pnpm versions, and relevant test totals in the pull request description.
+
+The commands above are for source you authored or reviewed on top of a trusted baseline. They are not a substitute for the end-user source-verification flow.
 
 ## Security and privacy
 

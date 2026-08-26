@@ -7,4 +7,5 @@
 - Open Beside applies to listed Sessions, not addressed subagent children.
 - Better Sidebar Pane support requires the optional pinned fork. Unknown global overlays are never moved by DOM heuristics.
 - No automatic installer or npm release exists. Users must build and verify local TGZ artifacts.
+- No signed Workbench release is published. Users must obtain and approve a full 40-character Workbench commit through an independent trusted channel before source installation.
 - GitHub Actions are disabled. Maintainers and contributors must attach local `pnpm release:check` evidence to changes.

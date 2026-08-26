@@ -13,7 +13,7 @@ Status: source preview. No npm package or automatic installer is published.
 
 ## Verified
 
-- Workbench: 178 tests, typecheck, build, and TGZ pack.
+- Workbench: 180 tests, typecheck, build, and TGZ pack.
 - Panel Compatibility: 7 tests, typecheck, build, and TGZ pack.
 - Harness fork: 748 focused tests and 5 capacity-2 assembled Web snapshot tests.
 - Dependency audit: no known vulnerabilities in the two distributed source packages at verification time.
@@ -21,3 +21,5 @@ Status: source preview. No npm package or automatic installer is published.
 ## Distribution boundary
 
 The repository is public source, not an official DeepSeek Harness distribution. Forked Harness and Better Sidebar packages retain their original names and must not be republished under upstream package namespaces.
+
+End-user source installation requires a user-approved full Workbench commit and detached HEAD verification before repository code executes. The Workbench TGZ includes the complete MIT notice for its bundled Schemastery and Cosmokit code.

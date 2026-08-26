@@ -12,6 +12,8 @@ DSH Workbench is an independent source-preview plugin for DeepSeek Harness Web.
 
 ## Commands
 
+Do not run repository commands from a newly cloned or third-party checkout until the user-approved full-commit detached-checkout flow in `docs/INSTALL.md` has succeeded. During development, run them only for source you authored or reviewed on top of that trusted baseline.
+
 ```powershell
 pnpm install --frozen-lockfile
 pnpm release:check

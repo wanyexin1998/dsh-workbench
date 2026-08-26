@@ -25,7 +25,7 @@
 > **One-line install prompt: send the complete sentence below to DeepSeek Harness**
 >
 > ```text
-> Install DSH Workbench from https://github.com/wanyexin1998/dsh-workbench: first read README.md, docs/INSTALL.md, and release-contract.json, confirm that the current Harness matches the pinned Session Presentation protocol 2 implementation, and stop with an explanation if it does not; run pnpm install --frozen-lockfile and pnpm release:check, then install the generated Workbench TGZ into the web profile; install Panel Compatibility only when a compatible Better Sidebar fork is already present, never install or replace a third-party plugin automatically, never publish to npm, and finally report the actual commits, TGZ SHA256 values, and verification results for Split Pane, Navigator, and shortcuts.
+> Install DSH Workbench from https://github.com/wanyexin1998/dsh-workbench: first ask me for a full 40-character Workbench commit obtained from an independent trusted channel and stop if I do not provide one; require a nonexistent target directory, use git clone --no-checkout and checkout --detach that commit, stop after every failed Git command, and verify detached HEAD, a completely clean worktree, and case-insensitive exact equality between git rev-parse --verify HEAD and the supplied commit; only after every check succeeds may you read executable repository instructions and run pnpm install --frozen-lockfile and pnpm release:check, then install the generated Workbench TGZ into the web profile; install Panel Compatibility only when a compatible Better Sidebar fork is already present, never install or replace a third-party plugin automatically, never publish to npm, and finally report the actual commits, TGZ SHA256 values, and verification results for Split Pane, Navigator, and shortcuts.
 > ```
 
 ## What it solves
@@ -82,9 +82,28 @@ Workbench Split Pane, Navigator, and shortcuts work without Better Sidebar. When
 
 ### Build and verify Workbench
 
+Obtain and approve a full 40-character Workbench commit through an independent trusted channel. Do not treat a branch, short SHA, ordinary tag, or mutable repository prose as the trust anchor.
+
 ```powershell
-git clone https://github.com/wanyexin1998/dsh-workbench.git
+$WorkbenchCommit = Read-Host 'Enter the full 40-character Workbench commit approved through a trusted channel'
+if ($WorkbenchCommit -notmatch '^[0-9a-fA-F]{40}$') { throw 'Workbench commit must be a full 40-character hexadecimal value' }
+$WorkbenchCommit = $WorkbenchCommit.ToLowerInvariant()
+if (Test-Path -LiteralPath 'dsh-workbench') { throw 'Target directory dsh-workbench already exists; retry from an empty directory' }
+git clone --no-checkout https://github.com/wanyexin1998/dsh-workbench.git
+if ($LASTEXITCODE -ne 0) { throw 'Failed to clone Workbench' }
 cd dsh-workbench
+git checkout --detach $WorkbenchCommit
+if ($LASTEXITCODE -ne 0) { throw 'Failed to check out the Workbench commit' }
+$ResolvedCommit = (git rev-parse --verify HEAD).Trim().ToLowerInvariant()
+if ($LASTEXITCODE -ne 0) { throw 'Failed to resolve Workbench HEAD' }
+if ($ResolvedCommit -ne $WorkbenchCommit) { throw "Workbench commit mismatch: expected $WorkbenchCommit, got $ResolvedCommit" }
+$HeadRef = git symbolic-ref -q HEAD
+if ($LASTEXITCODE -eq 0) { throw "Workbench must use detached HEAD, currently $HeadRef" }
+if ($LASTEXITCODE -ne 1) { throw 'Failed to verify detached HEAD' }
+$WorktreeState = git status --porcelain=v1 --untracked-files=all
+if ($LASTEXITCODE -ne 0) { throw 'Failed to verify the Workbench worktree' }
+if ($WorktreeState) { throw 'Workbench worktree is not clean' }
+# SOURCE-VERIFIED-BEFORE-REPOSITORY-CODE
 pnpm install --frozen-lockfile
 pnpm release:check
 ```
@@ -96,7 +115,7 @@ Successful verification writes these files under `dist/`:
 - `release-manifest.json`
 - `SHA256SUMS`
 
-`release:check` performs privacy and secret scans, release-contract validation, typechecks, 185 tests, dependency audit, a clean rebuild, generated-runtime scanning, TGZ packing, and SHA256 verification. It does not publish to npm.
+`release:check` performs privacy and secret scans, release-contract validation, typechecks, 187 tests, dependency audit, a clean rebuild, generated-runtime scanning, TGZ packing, and SHA256 verification. It does not publish to npm.
 
 > See [`docs/INSTALL.md`](docs/INSTALL.md) for the complete Harness build, installation order, and optional panel setup.
 

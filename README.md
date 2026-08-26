@@ -25,7 +25,7 @@
 > **一句话安装：复制下面整句发给 DeepSeek Harness**
 >
 > ```text
-> 请从 https://github.com/wanyexin1998/dsh-workbench 安装 DSH Workbench：先读取 README.md、docs/INSTALL.md 和 release-contract.json，确认当前 Harness 与固定的 Session Presentation protocol 2 提交兼容，不兼容就停止并说明；执行 pnpm install --frozen-lockfile 和 pnpm release:check，将生成的 Workbench TGZ 安装到 web profile；仅当我已安装兼容的 Better Sidebar fork 时再安装 Panel Compatibility，不要自动安装或替换第三方插件，不要发布 npm，最后报告实际提交、TGZ SHA256 以及双 Pane、Navigator 和快捷键的验证结果。
+> 请从 https://github.com/wanyexin1998/dsh-workbench 安装 DSH Workbench：首先向我索取并确认一个从独立可信渠道获得的完整 40 位 Workbench commit，若我未提供则停止；要求目标目录不存在，使用 git clone --no-checkout 后 checkout --detach 该提交，每个 Git 命令失败都立即停止，并验证 detached HEAD、完整 clean worktree 以及 git rev-parse --verify HEAD 与输入提交的大小写无关精确相等；只有全部验证成功后才读取仓库中的执行性说明并运行 pnpm install --frozen-lockfile 和 pnpm release:check，将生成的 Workbench TGZ 安装到 web profile；仅当我已安装兼容的 Better Sidebar fork 时再安装 Panel Compatibility，不要自动安装或替换第三方插件，不要发布 npm，最后报告实际提交、TGZ SHA256 以及双 Pane、Navigator 和快捷键的验证结果。
 > ```
 
 ## 它解决什么问题
@@ -82,9 +82,28 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 
 ### 构建并验证 Workbench
 
+先从独立可信渠道获得并人工确认完整的 40 位 Workbench commit。不要把当前分支、短 SHA、普通 tag 或仓库自身的可变文档当作信任锚。
+
 ```powershell
-git clone https://github.com/wanyexin1998/dsh-workbench.git
+$WorkbenchCommit = Read-Host '输入已从独立可信渠道确认的完整 40 位 Workbench commit'
+if ($WorkbenchCommit -notmatch '^[0-9a-fA-F]{40}$') { throw 'Workbench commit 必须是完整的 40 位十六进制值' }
+$WorkbenchCommit = $WorkbenchCommit.ToLowerInvariant()
+if (Test-Path -LiteralPath 'dsh-workbench') { throw '目标目录 dsh-workbench 已存在；为避免执行旧工作树，请使用空目录重试' }
+git clone --no-checkout https://github.com/wanyexin1998/dsh-workbench.git
+if ($LASTEXITCODE -ne 0) { throw '克隆 Workbench 失败' }
 cd dsh-workbench
+git checkout --detach $WorkbenchCommit
+if ($LASTEXITCODE -ne 0) { throw '检出 Workbench commit 失败' }
+$ResolvedCommit = (git rev-parse --verify HEAD).Trim().ToLowerInvariant()
+if ($LASTEXITCODE -ne 0) { throw '无法解析 Workbench HEAD' }
+if ($ResolvedCommit -ne $WorkbenchCommit) { throw "Workbench commit 不匹配：期望 $WorkbenchCommit，实际 $ResolvedCommit" }
+$HeadRef = git symbolic-ref -q HEAD
+if ($LASTEXITCODE -eq 0) { throw "Workbench 必须处于 detached HEAD，当前为 $HeadRef" }
+if ($LASTEXITCODE -ne 1) { throw '无法验证 detached HEAD' }
+$WorktreeState = git status --porcelain=v1 --untracked-files=all
+if ($LASTEXITCODE -ne 0) { throw '无法验证 Workbench 工作树' }
+if ($WorktreeState) { throw 'Workbench 工作树不是 clean 状态' }
+# SOURCE-VERIFIED-BEFORE-REPOSITORY-CODE
 pnpm install --frozen-lockfile
 pnpm release:check
 ```
@@ -96,7 +115,7 @@ pnpm release:check
 - `release-manifest.json`
 - `SHA256SUMS`
 
-`release:check` 会执行隐私/密钥扫描、发布契约校验、类型检查、185 项测试、依赖审计、干净重建、生成代码扫描、TGZ 打包和 SHA256 校验，不会执行 npm 发布。
+`release:check` 会执行隐私/密钥扫描、发布契约校验、类型检查、187 项测试、依赖审计、干净重建、生成代码扫描、TGZ 打包和 SHA256 校验，不会执行 npm 发布。
 
 > 完整安装顺序、Harness fork 构建方式和可选面板接入步骤见 [`docs/INSTALL.md`](docs/INSTALL.md)。
 

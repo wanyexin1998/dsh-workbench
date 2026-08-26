@@ -17,9 +17,28 @@ Do not publish the resulting `@deepseek-ai/*` packages. They retain upstream nam
 
 ## 2. Build Workbench artifacts
 
+Before cloning, obtain and approve a full 40-character Workbench commit through an independent trusted channel. A branch, short SHA, ordinary tag, or repository-controlled document is not an independent trust anchor.
+
 ```powershell
-git clone https://github.com/wanyexin1998/dsh-workbench.git
+$WorkbenchCommit = Read-Host 'Enter the full 40-character Workbench commit approved through a trusted channel'
+if ($WorkbenchCommit -notmatch '^[0-9a-fA-F]{40}$') { throw 'Workbench commit must be a full 40-character hexadecimal value' }
+$WorkbenchCommit = $WorkbenchCommit.ToLowerInvariant()
+if (Test-Path -LiteralPath 'dsh-workbench') { throw 'Target directory dsh-workbench already exists; retry from an empty directory' }
+git clone --no-checkout https://github.com/wanyexin1998/dsh-workbench.git
+if ($LASTEXITCODE -ne 0) { throw 'Failed to clone Workbench' }
 cd dsh-workbench
+git checkout --detach $WorkbenchCommit
+if ($LASTEXITCODE -ne 0) { throw 'Failed to check out the Workbench commit' }
+$ResolvedCommit = (git rev-parse --verify HEAD).Trim().ToLowerInvariant()
+if ($LASTEXITCODE -ne 0) { throw 'Failed to resolve Workbench HEAD' }
+if ($ResolvedCommit -ne $WorkbenchCommit) { throw "Workbench commit mismatch: expected $WorkbenchCommit, got $ResolvedCommit" }
+$HeadRef = git symbolic-ref -q HEAD
+if ($LASTEXITCODE -eq 0) { throw "Workbench must use detached HEAD, currently $HeadRef" }
+if ($LASTEXITCODE -ne 1) { throw 'Failed to verify detached HEAD' }
+$WorktreeState = git status --porcelain=v1 --untracked-files=all
+if ($LASTEXITCODE -ne 0) { throw 'Failed to verify the Workbench worktree' }
+if ($WorktreeState) { throw 'Workbench worktree is not clean' }
+# SOURCE-VERIFIED-BEFORE-REPOSITORY-CODE
 pnpm install --frozen-lockfile
 pnpm release:check
 ```

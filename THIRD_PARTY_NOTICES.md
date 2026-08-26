@@ -6,9 +6,11 @@ DSH Workbench is independently maintained and interoperates with the following M
 - DSH Better Sidebar — <https://github.com/omdsh-dev/DSH-better-sidebar>
 - Cordis — <https://github.com/cordiverse/cordis>
 - React — <https://github.com/facebook/react>
+- Schemastery — bundled version `3.18.1`, Copyright (c) 2021-present Shigma
+- Cosmokit — bundled version `1.8.2`, Copyright (c) 2021-present Shigma
 
 This repository does not include the DeepSeek Harness or Better Sidebar source trees. Their downstream forks retain their original license and attribution files.
 
 The whale mark shown in the README banner is reproduced from the official DeepSeek Harness `apps/web/public/favicon.svg` asset solely to identify compatibility. The DeepSeek name and mark remain the property of their respective rights holder; their use does not imply sponsorship or endorsement.
 
-Package-level dependency licenses remain available from each dependency's package metadata and installed license files. The local release bundle contains only Workbench-owned packages.
+The Workbench Host artifact embeds Schemastery and Cosmokit code. Their complete shared MIT copyright and license text ships inside the Workbench TGZ as `THIRD_PARTY_NOTICES.md`. Other package-level dependency licenses remain available from each dependency's metadata and installed license files.
