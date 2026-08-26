@@ -36,6 +36,24 @@ DeepSeek Harness normally drives the interface from one current Session. DSH Wor
 | Pane-local panels | Optional compatibility package gives each Pane independent right and bottom panels |
 | Safe degradation | Split Pane capacity is not enabled when Presentation protocol is incompatible |
 
+## Product screenshots
+
+### Two Session Panes
+
+<p align="center">
+  <img src="docs/assets/dsh-workbench-split-pane.png" width="100%" alt="DSH Workbench light-mode split view with the wyx_code and data-warehouse Sessions open in independent Panes">
+</p>
+
+Each Session owns its title, workspace, mode, composer, and Pane-panel controls. The center split preserves independent SessionProvider lifecycles.
+
+### Shortcuts following the global locale
+
+<p align="center">
+  <img src="docs/assets/dsh-workbench-shortcuts.png" width="100%" alt="DSH Workbench shortcuts settings showing localized actions for Navigator, composer, sidebar, stop Session, and close Pane">
+</p>
+
+Shortcut labels follow the Harness global language. Conflicts, browser-reserved keys, and persistence state remain explicit in Settings.
+
 ## Compatibility at a glance
 
 | Component | Required | Supported baseline | Notes |
@@ -153,5 +171,7 @@ Workbench relies on Session Presentation `protocol 2`, stable `visible` / `focus
 ## Project status
 
 DSH Workbench is an independent, community-maintained project. It is not an official DeepSeek project and is not endorsed by DeepSeek or the Better Sidebar maintainers.
+
+The whale mark in the banner is sourced from an official DeepSeek Harness asset and is used only to identify compatibility. Rights in the DeepSeek name and mark remain with their respective owner.
 
 Licensed under the [MIT License](LICENSE). See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for third-party attribution.

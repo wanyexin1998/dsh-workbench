@@ -36,6 +36,24 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 | Pane-local 面板 | 安装兼容包后，每个 Pane 可独立展开右侧、底部面板 |
 | 安全降级 | Presentation protocol 不兼容时不启用双 Pane 容量 |
 
+## 界面预览
+
+### 双 Session Pane
+
+<p align="center">
+  <img src="docs/assets/dsh-workbench-split-pane.png" width="100%" alt="DSH Workbench 浅色模式双 Pane 界面，分别打开 wyx_code 与 data-warehouse Session">
+</p>
+
+两个 Session 使用独立的标题、工作区、模式、输入框和 Pane 面板控制；中央分隔线保持各自的 SessionProvider 生命周期。
+
+### 跟随全局语言的快捷键设置
+
+<p align="center">
+  <img src="docs/assets/dsh-workbench-shortcuts.png" width="100%" alt="DSH Workbench 快捷键设置页面，使用简体中文名称展示 Navigator、输入框、侧边栏、停止会话与关闭 Pane 操作">
+</p>
+
+快捷键名称跟随 Harness 全局语言切换；冲突、浏览器保留键和持久化状态会在设置界面中明确显示。
+
 ## 兼容性一览
 
 | 组件 | 是否必需 | 当前支持 | 说明 |
@@ -153,5 +171,7 @@ docs/
 ## 项目声明
 
 DSH Workbench 是独立的社区维护项目，不是 DeepSeek 官方项目，也不代表 DeepSeek 或 Better Sidebar 维护者的认可。
+
+Banner 中的鲸鱼标识取自 DeepSeek Harness 官方资源，仅用于说明产品兼容关系；DeepSeek 名称与标识的相关权利归其权利人所有。
 
 本项目使用 [MIT License](LICENSE)。第三方归属与说明见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
