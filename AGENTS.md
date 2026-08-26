@@ -26,4 +26,4 @@ Run package-focused tests while developing; run `pnpm release:check` before any 
 - Focus changes never open, close, mount, or unmount Pane panels.
 - Workbench adds no Host filesystem, subprocess, credential, or arbitrary network permission.
 - Never commit credentials, private Session content, proprietary paths, personal machine paths, or company identity data.
-- Keep all comments and public docs in English unless a localized product dictionary is the subject.
+- Keep comments and public docs in English, except that `README.md` is the default Simplified Chinese landing page, `README_EN.md` is its English counterpart, and localized product dictionaries contain their target language.
