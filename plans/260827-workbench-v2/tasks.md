@@ -174,7 +174,16 @@ rc.1→rc.2 与脚本内 `WORKBENCH_TGZ_SHA256` 盖章、§1 命令英文变体�
 | W3.1 `workbench.actions` 服务 | actions protocol 1：`{id, label(), run(), isEnabled?()}`，版本化、fail closed | 契约测试 + 与 W1 目录集成 | M |
 | W3.2 文档与示例 | 第三方插件接入文档（双语）+ 最小示例插件 | 示例插件注册的动作出现在设置页并可绑定 | S |
 
-### W4 首个 pinned 适配器——**已再定界**（2026-08-28）
+### W4 首个 pinned 适配器——**已再定界并完成**（2026-08-28）
+
+**完成记录**：fork 分支 `feat/workbench-actions-consumer`（本地 commit `1685770`，**push 待授权**）：
+client 半侧可选注入 `workbenchActions`，注册 `better-sidebar.toggle-panel` /
+`toggle-bottom-panel`（复用自身 store reducer 与 tooltip locale key），缺席/协议
+不符降级为 no-op，部分注册失败先回收再抛出；12 项 spec 全绿，Opus 验收（fork 侧
+一轮即批，跨仓契约比对无 drift）。Workbench 侧 `actionsProtocol: 1` 已入
+release-contract（语义：本配对**面向**的协议版本；pin 待 fork 分支发布后一并推进）。
+**合并门**：fork 分支 push 授权 + 真实客户端冒烟（Workbench + Sidebar 同装，
+设置页出现 better-sidebar 分组、绑键可收放面板）。
 
 可行性调研（reports/W4-better-sidebar-feasibility.md）：pinned fork 无公开开关动词
 （`panes` capability 只有 `mountPane`，真正的 `togglePanel` 是私有 reducer），也未注
