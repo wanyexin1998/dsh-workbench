@@ -249,11 +249,101 @@ test('validateDisclosure rejects an otherwise-compliant text carrying an ambiguo
   assert.ok(result.failures.some(failure => failure.includes('ambiguous')))
 })
 
+// P1 regression test: "不会对 Harness 做任何改动" is the natural, REQUIRED way
+// to phrase requirement 3's own zero-modification statement (it is in fact
+// tasks.md §1's own sample text, worded as "不会改动官方安装..."). A naive
+// "对 Harness 做...改动" pattern with no negation guard used to false-positive
+// on this — flagging the very statement requirement 3 mandates as the
+// ambiguous claim it exists to forbid. It must PASS validation.
+test('validateDisclosure does NOT flag "不会对 Harness 做任何改动" as the ambiguous modification phrase (negation-guarded false-positive fix)', () => {
+  const withNegatedPhrase = `${compliantDisclosure}\n\n本次安装不会对 Harness 做任何改动。`
+  const result = validateDisclosure(withNegatedPhrase)
+  assert.deepEqual(result.failures, [])
+  assert.equal(result.valid, true)
+})
+
+// S7 regression: "不得不" ("had no choice but to") is a double negative, not
+// a real negation -- "不得不对 Harness 做了一些改动" actually ADMITS a
+// modification happened. The pre-S7 regex only checked whether a bare "不"
+// sat immediately before "对", so it treated this exactly like a real
+// negation (e.g. "不会对...") and let the claim through unflagged. It must
+// be FLAGGED (i.e. fail validation with an "ambiguous" failure), not pass.
+test('validateDisclosure DOES flag "不得不对 Harness 做了一些改动" (不得不 double-negative) as the ambiguous modification phrase, unlike a real negation (S7 false-accept fix)', () => {
+  const withDoubleNegative = `${compliantDisclosure}\n\n本次安装不得不对 Harness 做了一些改动。`
+  const validation = validateDisclosure(withDoubleNegative)
+  assert.equal(validation.valid, false)
+  assert.ok(validation.failures.some(failure => failure.includes('ambiguous')), `expected an "ambiguous" failure, got: ${JSON.stringify(validation.failures)}`)
+})
+
+// S7 regression, other side of the fix: plain 不会/没有 negations, and a bare
+// "不" that is NOT part of "不得不", must still be accepted exactly as
+// before -- the (?<!不得) exclusion must not over-reach and start rejecting
+// ordinary negated statements.
+test('validateDisclosure still accepts plain 不会/没有/bare-不 negations after the S7 不得不 fix (no over-reach)', () => {
+  for (const negatedPhrase of ['本次安装不会对 Harness 做任何改动。', '本次安装没有对 Harness 做任何改动。', '本次安装不对 Harness 做任何改动。']) {
+    const text = `${compliantDisclosure}\n\n${negatedPhrase}`
+    const validation = validateDisclosure(text)
+    assert.deepEqual(validation.failures, [], `expected no failures for "${negatedPhrase}", got: ${JSON.stringify(validation.failures)}`)
+    assert.equal(validation.valid, true)
+  }
+})
+
 test('validateDisclosure rejects text missing only the 并存 (coexistence) conjunct of requirement 3, even with the zero-changes conjunct present', () => {
   const missingBingcunOnly = compliantDisclosure.replace('与你的官方版并存——', '与你的官方版——')
   const result = validateDisclosure(missingBingcunOnly)
   assert.equal(result.valid, false)
   assert.ok(result.failures.some(failure => failure.includes('requirement 3')))
+})
+
+// P2 isolating test 1: removes ONLY requirement 3's zero-change conjunct
+// (零改动|不会改动|不改动|不会修改|不改写), keeping 并存 and 官方 intact. This
+// is distinct from the "missing coexistence" test above, which drops 并存
+// itself — if statesCoexistence's middle conjunct were ever dropped from the
+// implementation, that test would still fail correctly (par 并存 is gone
+// too), silently hiding the regression. This test isolates the conjunct so a
+// dropped zero-change check is caught on its own.
+test('validateDisclosure rejects text missing ONLY requirement 3\'s zero-change conjunct (并存 and 官方 both remain)', () => {
+  const missingZeroChangeConjunct = compliantDisclosure.replace(
+    '不会改动官方安装、配置或任何会话数据',
+    '对官方安装、配置或任何会话数据没有影响',
+  )
+  assert.ok(missingZeroChangeConjunct.includes('并存'), 'test setup: 并存 must remain present')
+  assert.ok(missingZeroChangeConjunct.includes('官方'), 'test setup: 官方 must remain present')
+  assert.ok(!/(零改动|不会改动|不改动|不会修改|不改写)/u.test(missingZeroChangeConjunct), 'test setup: no zero-change phrase may remain anywhere')
+  const result = validateDisclosure(missingZeroChangeConjunct)
+  assert.equal(result.valid, false)
+  assert.ok(result.failures.some(failure => failure.includes('requirement 3')))
+})
+
+// P2 isolating test 2: removes ONLY requirement 4's 删除 conjunct, keeping a
+// 无残留/不受任何影响 phrase intact. The existing "missing requirement 4" test
+// above removes 删除 AND 不受任何影响 together, so it would still catch a
+// mutation that drops only the 删除 check (the remaining conjunct alone
+// already fails on that text). This test isolates 删除 specifically.
+test('validateDisclosure rejects text missing ONLY requirement 4\'s 删除 conjunct (不受任何影响 remains)', () => {
+  const missingDeleteConjunct = compliantDisclosure.replace('删除该目录即可，', '')
+  assert.ok(!missingDeleteConjunct.includes('删除'), 'test setup: 删除 must not appear anywhere in the sample')
+  assert.ok(missingDeleteConjunct.includes('不受任何影响'), 'test setup: 不受任何影响 must remain present')
+  const result = validateDisclosure(missingDeleteConjunct)
+  assert.equal(result.valid, false)
+  assert.ok(result.failures.some(failure => failure.includes('requirement 4')))
+})
+
+// P2 isolating test 3: guards against re-adding the loose bare "不受影响"
+// alternative to requirement 4 (it was deliberately excluded — see the
+// comment above statesRemovable in result.mjs — because requirement 2 also
+// uses bare "不受影响", so accepting it here would let requirement 4 pass
+// purely on requirement 2's sentence). This sample satisfies 删除 and has
+// only the loose "不受影响" (no "任何"), so it must keep failing requirement 4
+// under the current, stricter implementation.
+test('validateDisclosure rejects a sample that would only pass requirement 4 via the loose bare "不受影响" alternative', () => {
+  const looseAlternativeOnly = compliantDisclosure.replace('官方 Harness 不受任何影响', '官方 Harness 不受影响')
+  assert.ok(looseAlternativeOnly.includes('删除'), 'test setup: 删除 must remain present')
+  assert.ok(!looseAlternativeOnly.includes('不受任何影响'), 'test setup: only the loose 不受影响 phrase may remain')
+  assert.ok(looseAlternativeOnly.includes('不受影响'), 'test setup: the loose 不受影响 phrase must be present')
+  const result = validateDisclosure(looseAlternativeOnly)
+  assert.equal(result.valid, false)
+  assert.ok(result.failures.some(failure => failure.includes('requirement 4')))
 })
 
 // --- fixture sensitivity sweep: tasks.md A1's "zero sensitive content" acceptance ---

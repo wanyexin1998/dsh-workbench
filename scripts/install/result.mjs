@@ -238,13 +238,53 @@ export function evaluateEnvironment(env) {
 // Ambiguous phrasing that could be misread as "we modified the official
 // Harness install" — tasks.md §1 requirement 3 explicitly forbids this even
 // when a correct coexistence statement is also present.
+//
+// The 做...改动 pattern is checked separately, with an extra negation guard
+// (see `hasAmbiguousHarnessModificationPhrase` below): "不会对 Harness 做任何
+// 改动" is the natural, REQUIRED way to phrase requirement 3's own
+// zero-modification statement, and must not be flagged as the ambiguous
+// claim it exists to catch.
+//
+// The filler class between 做 and 改动 excludes punctuation (，。；、,.;) so
+// the match cannot run across a sentence boundary — e.g. two unrelated
+// clauses "...做了准备。改动..." must not be stitched into one false match.
+const AMBIGUOUS_HARNESS_DUI_ZUO_PATTERN = /对\s*Harness\s*做[^\n，。；、,.;]{0,6}改动/gu
 const AMBIGUOUS_OFFICIAL_MODIFICATION_PATTERNS = [
-  // The gap between 做 and 改动 tolerates short filler (e.g. 了/过/一些), not
-  // just whitespace, so phrasing like "做了一些改动" is still caught.
-  /对\s*Harness\s*做[^\n]{0,6}改动/u,
   /修改\s*(了\s*)?官方\s*Harness/u,
   /改动\s*(了\s*)?官方\s*Harness/u,
 ]
+
+// A negation token (不会/没有/不) directly preceding "对" (optionally with
+// whitespace between them) turns "对 Harness 做...改动" from an ambiguous
+// claim of modification into a statement that no modification happened —
+// exactly what requirement 3 requires. Only a negation IMMEDIATELY before 对
+// is recognized; see the false-reject note in validateDisclosure's Known
+// limits below.
+//
+// S7 修正（负负得正 / double-negative guard）：裸的"不"不能无条件当作否定词
+// ——"不得不对 Harness 做了一些改动"（"不得不"= 迫不得已，双重否定表肯定，
+// 实际语义是"确实做了改动"）末尾的"不"紧邻"对"，旧写法会误判为"未改动"而
+// 放行这句真正承认改动的话。用 `(?<!不得)不` 排除被"不得"吃掉的"不"，其余
+// 场景（如单纯的"不对 Harness 做改动"）不受影响，"不会"/"没有" 两个分支也
+// 完全不受影响。
+const NEGATION_IMMEDIATELY_BEFORE_DUI = /(?:不会|没有|(?<!不得)不)\s*$/u
+
+/**
+ * True when `text` contains the ambiguous "modified the official Harness"
+ * phrasing tasks.md §1 requirement 3 forbids, applying the negation guard to
+ * the 做...改动 pattern before falling back to the other fixed patterns.
+ *
+ * @param {string} text
+ * @returns {boolean}
+ */
+function hasAmbiguousHarnessModificationPhrase(text) {
+  for (const match of text.matchAll(AMBIGUOUS_HARNESS_DUI_ZUO_PATTERN)) {
+    const precedingText = text.slice(0, match.index)
+    if (NEGATION_IMMEDIATELY_BEFORE_DUI.test(precedingText)) continue
+    return true
+  }
+  return AMBIGUOUS_OFFICIAL_MODIFICATION_PATTERNS.some(pattern => pattern.test(text))
+}
 
 /**
  * Heuristic validator for the post-install disclosure text defined in
@@ -264,6 +304,20 @@ const AMBIGUOUS_OFFICIAL_MODIFICATION_PATTERNS = [
  *   command line exists.
  * - Negation-blind: e.g. "分屏功能未激活" is required, but a sentence like
  *   "分屏功能并非未激活" would still match the same substring.
+ * - The requirement-3 ambiguous-modification guard (做...改动) only
+ *   recognizes a negation (不会/没有/不, with 不 itself excluded when it is
+ *   part of 不得不 — see S7 below) IMMEDIATELY before 对; a negation
+ *   separated by more words (e.g. "确实不会，对 Harness 做了一些改动") is not
+ *   recognized and the text is still (over-cautiously) flagged as ambiguous.
+ *   That specific limitation is false-reject only (can make validateDisclosure
+ *   too strict there). It is NOT a blanket guarantee, though: this is
+ *   substring/regex matching, not semantic understanding, so a double
+ *   negative or other negation-adjacent construction this function does not
+ *   special-case could still cause a false accept. One such case (不得不,
+ *   "had no choice but to" — a double negative that is NOT a real negation,
+ *   e.g. "不得不对 Harness 做了一些改动") is fixed as of S7 by excluding a 不
+ *   preceded by 得 from the negation match; other unanticipated
+ *   negation-adjacent phrasings are not guaranteed to be caught.
  *
  * @param {string} text
  * @returns {DisclosureValidation}
@@ -295,7 +349,7 @@ export function validateDisclosure(text) {
   const statesCoexistence = /并存/u.test(text)
     && /(零改动|不会改动|不改动|不会修改|不改写)/u.test(text)
     && /官方/u.test(text)
-  const hasAmbiguousModificationPhrase = AMBIGUOUS_OFFICIAL_MODIFICATION_PATTERNS.some(pattern => pattern.test(text))
+  const hasAmbiguousModificationPhrase = hasAmbiguousHarnessModificationPhrase(text)
   if (!statesCoexistence) {
     failures.push('missing requirement 3: parallel coexistence + zero changes to official install/config/session statement')
   }

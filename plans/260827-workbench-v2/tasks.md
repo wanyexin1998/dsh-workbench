@@ -16,9 +16,13 @@ The single execution checklist for Workbench iteration v2, consolidating three t
 
 **适用场景**：Agent 在 stock Harness 上完成通用插件安装后的收尾输出；read-only home 降级路径同样以此话术 + 唯一命令收尾（对齐 task_plan §4.2 状态机）。
 
-**标准话术**（zh；en 版本随 P05 一并产出，两版进产品字典）：
+**命令省略 `--tgz`**：两条模板均不传 `--tgz`——按 A3 §8 修订后的行为，bootstrap 脚本在未收到 `--tgz` 时会自行从内置的 `RELEASE_BASE_URL`/`$ReleaseBaseUrl` 下载对应版本的 Workbench TGZ 到 `<target>/downloads/` 并校验 SHA256，`--tgz <path>` 仅作为离线覆盖选项保留（详见脚本自身头部注释）。
 
-```text
+**§1 采用两份各自独立、各含唯一一条命令的完整话术样本**（而非一份夹带两条命令的合并样本），确保任何下游复制都不会一次抓到两条命令、也让每份样本能单独通过 `validateDisclosure` 校验（N2）：
+
+**Windows 样本**（PowerShell 7+ / `pwsh`；zh；en 版本随 P05 一并产出，两版进产品字典）：
+
+````text
 ✅ DSH Workbench 已安装完成。Navigator、快捷键等通用功能现在就可以使用。
 
 ℹ️ 分屏（双 Pane）功能当前未激活：你的官方 Harness 还不支持多 Pane 所需的
@@ -26,22 +30,68 @@ The single execution checklist for Workbench iteration v2, consolidating three t
 https://github.com/deepseek-ai/deepseek-harness/discussions/4718）。
 这不是安装出错，其余功能不受影响。
 
-如果你现在就想用分屏，可以运行下面这一条命令。它会在独立目录里构建一份
-带补丁的 Harness 副本，与你的官方版并存——不会改动官方安装、配置或任何
-会话数据；不想要时删除该目录即可，官方 Harness 不受任何影响：
+如果你现在就想用分屏，可以运行下面这一条命令。它会在独立目录里构建一份带补丁的
+Harness 副本，与你的官方版并存——不会改动官方安装、配置或任何会话数据；不想要时
+删除该目录即可，官方 Harness 不受任何影响：
 
-<BOOTSTRAP_COMMAND>
+Windows（需要 PowerShell 7+，即 `pwsh`）：
+
 ```
+& { $ErrorActionPreference = 'Stop'; $rel = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2'; Invoke-WebRequest "$rel/dsh-workbench-bootstrap.ps1" -OutFile dsh-workbench-bootstrap.ps1; Invoke-WebRequest "$rel/SHA256SUMS" -OutFile SHA256SUMS; $expectedLine = (Select-String -Path SHA256SUMS -Pattern 'dsh-workbench-bootstrap\.ps1$').Line; if (-not $expectedLine) { throw 'SHA256SUMS 中未找到 dsh-workbench-bootstrap.ps1 的记录，已中止' }; $expected = ($expectedLine -split '\s+')[0].ToLower(); if ($expected -notmatch '^[0-9a-f]{64}$') { throw "SHA256SUMS 中的哈希格式不合法：$expected" }; $actual = (Get-FileHash dsh-workbench-bootstrap.ps1 -Algorithm SHA256).Hash.ToLower(); if ($actual -ne $expected) { throw "SHA256 校验失败：期望 $expected，实际 $actual" }; pwsh -NoProfile -ExecutionPolicy Bypass -File .\dsh-workbench-bootstrap.ps1 }
+```
+````
 
-**五要素硬性要求**（验收时逐项检查）：
+**macOS 样本**（Terminal / bash；zh；en 版本随 P05 一并产出，两版进产品字典）：
+
+````text
+✅ DSH Workbench 已安装完成。Navigator、快捷键等通用功能现在就可以使用。
+
+ℹ️ 分屏（双 Pane）功能当前未激活：你的官方 Harness 还不支持多 Pane 所需的
+接口（该接口已作为提案提交官方，进展见
+https://github.com/deepseek-ai/deepseek-harness/discussions/4718）。
+这不是安装出错，其余功能不受影响。
+
+如果你现在就想用分屏，可以运行下面这一条命令。它会在独立目录里构建一份带补丁的
+Harness 副本，与你的官方版并存——不会改动官方安装、配置或任何会话数据；不想要时
+删除该目录即可，官方 Harness 不受任何影响：
+
+macOS（Terminal）：
+
+```
+rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2'; if curl -fsSLO "$rel/dsh-workbench-bootstrap.sh" && curl -fsSLO "$rel/SHA256SUMS"; then expected=$(grep 'dsh-workbench-bootstrap\.sh$' SHA256SUMS | awk '{print $1}'); actual=$(shasum -a 256 dsh-workbench-bootstrap.sh | awk '{print $1}'); if [ -n "$expected" ] && printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$' && [ "$actual" = "$expected" ]; then chmod +x dsh-workbench-bootstrap.sh && ./dsh-workbench-bootstrap.sh; else echo 'SHA256 校验失败，已中止，不会执行未校验脚本' >&2; false; fi; else echo '下载失败，已中止，不会执行未校验脚本' >&2; false; fi
+```
+````
+
+注：以上两条命令均省略 `--target`，使用脚本内置默认目录（Windows:
+`%USERPROFILE%\dsh-workbench`；macOS: `$HOME/dsh-workbench`）。`SHA256SUMS`
+中的具体哈希值要到 A6 正式发布 `v0.2.0-rc.2` Release 时才会写入真实内容；
+在此之前，命令模板本身已经确定，但其中的下载/校验步骤无法针对真实文件
+执行（Release 尚未发布）。macOS 命令把"下载失败"与"校验失败"拆成两条独立
+分支，各自给出诚实的错误文案，并且只有 `if`/`then` 分支里显式执行的
+`./dsh-workbench-bootstrap.sh` 才会把 bootstrap 自身的退出码原样传出——不会
+出现"任何非零退出码都打印'校验失败'"的误报（B2/B3）；Windows 命令用
+`$ErrorActionPreference = 'Stop'` 保证下载失败时整条命令中止，`$expected`
+在比较前先校验为 64 位小写十六进制，最终调用改为
+`pwsh -NoProfile -ExecutionPolicy Bypass -File .\dsh-workbench-bootstrap.ps1`
+（此时哈希已校验通过，`-ExecutionPolicy Bypass` 仅对这一次调用生效，不改
+全局策略）（S8）。两条命令都不会杀掉用户的交互终端：macOS 失败分支用
+`false` 而非 `exit`（`if`/`fi` 已保证不执行未校验脚本，`false` 只设置退出
+码）；Windows 命令整体包在 `& { … }` 里使 `$ErrorActionPreference` 只在本次
+调用内生效，且刻意不在末尾追加 `exit`——bootstrap 的结果码在命令结束后仍
+可通过 `$LASTEXITCODE` 读取，脚本化调用方读它即可。
+
+**五要素硬性要求**（验收时逐项检查；对上面两份样本逐份检查，而不是合并检查）：
 
 1. 明示分屏**未激活**及原因（官方接口缺失），并说明这不是安装失败；
 2. 明示其余功能**现在可用**；
 3. 明示 bootstrap 与官方版**并存、零改动官方安装/配置/会话**（不得使用"对 Harness 做改动"等易误解为改官方安装的表述）;
 4. 明示**可整体删除、无残留影响**；
-5. 命令**唯一且可直接复制**，`<BOOTSTRAP_COMMAND>` 在 A3 产出后回填，此前不得对用户展示占位符。
+5. 命令**唯一且可直接复制**——"唯一"指按用户所在平台只展示对应的那一份完整
+   样本（Windows 用上面的 PowerShell 样本，macOS 用上面的 Terminal 样本，
+   二者互斥、不同时展示给同一用户，且每份样本自身只含一条命令）；两份样本
+   均已由 A3 产出并回填于本节，此前不得对用户展示占位符。
 
-**命令形态**（按 §8 决策）：命令 = 下载 rc.2 Release 附件中的 bootstrap 脚本 → 校验 SHA256（对照 `SHA256SUMS`）→ 运行。Windows（`.ps1`）与 macOS（`.sh`）各一版，话术按用户平台只展示对应的那一条。
+**命令形态**（按 §8 决策）：命令 = 下载 rc.2 Release 附件中的 bootstrap 脚本 → 校验 SHA256（对照 `SHA256SUMS`）→ 运行；TGZ 的下载与校验由 bootstrap 脚本自身负责（见上）。Windows（`.ps1`）与 macOS（`.sh`）各一版，话术按用户平台只展示对应的那一份完整样本。
 
 ---
 
@@ -66,6 +116,10 @@ https://github.com/deepseek-ai/deepseek-harness/discussions/4718）。
 | A4 统一 Quick Install 双语文档 | P05 | Release-first 默认路径（下载不可变 TGZ + `dsh plugin add`），40 位 commit 流程移入高级附录；描述 stock 通用与 bootstrap 分屏两条路径 | 默认路径无 commit 问答；中英事实一致；**§1 话术双语进字典**；含 T0.1/T0.3 结论 | S–M | A2、A3 |
 | A5 平台隔离 E2E | P06 | **Windows + macOS** 验证：stock 插件安装、read-only home 降级、bootstrap 端到端（macOS 复用真实用户渠道）；Linux 保持"未验证"，不宣称支持 | 每平台冷环境；未跑平台保持"未验证" | M | A4 |
 | A6 `v0.2.0-rc.2` 手工 Release 与复测 | P07 | 不可变 Release + 真实用户复测（无 Edition 产物）；**交付范围含 W1（快捷键目录动态化）** | `pnpm release:check` 通过（含 W1 新增测试）；SHA256 可复算（含双版 bootstrap 脚本附件）；复测达到 task_plan §4.3 时限；话术按 §1 落地 | S–M | A5、W1.3 |
+
+注（N5）：A6 发布前需完成一次**人工端到端 bootstrap 全流程运行**（真实网络下载
+TGZ、真实 clone/build/install/launcher）——目前 `pnpm exec dsh` 在 fork 根目录内
+的解析路径只在离线（`--check-only`/单元测试）场景下验证过，未经端到端实测。
 
 ## 4. 主线 B — 上游协作与社区承诺（对应 task_plan §3.5/§3.6）
 
