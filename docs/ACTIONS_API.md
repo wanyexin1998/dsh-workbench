@@ -134,3 +134,7 @@ export function apply(ctx: Context): void {
 ```
 
 A plugin author who prefers explicit lifecycle control over `ctx.inject`'s automatic teardown can instead store the disposer and call it from their own `ctx.on('dispose', ...)` handler — see [Lifecycle](#lifecycle).
+
+## First known consumer
+
+`release-contract.json`'s `panelCompatibility.actionsProtocol` records the `workbenchActions` protocol version this Workbench↔Better-Sidebar pairing **targets** — not that the currently pinned build implements it. The consumer implementation (`better-sidebar.toggle-panel` / `better-sidebar.toggle-bottom-panel`, registered through exactly this doc's optional-injection pattern) lives on the Better Sidebar fork's `feat/workbench-actions-consumer` branch, which is **not yet published**: `panelCompatibility.branch` / `.implementationCommit` still point at the published pane-protocol build (`feat/pane-scoped-panel-mounts` @ the pinned commit), which predates that branch and does not contain the actions consumer. When `feat/workbench-actions-consumer` is published, the pin and `actionsProtocol` advance together — restoring the same "pinned build implements protocol N" semantics `paneProtocol` already has — and this note should be updated accordingly.

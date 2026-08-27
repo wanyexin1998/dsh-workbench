@@ -39,6 +39,7 @@
     "provider": "dsh-better-sidebar",
     "providerVersion": "0.16.1",
     "paneProtocol": 1,
+    "actionsProtocol": 1,
     "repository": "https://github.com/wanyexin1998/DSH-better-sidebar",
     "branch": "feat/pane-scoped-panel-mounts",
     "implementationCommit": "91e772a09e5f66a14c36036f69adb4d866f06ac3",
