@@ -6,7 +6,7 @@
 // GA-023: capability-aware registration — an action whose capability is
 // missing is not registered (absent from Settings, binds no chord).
 import * as React from 'react'
-import { ActionRegistry, type ActionDef } from '../core/action-registry.js'
+import { ActionRegistry, DEFAULT_PROVIDER, type ActionDef } from '../core/action-registry.js'
 import { chordFromEvent, formatChord, parseChord, type Chord, type Platform } from '../core/chord.js'
 import { bindingReport, parseBindingOverrides, validateChordSpec, UNBOUND_SENTINEL, type BindingOverrides } from '../core/shortcut-settings.js'
 import {
@@ -227,7 +227,24 @@ export function setRecordingActive(active: boolean): void {
 
 // Editable targets such as the Composer suppress shortcuts by default. Only
 // this allowlist remains reachable while typing; Session stop stays blocked.
+// NOTE: this is a *dispatch-time* allowlist (keydown-while-typing policy) —
+// unrelated to EDITABLE_PROVIDERS below, which gates *Settings-UI* rebinding.
+// The similar name is coincidental; do not conflate the two.
 const EDITABLE_ALLOWED_ACTIONS = new Set(['workbench.conversation.navigator.toggle'])
+
+// W1.3 — open catalog: the Settings UI now renders every registered action
+// (any provider), but only lets the user rebind/clear/unbind/toggle actions
+// from a provider we trust today. Per design.md §4/§7 the catalog is open
+// but nothing auto-discovered (L1 host commands, L2 plugin API, L3 pinned
+// adapters — all W2+) has landed yet, so the only trusted provider is
+// Workbench's own. A foreign-provider action (none exist until W2) still
+// renders — label, id, current binding, conflict/reserved badges — just
+// without the record button or overflow menu, so W2 does not have to
+// retrofit read-only rendering once real foreign actions show up.
+const EDITABLE_PROVIDERS: ReadonlySet<string> = new Set([DEFAULT_PROVIDER])
+function isProviderEditable(provider: string | undefined): boolean {
+  return EDITABLE_PROVIDERS.has(provider ?? DEFAULT_PROVIDER)
+}
 
 /** Accept native user input in production; Vitest uses synthetic DOM events. */
 export function isTrustedShortcutEvent(
@@ -308,6 +325,13 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
   const [pendingSpec, setPendingSpec] = React.useState<string>('')
   // GA-013: which row's overflow menu (enabled/clear/unbind) is open.
   const [overflowId, setOverflowId] = React.useState<string | null>(null)
+  // W1.3: search box query (filters rows by label/id) and per-provider
+  // disclosure collapse state. design.md §4 only requires groups to be
+  // collapsible ("组可折叠"); whether that collapse state survives a remount
+  // is left to the implementation. Both are kept ephemeral here — never
+  // persisted, reset on remount — to keep the first cut simple.
+  const [searchQuery, setSearchQuery] = React.useState('')
+  const [collapsedProviders, setCollapsedProviders] = React.useState<ReadonlySet<string>>(new Set())
 
   React.useEffect(() => controller.scope.subscribe(force), [controller])
   // Re-render when the committed state changes (hydration resolves async and
@@ -338,7 +362,22 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
   // settings-not-exposed (issue #1 proposal 3). Overrides still apply
   // in-memory for the session (dispatcher + UI).
   const [localOverrides, setLocalOverrides] = React.useState<BindingOverrides>({})
-  const [localDisabled, setLocalDisabled] = React.useState<ReadonlySet<string>>(new Set())
+  // Defense-in-depth, not a bug fix: the sync effect above (`if
+  // (controller.persisted !== undefined) setLocalDisabled(...)`) already
+  // handles the mounted case at HEAD — it seeds localDisabled from
+  // controller.persisted as soon as persisted state is available, so a
+  // persisted `disabled` action does not stay rendered as enabled once that
+  // effect has run. What the effect cannot cover is the single render frame
+  // between mount and its first run: chordOwners is computed synchronously
+  // during render (below), before any effect fires, so on that one frame it
+  // could still count an already-disabled action as holding its chord. Lazy-
+  // initializing localDisabled straight from `controller.persisted?.disabled`
+  // — available synchronously whenever the controller is constructed with it
+  // already set (as it is at hydration) — removes that frame entirely
+  // instead of relying solely on the effect to patch it in after the fact.
+  const [localDisabled, setLocalDisabled] = React.useState<ReadonlySet<string>>(
+    () => new Set(controller.persisted?.disabled ?? []),
+  )
 
   const snapshot = controller.scope.getSnapshot()
   // The display must mirror the registry (what actually dispatches). That is
@@ -358,8 +397,6 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
 
   const platform = platformOf()
   const actions = controller.registry.all()
-  const navigationActions = actions.filter((a) => !a.id.startsWith('workbench.agent.favorite'))
-  const favoriteActions = actions.filter((a) => a.id.startsWith('workbench.agent.favorite'))
   const chordOwners = new Map<string, string[]>()
   for (const action of actions) {
     if (localDisabled.has(action.id)) continue // disabled actions hold no chord
@@ -371,6 +408,71 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
     const list = chordOwners.get(id) ?? []
     list.push(action.id)
     chordOwners.set(id, list)
+  }
+
+  // W1.3 — search box: case-insensitive substring match against the
+  // localized label OR the raw action id. Empty query = everything matches.
+  const query = searchQuery.trim().toLowerCase()
+  const matchesQuery = (action: ActionDef): boolean => {
+    if (query === '') return true
+    if (action.id.toLowerCase().includes(query)) return true
+    return t(action.label).toLowerCase().includes(query)
+  }
+  // A row currently mid-recording must stay visible even if a query typed
+  // mid-record would otherwise filter it out — losing the row out from under
+  // an in-progress key capture would be jarring. (Recording state itself
+  // — recordingId/pendingChord/pendingSpec — lives on this parent component,
+  // not inside per-row components, so filtering can never *unmount* it; this
+  // guard is purely to keep the row's UI visible while recording.)
+  const isVisible = (action: ActionDef): boolean => matchesQuery(action) || action.id === recordingId
+
+  // W1.3 — provider grouping (design.md §4): Workbench first (today's only
+  // provider, keeping the page unchanged apart from the new group header),
+  // any other provider after it in registry insertion order.
+  const byProvider = controller.registry.byProvider()
+  const providerIds = [...byProvider.keys()].sort((a, b) => {
+    if (a === DEFAULT_PROVIDER) return -1
+    if (b === DEFAULT_PROVIDER) return 1
+    return 0
+  })
+  const workbenchActions = byProvider.get(DEFAULT_PROVIDER) ?? []
+  const navigationActions = workbenchActions.filter((a) => !a.id.startsWith('workbench.agent.favorite'))
+  const favoriteActions = workbenchActions.filter((a) => a.id.startsWith('workbench.agent.favorite'))
+
+  // W1.3 — orphaned overrides (design principle 3, design.md §4 缺席态):
+  // a persisted binding key that matches no live registry action — its
+  // provider is currently absent. The binding is never dropped by the
+  // settings page merely rendering (it comes straight from `overrides`,
+  // never filtered out of storage); it only disappears from storage if the
+  // user explicitly removes it below.
+  // Review fix (should-fix): exclude the built-in `workbench.` namespace from
+  // this derivation. buildShortcutRegistry deliberately does NOT register a
+  // built-in action whose capability/service seam is absent — e.g.
+  // favorite.open:1..9 when caps.favoriteAgent is off (the default shipping
+  // config), or sidebar.toggle without services.layout. Such an action's
+  // provider is never "absent" the way a foreign plugin's can be; the
+  // "provider not loaded" framing and destructive Remove button are simply
+  // wrong for it, and would invite deleting the user's own binding for a
+  // capability that is merely off right now. Only a genuinely foreign
+  // (non-workbench) persisted id can be orphaned here.
+  const liveActionIds = new Set(actions.map((a) => a.id))
+  const orphanedOverrides = Object.entries(overrides).filter(
+    ([id]) => !liveActionIds.has(id) && !id.startsWith(DEFAULT_PROVIDER + '.'),
+  )
+  // nit: the search box only filtered provider-group rows, leaving the
+  // orphaned section unfiltered (and visible, empty-looking-but-not, when a
+  // query matched nothing there). Apply the same lowercase substring test —
+  // an orphan row has no label to match against, just its raw id.
+  const visibleOrphanedOverrides = orphanedOverrides.filter(([id]) => query === '' || id.toLowerCase().includes(query))
+
+  const providerLabel = (providerId: string): string =>
+    providerId === DEFAULT_PROVIDER ? t('shortcuts.provider.workbench') : providerId
+
+  const toggleGroupCollapsed = (providerId: string) => {
+    const next = new Set(collapsedProviders)
+    if (next.has(providerId)) next.delete(providerId)
+    else next.add(providerId)
+    setCollapsedProviders(next)
   }
 
   // Recording capture: only while a row is recording.
@@ -475,6 +577,22 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
     controller.reload(overrides, disabled)
   }
 
+  // W1.3 — orphaned overrides (design principle 3): the only mutation an
+  // absent-provider row allows is deleting its own persisted footprint
+  // (binding override + disabled flag, if any). Every other action's
+  // entries are left byte-for-byte untouched.
+  const removeOrphan = async (actionId: string) => {
+    const next = { ...overrides }
+    delete next[actionId]
+    const disabled = new Set(localDisabled)
+    disabled.delete(actionId)
+    void controller.persist({ bindings: next, disabled }).catch(() => {})
+    controller.scope.unset(actionId).catch(() => {})
+    setLocalOverrides(next)
+    setLocalDisabled(disabled)
+    controller.reload(next, disabled)
+  }
+
   const startRecording = (actionId: string) => {
     setRecordingId(actionId)
     setPendingChord(null)
@@ -483,11 +601,17 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
   }
 
   const renderRow = (action: ActionDef) => {
+    // W1.3: editing (record / clear / unbind / enable toggle) is gated to
+    // EDITABLE_PROVIDERS — see that constant's comment. A foreign-provider
+    // action still renders fully (label, id, binding, conflict/reserved
+    // badges) — see design.md §4 缺席态/design principle 3 — it just cannot
+    // be rebound from here yet.
+    const editable = isProviderEditable(action.provider)
     const report = bindingReport(action.id, action.defaultChord, overrides, ownerOf(chordOwners, action.id), platform)
-    const recording = recordingId === action.id
+    const recording = editable && recordingId === action.id
     const pending = recording ? validateChordSpec(pendingSpec) : null
     const unbound = report.unbound === true
-    const overflowOpen = overflowId === action.id
+    const overflowOpen = editable && overflowId === action.id
     // GA-012: the chord button itself is the record entry. Its label is the
     // live chord display (or the recording hint / unbound state).
     const chordButtonLabel = recording
@@ -520,17 +644,22 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
           )}
         </div>
 
-        {/* GA-012: glass chord button = record entry. */}
+        {/* GA-012: glass chord button = record entry. W1.3: non-editable
+            (foreign-provider) rows render the same button, disabled and
+            inert — the binding is still visible, just not changeable here. */}
         <button
           type="button"
           data-dsh-nux-chord={action.id}
           data-dsh-nux-chord-button
+          disabled={!editable}
           aria-pressed={recording}
           aria-label={recording ? t('shortcuts.recording') : (chordButtonLabel + ' — ' + t('shortcuts.recordHint'))}
-          onClick={() => (recording ? cancelRecording() : startRecording(action.id))}
+          onClick={editable ? () => (recording ? cancelRecording() : startRecording(action.id)) : undefined}
           style={{
             ...CHORD_BTN_BASE,
             color: unbound && !recording ? 'var(--dsw-alias-label-tertiary)' : undefined,
+            opacity: editable ? 1 : 0.55,
+            cursor: editable ? 'pointer' : 'default',
             ...(recording
               ? { borderColor: 'rgba(138,166,255,.85)', background: 'rgba(237,242,255,.74)', color: '#3559b7' }
               : null),
@@ -543,7 +672,10 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
           <button type="button" onClick={() => void saveRecording(action.id)}>{t('shortcuts.save')}</button>
         )}
 
-        {/* GA-013: overflow menu holds enabled / clear / unbind / reset. */}
+        {/* GA-013: overflow menu holds enabled / clear / unbind / reset.
+            W1.3: absent for non-editable (foreign-provider) rows — no
+            mutation is offered there at all. */}
+        {editable && (
         <div data-dsh-nux-overflow-root style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
           <button
             type="button"
@@ -600,6 +732,111 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
             </div>
           )}
         </div>
+        )}
+      </div>
+    )
+  }
+
+  // W1.3 — orphaned overrides row: a persisted binding whose action id
+  // matches nothing in the live registry. Grayed out, raw id only (we have
+  // no label — the provider that would supply one is not loaded), and the
+  // only control is "remove" (delete this action's persisted footprint).
+  const renderOrphanRow = ([actionId, spec]: [string, string]) => {
+    const display = spec === UNBOUND_SENTINEL
+      ? t('shortcuts.unbound')
+      : (() => {
+          const parsed = parseChord(spec)
+          return parsed !== null ? formatChord(parsed, platform) : spec
+        })()
+    return (
+      <div
+        key={actionId}
+        data-dsh-nux-orphan-row={actionId}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid var(--dsw-alias-border-l2, #e6e7e9)', opacity: 0.55 }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, color: 'var(--dsw-alias-label-primary)' }}>{actionId}</div>
+          <div style={{ fontSize: 11, color: 'var(--dsw-alias-label-tertiary)' }}>{t('shortcuts.orphaned.providerNotLoaded')}</div>
+        </div>
+        <div style={{ minWidth: 138, padding: '8px 12px', fontSize: 13, textAlign: 'center', color: 'var(--dsw-alias-label-tertiary)' }}>
+          {display}
+        </div>
+        <button
+          type="button"
+          data-dsh-nux-orphan-remove={actionId}
+          onClick={() => void removeOrphan(actionId)}
+          style={{ fontSize: 12, padding: '4px 8px', color: 'var(--dsw-alias-state-error, #d24c4c)', border: 'none', background: 'transparent', cursor: 'pointer' }}
+        >
+          {t('shortcuts.orphaned.remove')}
+        </button>
+      </div>
+    )
+  }
+
+  // W1.3 — one collapsible section per provider (design.md §4). Skips a
+  // provider entirely once search filters every one of its rows out, so an
+  // active query never leaves an empty header on screen.
+  const renderProviderGroup = (providerId: string) => {
+    const isWorkbench = providerId === DEFAULT_PROVIDER
+    const groupActions = isWorkbench ? workbenchActions : (byProvider.get(providerId) ?? [])
+    const visibleNavigation = isWorkbench ? navigationActions.filter(isVisible) : []
+    const visibleFavorites = isWorkbench ? favoriteActions.filter(isVisible) : []
+    const visibleForeign = isWorkbench ? [] : groupActions.filter(isVisible)
+    const visibleCount = visibleNavigation.length + visibleFavorites.length + visibleForeign.length
+    if (visibleCount === 0) return null
+    // nit: two read-only overrides of the user's own collapse toggle
+    // (collapsedProviders), neither of which mutates that state:
+    //  - a group must never collapse out from under a row that is actively
+    //    recording — the chord-capture UI (and its Save button) has to stay
+    //    reachable while a capture is in progress.
+    //  - while a search query is active, a group is never left collapsed
+    //    behind a bare header when it has visible matches (guaranteed here,
+    //    since visibleCount === 0 already returned above) — a collapsed
+    //    header reads as "no matches" even though there are some.
+    // Once recording ends / the query clears, the user's own toggle choice
+    // is exactly what renders again.
+    const collapseOverrideActive = query !== '' || groupActions.some((a) => a.id === recordingId)
+    const collapsed = collapsedProviders.has(providerId) && !collapseOverrideActive
+    return (
+      <div key={providerId} data-dsh-nux-group={providerId} style={{ marginBottom: 8 }}>
+        <button
+          type="button"
+          data-dsh-nux-group-header={providerId}
+          aria-expanded={!collapsed}
+          // nit: while an override above is forcing this group open, a click
+          // here cannot change anything visible — the header already reads
+          // expanded. Without this guard the click would still flip
+          // collapsedProviders underneath the override, so once the query
+          // clears / recording ends the group would silently land in
+          // whichever state that invisible click left it in, instead of the
+          // state the user actually last chose. No-op the click instead.
+          onClick={() => { if (!collapseOverrideActive) toggleGroupCollapsed(providerId) }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left',
+            fontSize: 12, fontWeight: 600, color: 'var(--dsw-alias-label-primary)', margin: '8px 0 4px',
+            border: 'none', background: 'transparent', cursor: 'pointer', padding: 0,
+          }}
+        >
+          <span aria-hidden="true">{collapsed ? '▸' : '▾'}</span>
+          {providerLabel(providerId)}
+        </button>
+        {!collapsed && (
+          <>
+            {visibleNavigation.length > 0 && (
+              <>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--dsw-alias-label-primary)', marginBottom: 4 }}>{t('shortcuts.group.navigation')}</div>
+                {visibleNavigation.map(renderRow)}
+              </>
+            )}
+            {visibleFavorites.length > 0 && (
+              <>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--dsw-alias-label-primary)', margin: '8px 0 4px' }}>{t('shortcuts.group.favorites')}</div>
+                {visibleFavorites.map(renderRow)}
+              </>
+            )}
+            {visibleForeign.map(renderRow)}
+          </>
+        )}
       </div>
     )
   }
@@ -607,13 +844,26 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
   return (
     <div data-dsh-nux-smoke="shortcuts" style={{ padding: 8 }}>
       <div style={{ fontSize: 11, color: 'var(--dsw-alias-label-tertiary)', marginBottom: 8 }}>{t('shortcuts.scopeNote')}</div>
-      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--dsw-alias-label-primary)', marginBottom: 4 }}>{t('shortcuts.group.navigation')}</div>
-      {navigationActions.map(renderRow)}
-      {favoriteActions.length > 0 && (
-        <>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--dsw-alias-label-primary)', margin: '8px 0 4px' }}>{t('shortcuts.group.favorites')}</div>
-          {favoriteActions.map(renderRow)}
-        </>
+      <input
+        type="text"
+        data-dsh-nux-search
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        placeholder={t('shortcuts.search.placeholder')}
+        aria-label={t('shortcuts.search.placeholder')}
+        style={{
+          width: '100%', boxSizing: 'border-box', marginBottom: 8, padding: '6px 10px', fontSize: 13,
+          borderRadius: 8, border: '1px solid var(--dsw-alias-border-l2, #e6e7e9)', background: 'transparent',
+        }}
+      />
+      {providerIds.map(renderProviderGroup)}
+      {visibleOrphanedOverrides.length > 0 && (
+        <div data-dsh-nux-orphaned-section style={{ marginTop: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--dsw-alias-label-tertiary)', marginBottom: 4 }}>
+            {t('shortcuts.orphaned.section')}
+          </div>
+          {visibleOrphanedOverrides.map(renderOrphanRow)}
+        </div>
       )}
     </div>
   )
