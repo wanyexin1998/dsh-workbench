@@ -25,8 +25,10 @@
 > **One-line install prompt: send the complete sentence below to DeepSeek Harness**
 >
 > ```text
-> Install DSH Workbench from https://github.com/wanyexin1998/dsh-workbench: first ask me for a full 40-character Workbench commit obtained from an independent trusted channel and stop if I do not provide one; require a nonexistent target directory, use git clone --no-checkout and checkout --detach that commit, stop after every failed Git command, and verify detached HEAD, a completely clean worktree, and case-insensitive exact equality between git rev-parse --verify HEAD and the supplied commit; only after every check succeeds may you read executable repository instructions and run pnpm install --frozen-lockfile and pnpm release:check, then install the generated Workbench TGZ into the web profile; install Panel Compatibility only when a compatible Better Sidebar fork is already present, never install or replace a third-party plugin automatically, never publish to npm, and finally report the actual commits, TGZ SHA256 values, and verification results for Split Pane, Navigator, and shortcuts.
+> Install DSH Workbench. First check the current Harness: if it is compatible with Split Pane, install directly; if not, keep the general-plugin functionality and tell me how to install, in parallel, the self-installed patch path (bootstrap) that does not overwrite the official Harness. If the sandbox cannot write to DSH_HOME, give me only one final terminal command.
 > ```
+>
+> Full decision rules and commands live in [`docs/INSTALL.md`](docs/INSTALL.md). This path ships with the `v0.2.0-rc.2` Release; today's status is still `0.2.0-rc.1` source preview (see [`release-contract.json`](release-contract.json)). Until then, use "Advanced: build from source" below.
 
 ## What it solves
 
@@ -74,6 +76,47 @@ Workbench Split Pane, Navigator, and shortcuts work without Better Sidebar. When
 
 ## Quick start
 
+> [!NOTE]
+> The default commands on this page ship with the `v0.2.0-rc.2` GitHub Release, which has not been published yet — `release-contract.json` still reports `0.2.0-rc.1` / `source-preview` today (no signed Release, no TGZ asset). Both paths below will actually work once `v0.2.0-rc.2` ships; until then, use the collapsed "Advanced: build from source (audit path)" section below (i.e. [`docs/INSTALL.md` § Advanced: source build](docs/INSTALL.md#advanced-source-build)), which works today.
+
+### General plugin (stock Harness, default)
+
+Download the immutable Workbench TGZ from the GitHub Release, verify its SHA256, install with `dsh plugin --profile web add file:<path>`. Split Pane stays inactive on stock Harness — the official interface is not merged yet (see [discussion #4718](https://github.com/deepseek-ai/deepseek-harness/discussions/4718)); everything else is unaffected. Full command blocks live in [`docs/INSTALL.md` § Quick Install](docs/INSTALL.md#quick-install-default).
+
+### Split pane (bootstrap, one command)
+
+Once `v0.2.0-rc.2` ships, copy and run the single command for your platform below to get Split Pane (coexists with the official Harness, zero changes to the official install; requires Node.js `^22.19`/`>=24`, `pnpm@11`, `git`, and PowerShell 7+ on Windows):
+
+Windows (PowerShell 7+ / `pwsh`):
+
+```
+& { $ErrorActionPreference = 'Stop'; $rel = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2'; Invoke-WebRequest "$rel/dsh-workbench-bootstrap.ps1" -OutFile dsh-workbench-bootstrap.ps1; Invoke-WebRequest "$rel/SHA256SUMS" -OutFile SHA256SUMS; $expectedLine = (Select-String -Path SHA256SUMS -Pattern 'dsh-workbench-bootstrap\.ps1$').Line; if (-not $expectedLine) { throw 'SHA256SUMS 中未找到 dsh-workbench-bootstrap.ps1 的记录，已中止' }; $expected = ($expectedLine -split '\s+')[0].ToLower(); if ($expected -notmatch '^[0-9a-f]{64}$') { throw "SHA256SUMS 中的哈希格式不合法：$expected" }; $actual = (Get-FileHash dsh-workbench-bootstrap.ps1 -Algorithm SHA256).Hash.ToLower(); if ($actual -ne $expected) { throw "SHA256 校验失败：期望 $expected，实际 $actual" }; pwsh -NoProfile -ExecutionPolicy Bypass -File .\dsh-workbench-bootstrap.ps1 }
+```
+
+(This command is byte-identical to the normative §1 command, so its own failure messages are currently Chinese; an English variant is tracked as follow-up work for the release task. The command is not altered here.)
+
+macOS (Terminal):
+
+```
+rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2'; if curl -fsSLO "$rel/dsh-workbench-bootstrap.sh" && curl -fsSLO "$rel/SHA256SUMS"; then expected=$(grep 'dsh-workbench-bootstrap\.sh$' SHA256SUMS | awk '{print $1}'); actual=$(shasum -a 256 dsh-workbench-bootstrap.sh | awk '{print $1}'); if [ -n "$expected" ] && printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$' && [ "$actual" = "$expected" ]; then chmod +x dsh-workbench-bootstrap.sh && ./dsh-workbench-bootstrap.sh; else echo 'SHA256 校验失败，已中止，不会执行未校验脚本' >&2; false; fi; else echo '下载失败，已中止，不会执行未校验脚本' >&2; false; fi
+```
+
+(This command is byte-identical to the normative §1 command, so its own failure messages are currently Chinese; an English variant is tracked as follow-up work for the release task. The command is not altered here.)
+
+Full details on what the script does, how to uninstall, and when the hashes take effect live in [`docs/INSTALL.md` § Split pane (bootstrap)](docs/INSTALL.md#b-split-pane-bootstrap).
+
+<details>
+<summary><strong>Advanced: build from source (audit path)</strong></summary>
+
+The complete version lives in [`docs/INSTALL.md` § Advanced: source build](docs/INSTALL.md#advanced-source-build). This path remains valid for anyone who wants to audit every line of code themselves; it is simply no longer the default now that immutable Release artifacts exist.
+
+> [!TIP]
+> **One-line install prompt (source-audit path): send the complete sentence below to DeepSeek Harness**
+>
+> ```text
+> Install DSH Workbench from https://github.com/wanyexin1998/dsh-workbench: first ask me for a full 40-character Workbench commit obtained from an independent trusted channel and stop if I do not provide one; require a nonexistent target directory, use git clone --no-checkout and checkout --detach that commit, stop after every failed Git command, and verify detached HEAD, a completely clean worktree, and case-insensitive exact equality between git rev-parse --verify HEAD and the supplied commit; only after every check succeeds may you read executable repository instructions and run pnpm install --frozen-lockfile and pnpm release:check, then install the generated Workbench TGZ into the web profile; install Panel Compatibility only when a compatible Better Sidebar fork is already present, never install or replace a third-party plugin automatically, never publish to npm, and finally report the actual commits, TGZ SHA256 values, and verification results for Split Pane, Navigator, and shortcuts.
+> ```
+
 ### Requirements
 
 - Node.js `^22.19` or `>=24`
@@ -115,9 +158,11 @@ Successful verification writes these files under `dist/`:
 - `release-manifest.json`
 - `SHA256SUMS`
 
-`release:check` performs privacy and secret scans, release-contract validation, typechecks, 187 tests, dependency audit, a clean rebuild, generated-runtime scanning, TGZ packing, and SHA256 verification. It does not publish to npm.
+`release:check` performs privacy and secret scans, release-contract validation, typechecks, 241 package tests plus the install-contract and bootstrap-script test suites, dependency audit, a clean rebuild, generated-runtime scanning, TGZ packing, and SHA256 verification. It does not publish to npm.
 
 > See [`docs/INSTALL.md`](docs/INSTALL.md) for the complete Harness build, installation order, and optional panel setup.
+
+</details>
 
 ## Interaction model
 

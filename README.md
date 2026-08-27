@@ -22,11 +22,13 @@
 > 当前版本是 `0.2.0-rc.1` 源码预览，不是即装即用的 npm 正式版。分屏能力依赖固定版本的 Harness fork；Better Sidebar 及其兼容包完全可选。本项目不会自动安装、更新或修改任何第三方插件。
 
 > [!TIP]
-> **一句话安装：复制下面整句发给 DeepSeek Harness**
+> **一句话安装（Release-first）：复制下面整句发给 DeepSeek Harness Agent**
 >
 > ```text
-> 请从 https://github.com/wanyexin1998/dsh-workbench 安装 DSH Workbench：首先向我索取并确认一个从独立可信渠道获得的完整 40 位 Workbench commit，若我未提供则停止；要求目标目录不存在，使用 git clone --no-checkout 后 checkout --detach 该提交，每个 Git 命令失败都立即停止，并验证 detached HEAD、完整 clean worktree 以及 git rev-parse --verify HEAD 与输入提交的大小写无关精确相等；只有全部验证成功后才读取仓库中的执行性说明并运行 pnpm install --frozen-lockfile 和 pnpm release:check，将生成的 Workbench TGZ 安装到 web profile；仅当我已安装兼容的 Better Sidebar fork 时再安装 Panel Compatibility，不要自动安装或替换第三方插件，不要发布 npm，最后报告实际提交、TGZ SHA256 以及双 Pane、Navigator 和快捷键的验证结果。
+> 请安装 DSH Workbench。先检查当前 Harness：兼容双 Pane 就直接安装；不兼容时保留通用插件功能，并告诉我如何并行安装不覆盖官方 Harness 的自装补丁路径（bootstrap）。若沙箱不能写入 DSH_HOME，只给我一条最终终端命令。
 > ```
+>
+> 完整判定规则与命令见 [`docs/INSTALL.md`](docs/INSTALL.md)。该路径随 `v0.2.0-rc.2` Release 一起发布，目前仍是 `0.2.0-rc.1` 源码预览（见 [`release-contract.json`](release-contract.json)）；在此之前用下方「高级：从源码构建」。
 
 ## 它解决什么问题
 
@@ -74,6 +76,43 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 
 ## 快速开始
 
+> [!NOTE]
+> 本页默认命令随 `v0.2.0-rc.2` GitHub Release 一起发布，该 Release 尚未发布——`release-contract.json` 目前仍是 `0.2.0-rc.1` / `source-preview`（无签名 Release、无 TGZ 资产）。下面两条路径要等 `v0.2.0-rc.2` 发布后才能真正跑通；在此之前请使用下方折叠区「高级：从源码构建（审计路径）」（即 [`docs/INSTALL.md` § Advanced: source build](docs/INSTALL.md#advanced-source-build)），这条路径今天就能用。
+
+### 通用插件（stock Harness，默认）
+
+从 GitHub Release 下载不可变的 Workbench TGZ、核对 SHA256、用 `dsh plugin --profile web add file:<path>` 安装。分屏（双 Pane）在 stock Harness 上不会激活——官方接口尚未合并（见 [discussion #4718](https://github.com/deepseek-ai/deepseek-harness/discussions/4718)）；其余功能不受影响。完整命令块见 [`docs/INSTALL.md` § Quick Install](docs/INSTALL.md#quick-install-default)。
+
+### 分屏（bootstrap，一条命令）
+
+`v0.2.0-rc.2` 发布后，想用分屏就按你的平台复制运行下面这一条命令（与官方 Harness 并存，零改动官方安装；要求 Node.js `^22.19`/`>=24`、`pnpm@11`、`git`，Windows 需 PowerShell 7+）：
+
+Windows（PowerShell 7+ / `pwsh`）：
+
+```
+& { $ErrorActionPreference = 'Stop'; $rel = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2'; Invoke-WebRequest "$rel/dsh-workbench-bootstrap.ps1" -OutFile dsh-workbench-bootstrap.ps1; Invoke-WebRequest "$rel/SHA256SUMS" -OutFile SHA256SUMS; $expectedLine = (Select-String -Path SHA256SUMS -Pattern 'dsh-workbench-bootstrap\.ps1$').Line; if (-not $expectedLine) { throw 'SHA256SUMS 中未找到 dsh-workbench-bootstrap.ps1 的记录，已中止' }; $expected = ($expectedLine -split '\s+')[0].ToLower(); if ($expected -notmatch '^[0-9a-f]{64}$') { throw "SHA256SUMS 中的哈希格式不合法：$expected" }; $actual = (Get-FileHash dsh-workbench-bootstrap.ps1 -Algorithm SHA256).Hash.ToLower(); if ($actual -ne $expected) { throw "SHA256 校验失败：期望 $expected，实际 $actual" }; pwsh -NoProfile -ExecutionPolicy Bypass -File .\dsh-workbench-bootstrap.ps1 }
+```
+
+macOS（Terminal）：
+
+```
+rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2'; if curl -fsSLO "$rel/dsh-workbench-bootstrap.sh" && curl -fsSLO "$rel/SHA256SUMS"; then expected=$(grep 'dsh-workbench-bootstrap\.sh$' SHA256SUMS | awk '{print $1}'); actual=$(shasum -a 256 dsh-workbench-bootstrap.sh | awk '{print $1}'); if [ -n "$expected" ] && printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$' && [ "$actual" = "$expected" ]; then chmod +x dsh-workbench-bootstrap.sh && ./dsh-workbench-bootstrap.sh; else echo 'SHA256 校验失败，已中止，不会执行未校验脚本' >&2; false; fi; else echo '下载失败，已中止，不会执行未校验脚本' >&2; false; fi
+```
+
+脚本做了什么、如何卸载、哈希何时生效等完整说明见 [`docs/INSTALL.md` § 分屏（bootstrap）](docs/INSTALL.md#b-split-pane-bootstrap)。
+
+<details>
+<summary><strong>高级：从源码构建（审计路径）</strong></summary>
+
+完整版见 [`docs/INSTALL.md` § Advanced: source build](docs/INSTALL.md#advanced-source-build)。这条路径依旧有效，面向想要逐字审计每一行代码的用户；它不再是默认路径，仅因为现在已经有不可变的 Release 产物可用。
+
+> [!TIP]
+> **一句话安装（源码审计路径）：复制下面整句发给 DeepSeek Harness**
+>
+> ```text
+> 请从 https://github.com/wanyexin1998/dsh-workbench 安装 DSH Workbench：首先向我索取并确认一个从独立可信渠道获得的完整 40 位 Workbench commit，若我未提供则停止；要求目标目录不存在，使用 git clone --no-checkout 后 checkout --detach 该提交，每个 Git 命令失败都立即停止，并验证 detached HEAD、完整 clean worktree 以及 git rev-parse --verify HEAD 与输入提交的大小写无关精确相等；只有全部验证成功后才读取仓库中的执行性说明并运行 pnpm install --frozen-lockfile 和 pnpm release:check，将生成的 Workbench TGZ 安装到 web profile；仅当我已安装兼容的 Better Sidebar fork 时再安装 Panel Compatibility，不要自动安装或替换第三方插件，不要发布 npm，最后报告实际提交、TGZ SHA256 以及双 Pane、Navigator 和快捷键的验证结果。
+> ```
+
 ### 环境要求
 
 - Node.js `^22.19` 或 `>=24`
@@ -115,9 +154,11 @@ pnpm release:check
 - `release-manifest.json`
 - `SHA256SUMS`
 
-`release:check` 会执行隐私/密钥扫描、发布契约校验、类型检查、187 项测试、依赖审计、干净重建、生成代码扫描、TGZ 打包和 SHA256 校验，不会执行 npm 发布。
+`release:check` 会执行隐私/密钥扫描、发布契约校验、类型检查、241 项包测试与安装契约/引导脚本测试套件、依赖审计、干净重建、生成代码扫描、TGZ 打包和 SHA256 校验，不会执行 npm 发布。
 
 > 完整安装顺序、Harness fork 构建方式和可选面板接入步骤见 [`docs/INSTALL.md`](docs/INSTALL.md)。
+
+</details>
 
 ## 交互约定
 
