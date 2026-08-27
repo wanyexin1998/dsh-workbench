@@ -100,7 +100,7 @@ rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2
 | 任务 | 内容 | 验收 | 量级 | 状态 |
 | --- | --- | --- | --- | --- |
 | T0.1 双窗口实验 | 同一 profile 开两个浏览器窗口各停不同 Session，验证 host 是否允许并发 client、current 是否独立 | 得出成立/不成立结论并记录；若成立，作为"第 0 层双 Pane"写入 A4 文档 | S | 未开始 |
-| T0.2 JTBD 确认 | 向真实测试用户确认 pane B 用途（只读观察 vs 双向交互），确定保真度 bar | 结论写入 task_plan §2 附注；影响 W2 与提案验收表述 | S | 未开始 |
+| T0.2 JTBD 确认 | 确认 pane B 用途（只读观察 vs 双向交互），确定保真度 bar | 结论写入 task_plan §2 附注；影响 W2 与提案验收表述 | S | **已裁决**（2026-08-27 维护者即产品所有者拍板：两个 Pane 均须支持全部双向操作，全保真为硬需求；只读/降级形态出局，无需用户访谈） |
 | T0.3 安装机制验证 | 验证 `dsh plugin add` 是否接受 npm spec（还是仅 file:TGZ） | 结论写入 A4 文档的安装命令形态 | S | **已完成**（reports/T0.3：透传 pnpm add，Release-first 保持 file:TGZ；已进 A4 文档） |
 | T0.4 guard 结构探测加固 | 即社区承诺 B4/C4：`runStartupGuard` 由 `protocol===2` 数字比对改为结构探测（`requestCapacity` 函数 + `state.getSnapshot` 形状），不符 fail closed；补三类测试 | 包级测试全绿；`detected` 文案可诊断 | S | **已完成**（commit 7c9bd5a，Opus 变异测试 5/5 击杀） |
 
@@ -216,7 +216,7 @@ Phase 0: T0.1  T0.2  T0.3  T0.4(=B4)   （并行，先行）
 - **已完成并 commit**：T0.3、T0.4/B4、A1–A4、W1.1–W1.3、V1–V3、B2 审计、
   发布门接入 bootstrap 套件、`.sh` LF 保护——共 11 个 commit，每个开发交付
   均经 Sonnet 实现 + Opus 双轮验收（含变异测试/tripwire 证据）。
-- **待维护者动作**：T0.1 双窗口实验、T0.2 JTBD 访谈（需真实环境/用户）；
+- **待维护者动作**：T0.1 双窗口实验（需真实环境；T0.2 已由维护者拍板关闭）；
   A5 平台 E2E（Windows 冷环境 + macOS 用户渠道）；A6 发布（需授权：版本盖章
   rc.1→rc.2、TGZ 哈希盖章、人工 bootstrap E2E、§1 英文命令变体、Release 上传）。
 - **等外部**：B1（denial123789 回复）、B5/B6（上游表态）；B3（可选，需构建 fork）。
