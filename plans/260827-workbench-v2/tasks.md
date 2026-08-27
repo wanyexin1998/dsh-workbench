@@ -101,8 +101,8 @@ rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2
 | --- | --- | --- | --- | --- |
 | T0.1 双窗口实验 | 同一 profile 开两个浏览器窗口各停不同 Session，验证 host 是否允许并发 client、current 是否独立 | 得出成立/不成立结论并记录；若成立，作为"第 0 层双 Pane"写入 A4 文档 | S | 未开始 |
 | T0.2 JTBD 确认 | 向真实测试用户确认 pane B 用途（只读观察 vs 双向交互），确定保真度 bar | 结论写入 task_plan §2 附注；影响 W2 与提案验收表述 | S | 未开始 |
-| T0.3 安装机制验证 | 验证 `dsh plugin add` 是否接受 npm spec（还是仅 file:TGZ） | 结论写入 A4 文档的安装命令形态 | S | 未开始 |
-| T0.4 guard 结构探测加固 | 即社区承诺 B4/C4：`runStartupGuard` 由 `protocol===2` 数字比对改为结构探测（`requestCapacity` 函数 + `state.getSnapshot` 形状），不符 fail closed；补三类测试 | 包级测试全绿；`detected` 文案可诊断 | S | 已有任务卡，未实施 |
+| T0.3 安装机制验证 | 验证 `dsh plugin add` 是否接受 npm spec（还是仅 file:TGZ） | 结论写入 A4 文档的安装命令形态 | S | **已完成**（reports/T0.3：透传 pnpm add，Release-first 保持 file:TGZ；已进 A4 文档） |
+| T0.4 guard 结构探测加固 | 即社区承诺 B4/C4：`runStartupGuard` 由 `protocol===2` 数字比对改为结构探测（`requestCapacity` 函数 + `state.getSnapshot` 形状），不符 fail closed；补三类测试 | 包级测试全绿；`detected` 文案可诊断 | S | **已完成**（commit 7c9bd5a，Opus 变异测试 5/5 击杀） |
 
 已完成并归档（不再列为任务）：fork diff 实测（3 commits，+1671/−171，生产约 500–600 行）、上游侦察（官方不收外部 PR/issue，Discussions 为官方反馈渠道）——记录见 task_plan §3.5。
 
@@ -121,14 +121,21 @@ rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2
 TGZ、真实 clone/build/install/launcher）——目前 `pnpm exec dsh` 在 fork 根目录内
 的解析路径只在离线（`--check-only`/单元测试）场景下验证过，未经端到端实测。
 
+**主线 A 状态（2026-08-27 sprint 收尾）**：A1（0390aa9）、A2（87153cb）、A3
+（c6da80f + 401b4ad 发布门接入 + 3be5028 LF 保护）、A4（06b626e）均已完成并
+通过 Opus 双轮验收；A5 需真实平台冷环境与 macOS 用户渠道、A6 需发布授权，
+均为维护者动作，未启动。A6 已知债务：release-contract `workbenchVersion`
+rc.1→rc.2 与脚本内 `WORKBENCH_TGZ_SHA256` 盖章、§1 命令英文变体、bootstrap
+人工 E2E（本注）。
+
 ## 4. 主线 B — 上游协作与社区承诺（对应 task_plan §3.5/§3.6）
 
 | 任务 | 内容 | 触发条件 | 量级 | 状态 |
 | --- | --- | --- | --- | --- |
 | B1 提案正文条文化 | 渲染按 id 绑定升为协议条款、`visible` 禁重复 id、close 永不归档 + 右邻后左邻、外部移除独立 reconciliation 事件、`open()` 类型化返回 | 等 denial123789 回复优先级后一并编辑 #4718 正文 | S | 等待回复 |
-| B2 fork 异步身份捕获审计 | send/paste/upload/model-selection/question/approval 各路径是否在发起时绑定 pane session id；结论写入契约 + 验收用例 | 无前置，可随时做 | M | 未开始 |
+| B2 fork 异步身份捕获审计 | send/paste/upload/model-selection/question/approval 各路径是否在发起时绑定 pane session id；结论写入契约 + 验收用例 | 无前置，可随时做 | M | **审计已完成**（reports/B2：SAFE 6 / UNSAFE 1——拖拽上传监听挂 document、分屏下一次拖放进所有 Pane；fork 侧修复与回馈社区待维护者决策） |
 | B3 跑 22 个验收用例 | SandBase handbook 用例对照 fork e2e，如实汇报通过/未通过 | 无前置 | M | 未开始 |
-| B4 guard 加固 | = T0.4，双重登记以防遗漏 | 无前置 | S | 未实施 |
+| B4 guard 加固 | = T0.4，双重登记以防遗漏 | 无前置 | S | **已完成**（=T0.4，commit 7c9bd5a） |
 | B5 版本号让渡 | 提案编号改为 upstream-owned（从 1 起或 capability/version 对）；未知版本 fail closed 到容量 1 | 等上游表态 | S | 等待上游 |
 | B6 开放决策跟踪 | 容量收缩语义（explicit-reconciliation vs admission-only）、session 级插槽 opt-in 信号形态 | 社区/上游拍板后落实到 fork 与提案 | — | 跟踪中 |
 
@@ -136,7 +143,7 @@ TGZ、真实 clone/build/install/launcher）——目前 `pnpm exec dsh` 在 for
 
 ## 5. 主线 C — 快捷键开放动作目录（design.md 的任务化）
 
-### W1 目录动态化（纯 Workbench，无外部依赖，可随时启动；**属于 rc.2 交付范围**）
+### W1 目录动态化（纯 Workbench，无外部依赖；**属于 rc.2 交付范围**）——**已全部完成**（W1.1 e551277 / W1.2 ac2ce91 / W1.3 4949c4f，均经 Opus 双轮验收 + 变异验证；包测试 234 项全绿）
 
 | 任务 | 内容 | 验收 | 量级 |
 | --- | --- | --- | --- |
@@ -144,7 +151,7 @@ TGZ、真实 clone/build/install/launcher）——目前 `pnpm exec dsh` 在 for
 | W1.2 持久化命名空间化 | 动作 id 加前缀（`workbench.*` 等）；旧 id 沿 `LEGACY_SHORTCUT_NAMESPACE` 机制再迁移一轮 | 迁移测试：旧绑定无损迁移，新旧并存期读取正确 | S |
 | W1.3 设置页开放化 | 按 provider 折叠分组、缺席态灰显（绑定保留）、搜索框 | 组件测试：分组渲染、缺席态、搜索过滤、冲突/保留键提示不回退 | M |
 
-### 验证门（W2 前置，对本地 rc.2 实证，不确认不开工）
+### 验证门（W2 前置，对本地 rc.2 实证，不确认不开工）——**三门全部 PASS**（reports/V1-V3-command-bridge-gates.md：`ctx.remote.commands` 公开可达、focused Agent 句柄有公开路径、日志语义已确认；W2 可在 rc.2 后开工，四个非阻塞运行时余项见报告）
 
 | 门 | 内容 | 产出 |
 | --- | --- | --- |
@@ -203,3 +210,15 @@ Phase 0: T0.1  T0.2  T0.3  T0.4(=B4)   （并行，先行）
 | bootstrap 脚本分发 | 不可变 Release 附件，哈希进 SHA256SUMS | A3 形态与 §1 命令形态确定；不做仓库内脚本或远程一行执行 |
 | git 授权 | 本地 commit 允许（含 plans/），不 push | §7 更新；push/tag/Release 仍逐次授权 |
 | 平台覆盖 | Windows + macOS（`.ps1` + `.sh` 双版），Linux 保持未验证 | A3 双脚本；A5 两平台矩阵；macOS 复测走真实用户渠道 |
+
+## 9. Sprint 收尾记录（2026-08-27，feat/workbench-v2）
+
+- **已完成并 commit**：T0.3、T0.4/B4、A1–A4、W1.1–W1.3、V1–V3、B2 审计、
+  发布门接入 bootstrap 套件、`.sh` LF 保护——共 11 个 commit，每个开发交付
+  均经 Sonnet 实现 + Opus 双轮验收（含变异测试/tripwire 证据）。
+- **待维护者动作**：T0.1 双窗口实验、T0.2 JTBD 访谈（需真实环境/用户）；
+  A5 平台 E2E（Windows 冷环境 + macOS 用户渠道）；A6 发布（需授权：版本盖章
+  rc.1→rc.2、TGZ 哈希盖章、人工 bootstrap E2E、§1 英文命令变体、Release 上传）。
+- **等外部**：B1（denial123789 回复）、B5/B6（上游表态）；B3（可选，需构建 fork）。
+- **B2 审计结论待决策**：fork 拖拽上传 UNSAFE 修复是否落 fork 分支、是否回馈
+  社区（走逐次授权）。
