@@ -37,9 +37,31 @@ export function settingsBindingSection(snapshot: unknown): Record<string, unknow
 }
 
 /** Adapter (temporary, tracked in issue #1 proposal 4): no public composer
- * focus API exists in the harness rc — locate the composer input via DOM. */
+ * focus API exists in the harness rc — locate the composer input via DOM.
+ * Defensive: `presentation` is a host-provided (protocol 2) face; its
+ * `state`/`getSnapshot` shape is asserted by HarnessServices but not
+ * guaranteed at runtime. The split-pane guard fails closed by *leaving
+ * shortcuts registered* on a bad presentation face (by design), so this
+ * accessor must degrade to "no focused session" on a malformed or
+ * throwing `state`/`getSnapshot` rather than throw inside the keydown
+ * handler. An uncaught throw here would *not* "take shortcuts down" —
+ * the dispatcher already calls event.preventDefault() before action.run()
+ * (see attachDispatcher, shortcuts.tsx:251-252) — it would just swallow
+ * that one chord and make the action silently fail. Narrowed via
+ * `unknown` once, here, rather than trusting the static type of a value
+ * that ultimately came from `ctx.get()`. */
 function focusedSessionId(services: HarnessServices): string | undefined {
-  return services.sessions?.presentation?.state.getSnapshot().focused
+  const state: unknown = services.sessions?.presentation?.state
+  if (typeof state !== 'object' || state === null) return undefined
+  const getSnapshot = (state as { getSnapshot?: unknown }).getSnapshot
+  if (typeof getSnapshot !== 'function') return undefined
+  let snapshot: unknown
+  try {
+    snapshot = getSnapshot.call(state)
+  } catch {
+    return undefined
+  }
+  return typeof snapshot === 'object' && snapshot !== null ? (snapshot as { focused?: string }).focused : undefined
 }
 
 function focusedPane(services: HarnessServices): ParentNode {

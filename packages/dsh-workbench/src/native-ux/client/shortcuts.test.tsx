@@ -75,6 +75,58 @@ describe('shortcut dispatcher (seam B)', () => {
     off2()
   })
 
+  it('falls back to the document-scope composer when presentation.state is malformed', () => {
+    // Guards against a protocol-2 presentation face whose `state` doesn't
+    // actually carry `getSnapshot` at runtime (the split-pane guard fails
+    // closed by leaving shortcuts registered, so this must not crash them).
+    // `.not.toThrow()` alone is vacuous here: keydown() dispatches through
+    // window.dispatchEvent, and jsdom swallows listener exceptions, so a
+    // throwing handler never propagates back out to the assertion. Assert
+    // the actually-observable behavior instead: with no resolvable focused
+    // session, the dispatcher still lands focus on the document-scope
+    // composer seat rather than silently dropping the chord.
+    const seat = document.createElement('div')
+    seat.setAttribute('data-composer-seat', '')
+    const input = document.createElement('textarea')
+    seat.appendChild(input)
+    document.body.appendChild(seat)
+    const services = {
+      // Deliberately violates the static SessionsService shape (`state` is
+      // typed as a required object) to exercise the runtime guard.
+      sessions: { scope: vi.fn(), presentation: { state: null as any, close: vi.fn() } },
+    }
+    const registry = buildShortcutRegistry({ services })
+    detach = attachDispatcher(registry)
+    keydown({ key: '/', ctrlKey: true })
+    expect(document.activeElement).toBe(input)
+    seat.remove()
+  })
+
+  it('falls back to the document-scope composer when presentation.state.getSnapshot() throws', () => {
+    // Same degraded-but-alive contract as the malformed-state case above,
+    // exercised through a `state` that satisfies the static shape but
+    // throws when actually called (e.g. a flaky host-side accessor).
+    const seat = document.createElement('div')
+    seat.setAttribute('data-composer-seat', '')
+    const input = document.createElement('textarea')
+    seat.appendChild(input)
+    document.body.appendChild(seat)
+    const services = {
+      sessions: {
+        scope: vi.fn(),
+        presentation: {
+          state: { getSnapshot: () => { throw new Error('boom') } },
+          close: vi.fn(),
+        },
+      },
+    }
+    const registry = buildShortcutRegistry({ services })
+    detach = attachDispatcher(registry)
+    keydown({ key: '/', ctrlKey: true })
+    expect(document.activeElement).toBe(input)
+    seat.remove()
+  })
+
   it('focuses the composer inside the focused pane', () => {
     const first = document.createElement('section')
     first.dataset.sessionPane = 's1'
