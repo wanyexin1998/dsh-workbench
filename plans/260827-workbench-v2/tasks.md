@@ -159,7 +159,7 @@ rc.1→rc.2 与脚本内 `WORKBENCH_TGZ_SHA256` 盖章、§1 命令英文变体�
 | V2 | client 侧获取 focused pane 对应 `Agent` 句柄的公开路径 | 同上 |
 | V3 | 快捷键触发 `execute` 的会话日志语义（`command/run` 落日志的可见后果） | "直接执行"选项的默认文案与提示设计 |
 
-### W2 Host 命令桥（V1–V3 全过后）
+### W2 Host 命令桥（V1–V3 全过后）——**代码面已完成**（2026-08-28，分支 feat/w2-host-command-bridge：枚举/订阅/冷启动补齐、双映射执行、按键捕获会话 id、opt-in 持久化；287 项包测试全绿，Opus 双轮验收 + 审查者独立重探。**合并门**：维护者真实客户端冒烟——设置页出现"DeepSeek Harness 命令"分组、绑键可把 `/命令 ` 填入聚焦输入框；该冒烟同时覆盖 presentation.state.subscribe 在真实 RC 上存在与否的静默降级检查）
 
 | 任务 | 内容 | 验收 | 量级 |
 | --- | --- | --- | --- |
