@@ -221,7 +221,7 @@ describe('shortcut dispatcher (seam B)', () => {
   it('composer-focus invariant: allowlisted toggle fires from the composer seat input', () => {
     // The composer's focus target is the host seat ([data-composer-seat] —
     // capabilities.ts composerDom / sdk-facts.md). With focus actually on the
-    // seat's input, conversation.navigator.toggle must still fire (GA-020),
+    // seat's input, workbench.conversation.navigator.toggle must still fire (GA-020),
     // while the focus target itself stays the composer (no focus steal).
     const seat = document.createElement('div')
     seat.setAttribute('data-composer-seat', '')

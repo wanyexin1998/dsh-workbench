@@ -229,7 +229,7 @@ export function NavigatorAnchor({ sessionId, useSession, t, sessions }: Navigato
     return () => window.clearTimeout(timer)
   }, [state.pointerInside, state.expanded, state.pinned])
 
-  // Shortcut integration: conversation.navigator.toggle → pin/expand toggle.
+  // Shortcut integration: workbench.conversation.navigator.toggle → pin/expand toggle.
   React.useEffect(
     () => navigatorBus.onToggle(sessionId, () => dispatch({ type: 'rail-click' })),
     [sessionId],

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildShortcutRegistry } from './shortcuts.js'
 import { SettingsSection, type ShortcutCapabilities, type ShortcutSettingsController } from './shortcuts.js'
 import { en, zh } from './locales.js'
+import { parsePersistedState } from './shortcut-persistence.js'
 
 /** Host where both services exist (the realistic case): service-backed
  * actions (sidebar / session.stop) register. GA-043 fail-soft gates them on
@@ -97,7 +98,7 @@ describe('SettingsSection (T8)', () => {
     expect((save as HTMLButtonElement).disabled).toBe(false)
     fireEvent.click(save)
     await act(async () => {})
-    expect(controller.scope.set).toHaveBeenCalledWith('conversation.navigator.toggle', 'Primary+Shift+P')
+    expect(controller.scope.set).toHaveBeenCalledWith('workbench.conversation.navigator.toggle', 'Primary+Shift+P')
     expect(controller.reload).toHaveBeenCalled()
   })
 
@@ -126,22 +127,22 @@ describe('SettingsSection (T8)', () => {
   })
 
   it('reset clears the override and reloads (via the overflow menu, GA-013)', async () => {
-    const controller = makeController({ 'session.stop': 'Primary+Shift+Y' })
+    const controller = makeController({ 'workbench.session.stop': 'Primary+Shift+Y' })
     renderSection(controller)
-    const row = document.querySelector('[data-dsh-nux-shortcut-row="session.stop"]')!
+    const row = document.querySelector('[data-dsh-nux-shortcut-row="workbench.session.stop"]')!
     fireEvent.click(row.querySelector('[data-dsh-nux-overflow]')!)
     const resetButton = row.querySelector('[data-dsh-nux-reset]') as HTMLButtonElement
     expect(resetButton.disabled).toBe(false)
     fireEvent.click(resetButton)
     await act(async () => {})
-    expect(controller.scope.unset).toHaveBeenCalledWith('session.stop')
+    expect(controller.scope.unset).toHaveBeenCalledWith('workbench.session.stop')
     expect(controller.reload).toHaveBeenCalled()
   })
 
   it('overflow menu holds the enabled toggle (GA-013)', async () => {
     const controller = makeController()
     renderSection(controller)
-    const row = document.querySelector('[data-dsh-nux-shortcut-row="session.stop"]')!
+    const row = document.querySelector('[data-dsh-nux-shortcut-row="workbench.session.stop"]')!
     fireEvent.click(row.querySelector('[data-dsh-nux-overflow]')!)
     const enabled = row.querySelector('[data-dsh-nux-overflow-enabled] input') as HTMLInputElement
     expect(enabled.checked).toBe(true)
@@ -151,7 +152,7 @@ describe('SettingsSection (T8)', () => {
   })
 
   it('flags conflicts between bindings', () => {
-    const controller = makeController({ 'conversation.composer.focus': 'Primary+Shift+O' })
+    const controller = makeController({ 'workbench.conversation.composer.focus': 'Primary+Shift+O' })
     renderSection(controller)
     expect(screen.getAllByText(/shortcuts.conflict/).length).toBeGreaterThan(0)
   })
@@ -170,9 +171,28 @@ describe('SettingsSection (T8)', () => {
     expect(button.textContent).toContain('Ctrl+Shift+O')
     // Async hydration commits state and notifies the component.
     await act(async () => {
-      controller.persisted = { bindings: { 'conversation.navigator.toggle': 'Primary+Shift+E' }, disabled: new Set() }
+      controller.persisted = { bindings: { 'workbench.conversation.navigator.toggle': 'Primary+Shift+E' }, disabled: new Set() }
       notify?.()
     })
     expect(button.textContent).toContain('Ctrl+Shift+E')
+  })
+
+  it('W1.2: a persisted old-id override migrates and displays under the renamed action row', () => {
+    // Simulates what applyShortcuts() hydration actually produces: raw
+    // persisted JSON with the pre-W1.2 bare id, run through
+    // parsePersistedState (the persistence layer's migration choke point),
+    // then committed as controller.persisted. The settings row is keyed by
+    // the LIVE (namespaced) action id, so display only works end-to-end if
+    // the migration actually ran.
+    const migrated = parsePersistedState({
+      schemaVersion: 1,
+      bindings: { 'session.stop': 'Primary+Shift+Y' },
+    })
+    const controller = makeController(migrated.bindings)
+    controller.persisted = { bindings: migrated.bindings, disabled: new Set() }
+    renderSection(controller)
+    const row = document.querySelector('[data-dsh-nux-shortcut-row="workbench.session.stop"]')
+    expect(row).not.toBeNull()
+    expect(row!.querySelector('[data-dsh-nux-chord-button]')?.textContent).toContain('Ctrl+Shift+Y')
   })
 })

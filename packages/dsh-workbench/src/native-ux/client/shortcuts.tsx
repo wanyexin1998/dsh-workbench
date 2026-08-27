@@ -160,50 +160,53 @@ export function buildShortcutRegistry(options: ShortcutActionOptions = {}): Acti
   const registry = new ActionRegistry()
   if (navigatorOn) {
     registry.register({
-      id: 'conversation.navigator.toggle',
+      id: 'workbench.conversation.navigator.toggle',
       label: 'shortcuts.action.navigator.toggle',
       defaultChord: 'Primary+Shift+O',
       run: () => navigatorBus.emitToggle(focusedSessionId(services)),
-    }, unbind(overrides['conversation.navigator.toggle']), disabled.has('conversation.navigator.toggle'))
+    }, unbind(overrides['workbench.conversation.navigator.toggle']), disabled.has('workbench.conversation.navigator.toggle'))
   }
   if (composerOn) {
     registry.register({
-      id: 'conversation.composer.focus',
+      id: 'workbench.conversation.composer.focus',
       label: 'shortcuts.action.composer.focus',
       defaultChord: 'Primary+/',
       run: () => { focusComposer(services) },
-    }, unbind(overrides['conversation.composer.focus']), disabled.has('conversation.composer.focus'))
+    }, unbind(overrides['workbench.conversation.composer.focus']), disabled.has('workbench.conversation.composer.focus'))
   }
   if (sidebarOn) {
     registry.register({
-      id: 'layout.sidebar.toggle',
+      id: 'workbench.layout.sidebar.toggle',
       label: 'shortcuts.action.sidebar.toggle',
       defaultChord: 'Primary+B',
       run: () => services.layout?.toggleSidebar(),
-    }, unbind(overrides['layout.sidebar.toggle']), disabled.has('layout.sidebar.toggle'))
+    }, unbind(overrides['workbench.layout.sidebar.toggle']), disabled.has('workbench.layout.sidebar.toggle'))
   }
   if (stopOn) {
     registry.register({
-      id: 'session.stop',
+      id: 'workbench.session.stop',
       label: 'shortcuts.action.session.stop',
       defaultChord: 'Primary+Shift+X',
       run: () => stopSession(services),
-    }, unbind(overrides['session.stop']), disabled.has('session.stop'))
+    }, unbind(overrides['workbench.session.stop']), disabled.has('workbench.session.stop'))
   }
   if (services.sessions?.presentation !== undefined) {
     registry.register({
-      id: 'pane.close-focused',
+      id: 'workbench.pane.close-focused',
       label: 'shortcuts.action.pane.closeFocused',
       defaultChord: 'Primary+\\',
       run: () => {
         const focused = focusedSessionId(services)
         if (focused !== undefined) services.sessions?.presentation?.close(focused)
       },
-    }, unbind(overrides['pane.close-focused']), disabled.has('pane.close-focused'))
+    }, unbind(overrides['workbench.pane.close-focused']), disabled.has('workbench.pane.close-focused'))
   }
   if (favoriteOn) {
     for (let index = 1; index <= 9; index++) {
-      const id = 'agent.favorite.open:' + index
+      // W1.2: 'workbench.' + the frozen pre-namespace id (never change the
+      // suffix independently of shortcut-persistence.ts's
+      // LEGACY_BUILTIN_ACTION_IDS, which migrates the bare form forward).
+      const id = 'workbench.agent.favorite.open:' + index
       registry.register({
         id,
         label: 'shortcuts.action.favorite.' + index,
@@ -224,7 +227,7 @@ export function setRecordingActive(active: boolean): void {
 
 // Editable targets such as the Composer suppress shortcuts by default. Only
 // this allowlist remains reachable while typing; Session stop stays blocked.
-const EDITABLE_ALLOWED_ACTIONS = new Set(['conversation.navigator.toggle'])
+const EDITABLE_ALLOWED_ACTIONS = new Set(['workbench.conversation.navigator.toggle'])
 
 /** Accept native user input in production; Vitest uses synthetic DOM events. */
 export function isTrustedShortcutEvent(
@@ -355,8 +358,8 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
 
   const platform = platformOf()
   const actions = controller.registry.all()
-  const navigationActions = actions.filter((a) => !a.id.startsWith('agent.favorite'))
-  const favoriteActions = actions.filter((a) => a.id.startsWith('agent.favorite'))
+  const navigationActions = actions.filter((a) => !a.id.startsWith('workbench.agent.favorite'))
+  const favoriteActions = actions.filter((a) => a.id.startsWith('workbench.agent.favorite'))
   const chordOwners = new Map<string, string[]>()
   for (const action of actions) {
     if (localDisabled.has(action.id)) continue // disabled actions hold no chord

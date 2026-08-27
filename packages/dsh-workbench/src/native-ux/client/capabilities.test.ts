@@ -73,18 +73,18 @@ describe('fail-soft: service-backed actions gate on service presence (GA-043)', 
     // No services → only the always-on navigator/composer (+ favorites off) register.
     const none = buildShortcutRegistry()
     const ids = none.all().map((a) => a.id)
-    expect(ids).not.toContain('layout.sidebar.toggle')
-    expect(ids).not.toContain('session.stop')
-    expect(ids).toContain('conversation.navigator.toggle')
+    expect(ids).not.toContain('workbench.layout.sidebar.toggle')
+    expect(ids).not.toContain('workbench.session.stop')
+    expect(ids).toContain('workbench.conversation.navigator.toggle')
 
     // Layout present → sidebar registers; sessions still absent.
     const layout = buildShortcutRegistry({ services: { layout: { toggleSidebar: () => {} } } })
-    expect(layout.all().some((a) => a.id === 'layout.sidebar.toggle')).toBe(true)
-    expect(layout.all().some((a) => a.id === 'session.stop')).toBe(false)
+    expect(layout.all().some((a) => a.id === 'workbench.layout.sidebar.toggle')).toBe(true)
+    expect(layout.all().some((a) => a.id === 'workbench.session.stop')).toBe(false)
 
     // Sessions present → session.stop registers.
     const sessions = buildShortcutRegistry({ services: { sessions: { scope: () => ({ get: () => ({ cancel: () => {} }) }) } } })
-    expect(sessions.all().some((a) => a.id === 'session.stop')).toBe(true)
+    expect(sessions.all().some((a) => a.id === 'workbench.session.stop')).toBe(true)
   })
 })
 
