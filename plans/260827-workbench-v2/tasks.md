@@ -1,0 +1,151 @@
+# Workbench 优化迭代 v2 — 完整任务清单 / Consolidated task list
+
+> 内部执行清单，2026-08-27。v2 任务的**唯一执行依据**；战略与决策理由见 [`../260827-real-user-install-review/task_plan.md`](../260827-real-user-install-review/task_plan.md)，快捷键设计细节见 [`../260827-shortcuts-open-actions/design.md`](../260827-shortcuts-open-actions/design.md)。任务内容如与那两份文档冲突，以本清单为准并回写修订。
+> 当前授权状态：实施期间**允许本地 commit（含 plans/ 文档入库），不 push**；push / tag / Release / npm 仍逐次单独授权（上游 Discussions 沟通已单独授权，见主线 B）。
+> 关键决策已定（2026-08-27，见 §8 决策记录）：rc.2 = 主线 A + W1；bootstrap 脚本以 Release 附件分发；平台覆盖 Windows + macOS。
+
+---
+
+## English summary
+
+The single execution checklist for Workbench iteration v2, consolidating three tracks: **Track A — install & distribution** (result contract, stock generic mode, source-bootstrap installer replacing the cancelled Edition, Release-first docs, platform E2E, rc.2 release), **Track B — upstream & community** (the five outstanding commitments from discussion #4718 plus two open design decisions), and **Track C — shortcuts open action catalog** (W1 registry dynamization → V1–V3 verification gates → W2 host command bridge → W3 public API → W4 pinned adapter). A normative **post-install disclosure script** is defined in §1: after a stock-Harness install, the agent must tell the user that split pane is inactive because official Harness lacks the multi-pane interface, that everything else works, and offer exactly one copy-paste bootstrap command that builds a patched parallel copy in an isolated directory without touching the official install. Phase 0 cheap verifications precede Track A. All tasks await maintainer authorization; no commit/push/release.
+
+---
+
+## 1. 话术规范：安装终态披露（normative）
+
+**适用场景**：Agent 在 stock Harness 上完成通用插件安装后的收尾输出；read-only home 降级路径同样以此话术 + 唯一命令收尾（对齐 task_plan §4.2 状态机）。
+
+**标准话术**（zh；en 版本随 P05 一并产出，两版进产品字典）：
+
+```text
+✅ DSH Workbench 已安装完成。Navigator、快捷键等通用功能现在就可以使用。
+
+ℹ️ 分屏（双 Pane）功能当前未激活：你的官方 Harness 还不支持多 Pane 所需的
+接口（该接口已作为提案提交官方，进展见
+https://github.com/deepseek-ai/deepseek-harness/discussions/4718）。
+这不是安装出错，其余功能不受影响。
+
+如果你现在就想用分屏，可以运行下面这一条命令。它会在独立目录里构建一份
+带补丁的 Harness 副本，与你的官方版并存——不会改动官方安装、配置或任何
+会话数据；不想要时删除该目录即可，官方 Harness 不受任何影响：
+
+<BOOTSTRAP_COMMAND>
+```
+
+**五要素硬性要求**（验收时逐项检查）：
+
+1. 明示分屏**未激活**及原因（官方接口缺失），并说明这不是安装失败；
+2. 明示其余功能**现在可用**；
+3. 明示 bootstrap 与官方版**并存、零改动官方安装/配置/会话**（不得使用"对 Harness 做改动"等易误解为改官方安装的表述）;
+4. 明示**可整体删除、无残留影响**；
+5. 命令**唯一且可直接复制**，`<BOOTSTRAP_COMMAND>` 在 A3 产出后回填，此前不得对用户展示占位符。
+
+**命令形态**（按 §8 决策）：命令 = 下载 rc.2 Release 附件中的 bootstrap 脚本 → 校验 SHA256（对照 `SHA256SUMS`）→ 运行。Windows（`.ps1`）与 macOS（`.sh`）各一版，话术按用户平台只展示对应的那一条。
+
+---
+
+## 2. Phase 0 — 低成本验证（先于主线 A 执行）
+
+| 任务 | 内容 | 验收 | 量级 | 状态 |
+| --- | --- | --- | --- | --- |
+| T0.1 双窗口实验 | 同一 profile 开两个浏览器窗口各停不同 Session，验证 host 是否允许并发 client、current 是否独立 | 得出成立/不成立结论并记录；若成立，作为"第 0 层双 Pane"写入 A4 文档 | S | 未开始 |
+| T0.2 JTBD 确认 | 向真实测试用户确认 pane B 用途（只读观察 vs 双向交互），确定保真度 bar | 结论写入 task_plan §2 附注；影响 W2 与提案验收表述 | S | 未开始 |
+| T0.3 安装机制验证 | 验证 `dsh plugin add` 是否接受 npm spec（还是仅 file:TGZ） | 结论写入 A4 文档的安装命令形态 | S | 未开始 |
+| T0.4 guard 结构探测加固 | 即社区承诺 B4/C4：`runStartupGuard` 由 `protocol===2` 数字比对改为结构探测（`requestCapacity` 函数 + `state.getSnapshot` 形状），不符 fail closed；补三类测试 | 包级测试全绿；`detected` 文案可诊断 | S | 已有任务卡，未实施 |
+
+已完成并归档（不再列为任务）：fork diff 实测（3 commits，+1671/−171，生产约 500–600 行）、上游侦察（官方不收外部 PR/issue，Discussions 为官方反馈渠道）——记录见 task_plan §3.5。
+
+## 3. 主线 A — 安装与分发（原 P 序列）
+
+| 任务 | 对应 | 目标 | 验收要点 | 量级 | 依赖 |
+| --- | --- | --- | --- | --- | --- |
+| A1 安装结果契约与回放基线 | P01 | 四终态（installed / manual-action-required / incompatible / failed）+ 匿名化回放 fixture + 短路规则 | 回放旧流程显示"未安装"；不兼容不进入 clone/build；**stock 安装终态输出符合 §1 话术五要素**；敏感内容扫描为零 | M | 无 |
+| A2 stock 通用模式 | P02 | Navigator、快捷键与兼容提示在 stock 上无错加载；Split Pane 严格隔离 | stock 加载零报错；Split Pane 不请求容量不挂载；compatible 行为不回退 | M | A1 |
+| A3 Source bootstrap 安装脚本 | P03′ | 把 INSTALL §1–3 自动化为可审计脚本（`.ps1` + `.sh` 双版）+ 独立 `DSH_HOME` launcher；脚本作为不可变 Release 附件分发，哈希收入 `SHA256SUMS` | 官方安装零写入；一条命令完成；输出四终态之一；脚本对 release-contract 逐项 hash/commit 校验；**产出 §1 的 `<BOOTSTRAP_COMMAND>` 并回填** | M | A1 |
+| A4 统一 Quick Install 双语文档 | P05 | Release-first 默认路径（下载不可变 TGZ + `dsh plugin add`），40 位 commit 流程移入高级附录；描述 stock 通用与 bootstrap 分屏两条路径 | 默认路径无 commit 问答；中英事实一致；**§1 话术双语进字典**；含 T0.1/T0.3 结论 | S–M | A2、A3 |
+| A5 平台隔离 E2E | P06 | **Windows + macOS** 验证：stock 插件安装、read-only home 降级、bootstrap 端到端（macOS 复用真实用户渠道）；Linux 保持"未验证"，不宣称支持 | 每平台冷环境；未跑平台保持"未验证" | M | A4 |
+| A6 `v0.2.0-rc.2` 手工 Release 与复测 | P07 | 不可变 Release + 真实用户复测（无 Edition 产物）；**交付范围含 W1（快捷键目录动态化）** | `pnpm release:check` 通过（含 W1 新增测试）；SHA256 可复算（含双版 bootstrap 脚本附件）；复测达到 task_plan §4.3 时限；话术按 §1 落地 | S–M | A5、W1.3 |
+
+## 4. 主线 B — 上游协作与社区承诺（对应 task_plan §3.5/§3.6）
+
+| 任务 | 内容 | 触发条件 | 量级 | 状态 |
+| --- | --- | --- | --- | --- |
+| B1 提案正文条文化 | 渲染按 id 绑定升为协议条款、`visible` 禁重复 id、close 永不归档 + 右邻后左邻、外部移除独立 reconciliation 事件、`open()` 类型化返回 | 等 denial123789 回复优先级后一并编辑 #4718 正文 | S | 等待回复 |
+| B2 fork 异步身份捕获审计 | send/paste/upload/model-selection/question/approval 各路径是否在发起时绑定 pane session id；结论写入契约 + 验收用例 | 无前置，可随时做 | M | 未开始 |
+| B3 跑 22 个验收用例 | SandBase handbook 用例对照 fork e2e，如实汇报通过/未通过 | 无前置 | M | 未开始 |
+| B4 guard 加固 | = T0.4，双重登记以防遗漏 | 无前置 | S | 未实施 |
+| B5 版本号让渡 | 提案编号改为 upstream-owned（从 1 起或 capability/version 对）；未知版本 fail closed 到容量 1 | 等上游表态 | S | 等待上游 |
+| B6 开放决策跟踪 | 容量收缩语义（explicit-reconciliation vs admission-only）、session 级插槽 opt-in 信号形态 | 社区/上游拍板后落实到 fork 与提案 | — | 跟踪中 |
+
+**上游 tripwire**（不变，见 task_plan §3.5）：接纳 → 删 bootstrap 桥；明确拒绝 → 触发条件化 Edition 重估；沉默 → bootstrap 按终态定价持续。跟进邮件仅在 #4718 无官方回应 2–3 周后发送（草稿已备）。
+
+## 5. 主线 C — 快捷键开放动作目录（design.md 的任务化）
+
+### W1 目录动态化（纯 Workbench，无外部依赖，可随时启动；**属于 rc.2 交付范围**）
+
+| 任务 | 内容 | 验收 | 量级 |
+| --- | --- | --- | --- |
+| W1.1 ActionRegistry 改造 | `register()` 返回 disposer；支持动态注销与重绑；增加 provider 元数据与 `isEnabled` | 单元测试覆盖注册/注销/重绑/冲突保持 | S–M |
+| W1.2 持久化命名空间化 | 动作 id 加前缀（`workbench.*` 等）；旧 id 沿 `LEGACY_SHORTCUT_NAMESPACE` 机制再迁移一轮 | 迁移测试：旧绑定无损迁移，新旧并存期读取正确 | S |
+| W1.3 设置页开放化 | 按 provider 折叠分组、缺席态灰显（绑定保留）、搜索框 | 组件测试：分组渲染、缺席态、搜索过滤、冲突/保留键提示不回退 | M |
+
+### 验证门（W2 前置，对本地 rc.2 实证，不确认不开工）
+
+| 门 | 内容 | 产出 |
+| --- | --- | --- |
+| V1 | client 侧经 api-remotes/typert 可达 `commands`（list / execute / 变更订阅） | 可行性结论 + 最小 PoC 代码片段 |
+| V2 | client 侧获取 focused pane 对应 `Agent` 句柄的公开路径 | 同上 |
+| V3 | 快捷键触发 `execute` 的会话日志语义（`command/run` 落日志的可见后果） | "直接执行"选项的默认文案与提示设计 |
+
+### W2 Host 命令桥（V1–V3 全过后）
+
+| 任务 | 内容 | 验收 | 量级 |
+| --- | --- | --- | --- |
+| W2.1 枚举与订阅 | `list(agent)` → 动作目录注入（`host.command.*`）；注册表变更实时跟随 | 插件装卸时设置页动态增减；shadowing 按 focused agent 解析 | M |
+| W2.2 双映射执行 | 默认"插入 composer"（`/name ` 填入聚焦输入框）；per-action opt-in "直接执行"；无 input / 有 input 分流 | 有 input 命令永不直接执行；直接执行前提示会话留痕（按 V3 文案） | M |
+| W2.3 桥测试 | 枚举、分流、focused 路由（发起时捕获 session id）、缺席降级 | 包级测试全绿 | S–M |
+
+### W3 公开注册 API
+
+| 任务 | 内容 | 验收 | 量级 |
+| --- | --- | --- | --- |
+| W3.1 `workbench.actions` 服务 | actions protocol 1：`{id, label(), run(), isEnabled?()}`，版本化、fail closed | 契约测试 + 与 W1 目录集成 | M |
+| W3.2 文档与示例 | 第三方插件接入文档（双语）+ 最小示例插件 | 示例插件注册的动作出现在设置页并可绑定 | S |
+
+### W4 首个 pinned 适配器
+
+| 任务 | 内容 | 验收 | 量级 |
+| --- | --- | --- | --- |
+| W4.1 Better Sidebar 适配器 | 面板开关动作；`release-contract.json` 登记精确版本，不符 fail closed | 版本不符时零注入；无任何 DOM 推断 | S–M |
+
+## 6. 依赖图
+
+```text
+Phase 0: T0.1  T0.2  T0.3  T0.4(=B4)   （并行，先行）
+
+主线 A:  A1 ─┬─> A2 ──┐
+             └─> A3 ──┼─> A4 -> A5 ─┐
+主线 C:  W1.1 -> W1.2 -> W1.3 ──────┴─> A6 (rc.2 = A线 + W1)
+         V1,V2,V3 ──> W2.1 -> W2.2 -> W2.3      （rc.2 之后）
+         W1 ──> W3.1 -> W3.2                     （rc.2 之后）
+         W1 ──> W4.1                             （rc.2 之后）
+主线 B:  B1(等回复)  B2  B3  B5(等上游)  B6(跟踪)   （独立于 A/C，B2/B3 可随时做）
+```
+
+关键交叉点：§1 话术在 A1 定验收、A3 产命令、A4 进文档、A6 复测落地；T0.2 的 JTBD 结论可能调整 B1 的提案表述与 W2 的优先级。
+
+## 7. 授权与跟踪约定
+
+- **本地 commit 已授权**（实施期间按任务正常 commit，plans/ 文档一并入库）；push / tag / Release / npm / GitHub 配置修改仍逐次单独授权（沿用 task_plan §7 授权门）。
+- 上游 Discussions 的发帖、回帖、正文编辑按已建立模式逐次由维护者确认后执行。
+- 每完成一个任务，回写本清单"状态"列；涉及决策变化的，同步修订 task_plan 与 design.md 并在各自修订日志留痕。
+
+## 8. 决策记录（2026-08-27，维护者逐项确认）
+
+| 决策 | 结论 | 影响 |
+| --- | --- | --- |
+| rc.2 交付范围 | 主线 A + W1 一起进 | A6 依赖加 W1.3；W2 及之后移出 rc.2 |
+| bootstrap 脚本分发 | 不可变 Release 附件，哈希进 SHA256SUMS | A3 形态与 §1 命令形态确定；不做仓库内脚本或远程一行执行 |
+| git 授权 | 本地 commit 允许（含 plans/），不 push | §7 更新；push/tag/Release 仍逐次授权 |
+| 平台覆盖 | Windows + macOS（`.ps1` + `.sh` 双版），Linux 保持未验证 | A3 双脚本；A5 两平台矩阵；macOS 复测走真实用户渠道 |
