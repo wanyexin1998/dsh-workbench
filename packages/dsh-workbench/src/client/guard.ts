@@ -41,6 +41,55 @@ export function runStartupGuard(sessions: unknown, supported: SupportedHarnessBu
       supported: supportedLabel,
     }
   }
+  // The protocol number alone is not proof of shape: a downstream fork may
+  // claim the same number for a face this plugin cannot actually drive.
+  // Probe the exact members index.tsx calls before trusting the number.
+  const face = presentation as { requestCapacity?: unknown; state?: unknown }
+  if (typeof face.requestCapacity !== 'function') {
+    return {
+      disabled: true,
+      reason: 'incompatible DeepSeek Harness presentation',
+      detected: 'presentation.requestCapacity absent',
+      supported: supportedLabel,
+    }
+  }
+  const state = face.state as { getSnapshot?: unknown } | undefined
+  if (typeof state !== 'object' || state === null || typeof state.getSnapshot !== 'function') {
+    return {
+      disabled: true,
+      reason: 'incompatible DeepSeek Harness presentation',
+      detected: 'presentation.state.getSnapshot absent',
+      supported: supportedLabel,
+    }
+  }
+  let snapshot: unknown
+  try {
+    snapshot = (state.getSnapshot as () => unknown)()
+  } catch {
+    return {
+      disabled: true,
+      reason: 'incompatible DeepSeek Harness presentation',
+      detected: 'state.getSnapshot() threw',
+      supported: supportedLabel,
+    }
+  }
+  const snapshotFace = snapshot as { visible?: unknown; capacity?: unknown } | undefined
+  if (typeof snapshotFace !== 'object' || snapshotFace === null || !Array.isArray(snapshotFace.visible)) {
+    return {
+      disabled: true,
+      reason: 'incompatible DeepSeek Harness presentation',
+      detected: 'snapshot.visible not an array',
+      supported: supportedLabel,
+    }
+  }
+  if (typeof snapshotFace.capacity !== 'number') {
+    return {
+      disabled: true,
+      reason: 'incompatible DeepSeek Harness presentation',
+      detected: 'snapshot.capacity not a number',
+      supported: supportedLabel,
+    }
+  }
   return { disabled: false }
 }
 
