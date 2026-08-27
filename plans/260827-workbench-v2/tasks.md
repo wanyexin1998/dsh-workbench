@@ -167,7 +167,7 @@ rc.1→rc.2 与脚本内 `WORKBENCH_TGZ_SHA256` 盖章、§1 命令英文变体�
 | W2.2 双映射执行 | 默认"插入 composer"（`/name ` 填入聚焦输入框）；per-action opt-in "直接执行"；无 input / 有 input 分流 | 有 input 命令永不直接执行；直接执行前提示会话留痕（按 V3 文案） | M |
 | W2.3 桥测试 | 枚举、分流、focused 路由（发起时捕获 session id）、缺席降级 | 包级测试全绿 | S–M |
 
-### W3 公开注册 API
+### W3 公开注册 API——**已完成**（2026-08-28，分支 feat/w3-open-actions：`workbenchActions` cordis 服务（actions protocol 1）+ docs/ACTIONS_API.md + 示例；351 项包测试全绿，Opus 双轮验收——label 中毒的调度器杀伤路径、命名空间冒充矩阵（含同形字符）、监听器隔离均被独立复探证实关闭）
 
 | 任务 | 内容 | 验收 | 量级 |
 | --- | --- | --- | --- |
