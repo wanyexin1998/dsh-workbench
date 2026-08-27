@@ -30,6 +30,7 @@ import {
   HOST_PROVIDER,
   type HostCommandsHandle,
 } from './host-commands.js'
+import { createThirdPartyActionsHandle, type ThirdPartyActionsHandle } from './actions-api.js'
 
 export function platformOf(): Platform {
   return typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform) ? 'mac' : 'other'
@@ -112,6 +113,10 @@ export interface ShortcutActionOptions {
   /** W2.2: persisted per-action direct-execute opt-in (host.command.<name>
    * ids). Consulted by host-commands.ts only for input-less commands. */
   hostDirectExecute?: ReadonlySet<string>
+  /** W3.1: public `workbench.actions` third-party registrations — mirrors
+   * hostCommandsHandle's registerInto threading (see actions-api.ts). Absent
+   * in tests that do not exercise W3 (registerInto is simply never called). */
+  thirdPartyActionsHandle?: ThirdPartyActionsHandle
 }
 
 /** Explicit-unbound sentinel maps to the registry's unbind marker (''). */
@@ -208,6 +213,9 @@ export function buildShortcutRegistry(options: ShortcutActionOptions = {}): Acti
     disabled,
     directExecute: options.hostDirectExecute ?? new Set(),
   })
+  // W3.1: third-party workbench.actions registrations — same "registry
+  // build consults the current live store" shape as the host bridge above.
+  options.thirdPartyActionsHandle?.registerInto(registry, { overrides, disabled })
   return registry
 }
 
@@ -239,8 +247,20 @@ const EDITABLE_ALLOWED_ACTIONS = new Set(['workbench.conversation.navigator.togg
 // L2 public-API plugins, L3 pinned adapters) stays read-only until its own
 // work lands.
 const EDITABLE_PROVIDERS: ReadonlySet<string> = new Set([DEFAULT_PROVIDER, HOST_PROVIDER])
-function isProviderEditable(provider: string | undefined): boolean {
-  return EDITABLE_PROVIDERS.has(provider ?? DEFAULT_PROVIDER)
+// W3: a provider with at least one LIVE registration through the public
+// `workbench.actions` service (design.md §3 "L2") joins the trusted set too
+// — that's the whole point of the API. The trust boundary is the
+// REGISTRATION ROUTE, not the provider label: `isThirdPartyProvider` (when
+// supplied) answers "did this provider's actions arrive through the
+// verified workbench.actions API", so an action manually poked into an
+// ActionRegistry some other way (a test double, or a future L3 adapter that
+// has not landed its own trust review) stays read-only exactly as before —
+// see settings-section.test.tsx's pinned "foreign-provider action ... is
+// not editable" regression, which simulates precisely that untrusted path.
+function isProviderEditable(provider: string | undefined, isThirdPartyProvider?: (provider: string) => boolean): boolean {
+  const id = provider ?? DEFAULT_PROVIDER
+  if (EDITABLE_PROVIDERS.has(id)) return true
+  return isThirdPartyProvider?.(id) === true
 }
 
 /** Accept native user input in production; Vitest uses synthetic DOM events. */
@@ -292,6 +312,12 @@ export interface ShortcutSettingsController {
   /** Observe committed-state changes (hydration is async). Optional: test
    * controllers may omit it. */
   subscribeState?(fn: () => void): () => void
+  /** W3.1: true when `provider` currently has a live registration through
+   * the public `workbench.actions` service — the Settings-UI editability
+   * gate (see isProviderEditable). Optional so every pre-W3 controller/test
+   * double keeps compiling; omitting it just means no provider is trusted
+   * beyond the existing workbench/host set. */
+  isThirdPartyProvider?(provider: string): boolean
 }
 
 export interface SettingsSectionProps {
@@ -631,7 +657,7 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
     // action still renders fully (label, id, binding, conflict/reserved
     // badges) — see design.md §4 缺席态/design principle 3 — it just cannot
     // be rebound from here yet.
-    const editable = isProviderEditable(action.provider)
+    const editable = isProviderEditable(action.provider, controller.isThirdPartyProvider)
     const report = bindingReport(action.id, action.defaultChord, overrides, ownerOf(chordOwners, action.id), platform)
     const recording = editable && recordingId === action.id
     const pending = recording ? validateChordSpec(pendingSpec) : null
@@ -955,7 +981,13 @@ function chordToSpec(chord: Chord): string {
   return parts.join('+')
 }
 
-export function applyShortcuts(ctx: HarnessContext) {
+/**
+ * @returns the W3.1 third-party-actions handle this call created, so
+ * src/client/index.tsx can expose its `.service` as the `ctx.workbenchActions`
+ * cordis service (release-on-dispose is owned here, alongside
+ * hostCommandsHandle — see the `ctx.on('dispose', ...)` call at the bottom).
+ */
+export function applyShortcuts(ctx: HarnessContext): ThirdPartyActionsHandle {
   const t = ctx.locale.bind(NS)
   const services = resolveHarnessServices(ctx)
   const scope = ctx.settingsScope.bind({ namespace: 'dsh-native-ux-shortcuts' })
@@ -975,7 +1007,10 @@ export function applyShortcuts(ctx: HarnessContext) {
   // absent/malformed — see host-commands.ts's own doc comment); enumerates
   // for the focused agent and subscribes to commands/change (debounced).
   const hostCommandsHandle = createHostCommandsHandle(ctx, services)
-  let registry = buildShortcutRegistry({ services, hostCommandsHandle })
+  // W3.1: created (and disposed) here, alongside hostCommandsHandle — see
+  // this function's own return-value doc comment above.
+  const thirdPartyActionsHandle = createThirdPartyActionsHandle()
+  let registry = buildShortcutRegistry({ services, hostCommandsHandle, thirdPartyActionsHandle })
   let detach = attachDispatcher(registry)
   // Last-known full state, threaded through every reload() call so a
   // commands/change-triggered resync (which does not itself carry
@@ -995,6 +1030,7 @@ export function applyShortcuts(ctx: HarnessContext) {
       disabled: currentDisabled,
       hostCommandsHandle,
       hostDirectExecute: currentHostDirectExecute,
+      thirdPartyActionsHandle,
     })
     detach = attachDispatcher(registry)
     controller.registry = registry
@@ -1008,6 +1044,7 @@ export function applyShortcuts(ctx: HarnessContext) {
   const emitState = () => { for (const fn of stateListeners) fn() }
   const controller: ShortcutSettingsController = {
     registry, scope, reload,
+    isThirdPartyProvider: (provider) => thirdPartyActionsHandle.hasLiveProvider(provider),
     subscribeState: (fn) => { stateListeners.add(fn); return () => { stateListeners.delete(fn) } },
     persist: (state) => {
       // Falls back to whatever is already committed when this call omits
@@ -1052,6 +1089,14 @@ export function applyShortcuts(ctx: HarnessContext) {
   hostCommandsHandle.onChange(() => {
     reload(currentOverrides, currentDisabled, currentHostDirectExecute)
   })
+  // W3.1: same reasoning as hostCommandsHandle.onChange above — a
+  // third-party register()/dispose() is an external change outside the
+  // settings-mutation flow, so it goes through the same reload path (a full
+  // registry rebuild, which is also what makes the new/removed action
+  // actually appear/disappear in the Settings UI's next render).
+  thirdPartyActionsHandle.onChange(() => {
+    reload(currentOverrides, currentDisabled, currentHostDirectExecute)
+  })
   ctx.slots.inject('settings.section', () =>
     ctx.slots.register(
       {
@@ -1069,5 +1114,7 @@ export function applyShortcuts(ctx: HarnessContext) {
   ctx.on('dispose', () => {
     detach()
     hostCommandsHandle.dispose()
+    thirdPartyActionsHandle.dispose()
   })
+  return thirdPartyActionsHandle
 }

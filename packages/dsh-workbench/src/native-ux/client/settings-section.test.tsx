@@ -7,6 +7,7 @@ import { SettingsSection, type ShortcutCapabilities, type ShortcutSettingsContro
 import { en, zh } from './locales.js'
 import { parsePersistedState } from './shortcut-persistence.js'
 import { HOST_PROVIDER, hostCommandActionId } from './host-commands.js'
+import { createThirdPartyActionsHandle, type ThirdPartyActionsHandle } from './actions-api.js'
 
 /** Host where both services exist (the realistic case): service-backed
  * actions (sidebar / session.stop) register. GA-043 fail-soft gates them on
@@ -23,8 +24,9 @@ function makeController(
   overrides: Record<string, string> = {},
   caps?: ShortcutCapabilities,
   services: typeof HOST_SERVICES = HOST_SERVICES,
+  thirdPartyActionsHandle?: ThirdPartyActionsHandle,
 ): ShortcutSettingsController {
-  const registry = buildShortcutRegistry({ overrides, caps, services })
+  const registry = buildShortcutRegistry({ overrides, caps, services, thirdPartyActionsHandle })
   let stored: Record<string, string> = { ...overrides }
   const listeners = new Set<() => void>()
   const scope = {
@@ -35,7 +37,12 @@ function makeController(
   }
   const reload = vi.fn()
   const persist = vi.fn(() => Promise.resolve('local' as const))
-  return { registry, scope, reload, persist }
+  return {
+    registry, scope, reload, persist,
+    isThirdPartyProvider: thirdPartyActionsHandle !== undefined
+      ? (provider: string) => thirdPartyActionsHandle.liveProviders().has(provider)
+      : undefined,
+  }
 }
 
 function renderSection(controller = makeController()) {
@@ -558,5 +565,83 @@ describe('SettingsSection (T8)', () => {
     fireEvent.click(row.querySelector('[data-dsh-nux-overflow]')!)
     const toggle = row.querySelector(`[data-dsh-nux-overflow-direct-execute="${id}"] input`) as HTMLInputElement
     expect(toggle.checked).toBe(true)
+  })
+
+  // -------------------------------------------------------------------
+  // W3.1 — third-party workbench.actions registrations: grouped by their
+  // OWN provider (not workbench/host), bindable because the registration
+  // came through the trusted service, and the pinned "untrusted foreign
+  // provider" row above (registered directly into the registry, bypassing
+  // the service) stays read-only.
+  // -------------------------------------------------------------------
+
+  it('W3.1: a provider with a LIVE registration through workbench.actions renders editable — bindable, overflow menu present', () => {
+    const handle = createThirdPartyActionsHandle()
+    handle.service.register({ id: 'myplugin.doThing', label: () => 'Do the thing', run: () => {} })
+    const controller = makeController({}, undefined, HOST_SERVICES, handle)
+    renderSection(controller)
+    const row = document.querySelector('[data-dsh-nux-shortcut-row="myplugin.doThing"]')!
+    expect(row).not.toBeNull()
+    expect(row.textContent).toContain('Do the thing')
+    const button = row.querySelector('[data-dsh-nux-chord-button]') as HTMLButtonElement
+    expect(button.disabled).toBe(false)
+    expect(row.querySelector('[data-dsh-nux-overflow]')).not.toBeNull()
+
+    fireEvent.click(button)
+    expect(button.getAttribute('aria-pressed')).toBe('true')
+    fireEvent.keyDown(window, { key: 'G', shiftKey: true, ctrlKey: true })
+    const save = screen.getByText('shortcuts.save')
+    fireEvent.click(save)
+    expect(controller.scope.set).toHaveBeenCalledWith('myplugin.doThing', 'Primary+Shift+G')
+  })
+
+  it('W3.1: the third-party provider group renders under its own raw id (no providerLabel field in v1)', () => {
+    const handle = createThirdPartyActionsHandle()
+    handle.service.register({ id: 'myplugin.doThing', label: () => 'Do the thing', run: () => {} })
+    const controller = makeController({}, undefined, HOST_SERVICES, handle)
+    renderSection(controller)
+    expect(document.querySelector('[data-dsh-nux-group="myplugin"]')).not.toBeNull()
+    expect(screen.getByText('myplugin')).toBeTruthy()
+  })
+
+  it('W3.1: a foreign-provider row NOT registered through workbench.actions stays read-only even when an UNRELATED provider is trusted', () => {
+    // Regression guard for the trust boundary: liveProviders() must answer
+    // per-provider, not "any third-party handle exists at all" — otherwise
+    // wiring in a real thirdPartyActionsHandle would silently flip the
+    // pinned W1.3 untrusted-provider test from read-only to editable.
+    const handle = createThirdPartyActionsHandle()
+    handle.service.register({ id: 'myplugin.doThing', label: () => 'Do the thing', run: () => {} })
+    const controller = makeController({}, undefined, HOST_SERVICES, handle)
+    controller.registry.register({
+      id: 'someplugin.x',
+      label: 'someplugin.x.label',
+      defaultChord: 'Primary+Shift+Z',
+      run: () => {},
+      provider: 'someplugin',
+    })
+    renderSection(controller)
+    const untrustedRow = document.querySelector('[data-dsh-nux-shortcut-row="someplugin.x"]')!
+    expect((untrustedRow.querySelector('[data-dsh-nux-chord-button]') as HTMLButtonElement).disabled).toBe(true)
+    const trustedRow = document.querySelector('[data-dsh-nux-shortcut-row="myplugin.doThing"]')!
+    expect((trustedRow.querySelector('[data-dsh-nux-chord-button]') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('W3.1: disposing a third-party registration removes its row (reload re-renders without it)', async () => {
+    const handle = createThirdPartyActionsHandle()
+    const dispose = handle.service.register({ id: 'myplugin.doThing', label: () => 'Do the thing', run: () => {} })
+    const controller = makeController({}, undefined, HOST_SERVICES, handle)
+    renderSection(controller)
+    expect(document.querySelector('[data-dsh-nux-shortcut-row="myplugin.doThing"]')).not.toBeNull()
+
+    dispose()
+    // The registry itself already dropped the row synchronously (dispose()
+    // calls the registry's own disposer); rebuild the controller's registry
+    // the way shortcuts.tsx's reload() would and re-render to confirm the
+    // Settings UI reflects it.
+    const rebuilt = buildShortcutRegistry({ services: HOST_SERVICES, thirdPartyActionsHandle: handle })
+    controller.registry = rebuilt
+    cleanup()
+    renderSection(controller)
+    expect(document.querySelector('[data-dsh-nux-shortcut-row="myplugin.doThing"]')).toBeNull()
   })
 })

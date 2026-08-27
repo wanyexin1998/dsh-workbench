@@ -211,6 +211,7 @@ docs/
 | --- | --- |
 | Complete installation | [`docs/INSTALL.md`](docs/INSTALL.md) |
 | Product behavior and boundaries | [`docs/PRODUCT_CONTRACT.md`](docs/PRODUCT_CONTRACT.md) |
+| Register shortcut actions from a third-party plugin | [`docs/ACTIONS_API.md`](docs/ACTIONS_API.md) |
 | Version compatibility | [`docs/COMPATIBILITY_MATRIX.md`](docs/COMPATIBILITY_MATRIX.md) |
 | Known limitations | [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md) |
 | Uninstall and retained state | [`docs/UNINSTALL.md`](docs/UNINSTALL.md) |

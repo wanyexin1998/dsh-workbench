@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { attachDispatcher as attachProductionDispatcher, buildShortcutRegistry, isEditableTarget, isTrustedShortcutEvent } from './shortcuts.js'
 import { navigatorBus } from './navigator-bus.js'
+import { createThirdPartyActionsHandle } from './actions-api.js'
 
 describe('shortcut dispatcher (seam B)', () => {
   let detach: () => void
@@ -298,5 +299,39 @@ describe('shortcut dispatcher (seam B)', () => {
     expect(isEditableTarget(input)).toBe(true)
     expect(isEditableTarget(editable)).toBe(true)
     expect(isEditableTarget(document.body)).toBe(false)
+  })
+
+  // -------------------------------------------------------------------
+  // BLOCKING 1 — a throwing third-party label() must never strand the
+  // dispatcher. buildShortcutRegistry (via thirdPartyActionsHandle.
+  // registerInto -> toActionDef) is exactly the call shortcuts.tsx's
+  // reload() makes AFTER detach()ing the previous listener and BEFORE
+  // reattaching a new one — an unguarded throw here would leave the whole
+  // dispatcher permanently detached. Probe: build + attach must both
+  // succeed, and a completely unrelated, healthy built-in action must still
+  // fire on its own chord afterwards.
+  // -------------------------------------------------------------------
+  it('BLOCKING 1: a throwing third-party label() never prevents build+attach, and a healthy built-in action still fires (probe)', () => {
+    const handle = createThirdPartyActionsHandle()
+    handle.service.register({ id: 'p.throws', label: () => { throw new Error('boom') }, run: () => {} })
+    let registry: ReturnType<typeof buildShortcutRegistry> | undefined
+    expect(() => {
+      registry = buildShortcutRegistry({ services: focusedServices(), thirdPartyActionsHandle: handle })
+    }).not.toThrow()
+    expect(() => { detach = attachDispatcher(registry!) }).not.toThrow()
+
+    // The offending action itself renders under its raw id (never poisons
+    // the registry build) ...
+    expect(registry!.all().find((a) => a.id === 'p.throws')?.label).toBe('p.throws')
+
+    // ... and dispatch for a completely unrelated healthy action is
+    // unaffected — proof the keydown listener actually got (re)attached,
+    // not merely that buildShortcutRegistry() itself didn't throw.
+    const toggle = vi.fn()
+    const off = navigatorBus.onToggle('s1', toggle)
+    const event = keydown({ key: 'O', shiftKey: true, ctrlKey: true })
+    expect(toggle).toHaveBeenCalledOnce()
+    expect(event.defaultPrevented).toBe(true)
+    off()
   })
 })

@@ -9,6 +9,29 @@ import { applyNavigator } from '../native-ux/client/navigator.js'
 import { applyShortcuts } from '../native-ux/client/shortcuts.js'
 import type { HarnessContext } from '../native-ux/client/harness-adapter.js'
 import { warnOnce } from '../native-ux/client/capabilities.js'
+import type { WorkbenchActionsService } from '../native-ux/client/actions-api.js'
+
+// W3.1 — the public `workbench.actions` service (design.md §3 "L2"): the
+// ecosystem's documented way for a plugin to PROVIDE a service other
+// plugins can inject is Cordis's own `ctx.reflect.provide(name, value)` /
+// the mixed-in `ctx.provide(name, value)` (both call the same
+// ReflectService.provide — node_modules/.pnpm/@deepseek-ai+cordis@4.0.1/
+// node_modules/@deepseek-ai/cordis/src/reflect.ts:44-46,277-305), paired
+// with a `declare module '@deepseek-ai/cordis' { interface Context { ... }
+// }` augmentation so `ctx.<name>` typechecks for injecting consumers. This
+// is the exact pattern the sibling `dsh-workbench-panel-compat` package
+// already ships for its own `workbenchPanels` service — see
+// packages/dsh-workbench-panel-compat/src/client/index.ts:9-14,23 (`declare
+// module` + `ctx.reflect.provide('workbenchPanels', coordinator)` inside a
+// `ctx.effect(...)`, released via the effect's own teardown). `workbenchActions`
+// mirrors that sibling's `workbench<Noun>` naming (not a bare `actions`,
+// which would be far more likely to collide with an unrelated host or
+// plugin service of the same generic name).
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    workbenchActions: WorkbenchActionsService
+  }
+}
 
 /** Required services for split presentation and the merged Native UX modules. */
 export const inject = ['sessions', 'slots', 'locale', 'layout', 'settingsScope'] as const
@@ -87,10 +110,30 @@ export function apply(ctx: ClientContext): void {
   } catch (error) {
     warnOnce('navigator-apply-failed', 'navigator module failed to register: ' + String(error))
   }
+  // W3.1: applyShortcuts() owns the third-party-actions handle's full
+  // lifecycle (create + dispose, alongside its own hostCommandsHandle) and
+  // hands it back so the cordis service binding below can expose exactly
+  // that live handle's `.service` — never a second, disconnected instance.
+  // A failed applyShortcuts() (caught above) leaves no live registry for
+  // third-party registrations to reach anyway, so the service is correctly
+  // left unexposed in that case rather than accepting registrations into a
+  // black hole.
+  let thirdPartyActionsHandle: ReturnType<typeof applyShortcuts> | undefined
   try {
-    applyShortcuts(ctx as never as HarnessContext)
+    thirdPartyActionsHandle = applyShortcuts(ctx as never as HarnessContext)
   } catch (error) {
     warnOnce('shortcuts-apply-failed', 'shortcuts module failed to register: ' + String(error))
+  }
+  if (thirdPartyActionsHandle !== undefined) {
+    const handle = thirdPartyActionsHandle
+    // ctx.effect's setup may return its own teardown (see the
+    // "dsh-workbench: pane capacity" effect below for the same idiom); here
+    // that teardown IS ctx.reflect.provide()'s own disposer — it only
+    // unregisters the ctx.workbenchActions BINDING. The service object's own
+    // internal state (the def store) is torn down by applyShortcuts's own
+    // `ctx.on('dispose', ...)` handler, which owns `handle` — see this
+    // block's comment above.
+    ctx.effect(() => ctx.reflect.provide('workbenchActions', handle.service), 'dsh-workbench: actions api service')
   }
   const verdict = runStartupGuard(platform.sessions, SUPPORTED_HARNESS)
   if (verdict.disabled) {

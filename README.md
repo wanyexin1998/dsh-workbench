@@ -207,6 +207,7 @@ docs/
 | --- | --- |
 | 完整安装步骤 | [`docs/INSTALL.md`](docs/INSTALL.md) |
 | 产品行为与边界 | [`docs/PRODUCT_CONTRACT.md`](docs/PRODUCT_CONTRACT.md) |
+| 第三方插件注册快捷键动作 | [`docs/ACTIONS_API.md`](docs/ACTIONS_API.md) |
 | 版本兼容关系 | [`docs/COMPATIBILITY_MATRIX.md`](docs/COMPATIBILITY_MATRIX.md) |
 | 已知限制 | [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md) |
 | 卸载与残留状态 | [`docs/UNINSTALL.md`](docs/UNINSTALL.md) |

@@ -17,6 +17,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { apply } from '../src/client/index.tsx'
 import { resetWarnOnce } from '../src/native-ux/client/capabilities.ts'
+import { parseChord } from '../src/native-ux/core/chord.ts'
 
 /** One slots.register() call observed during apply(). */
 interface SlotRegistration {
@@ -100,12 +101,29 @@ function makeCtx(options: FakeCtxOptions = {}) {
     effects.push({ label, dispose: fn() })
   })
   const remoteFaces = options.remote ?? healthyRemoteStub()
+  // W3.1: a real cordis Context always carries `.reflect` (core
+  // infrastructure — ReflectService is installed by the Context constructor
+  // itself, unlike host-mountable optional services such as `layout`/
+  // `remote`), so index.tsx's `ctx.reflect.provide(...)` call is never
+  // wrapped in its own fail-soft try/catch. This fixture mirrors the shape
+  // that matters for these tests (records what was provided, hands back an
+  // idempotent disposer) — the real ReflectService.provide's own disposer is
+  // async (`() => Promise<void>`); this fixture's is sync, which is fine
+  // here since nothing in this file awaits it.
+  const provided: Array<{ name: string; value: unknown }> = []
+  const reflect = {
+    provide: vi.fn((name: string, value: unknown) => {
+      provided.push({ name, value })
+      return vi.fn()
+    }),
+  }
   const ctx = {
     sessions: options.sessions,
     slots,
     locale,
     settingsScope,
     effect,
+    reflect,
     get: vi.fn((name: string) => {
       if (name === 'sessions') return options.sessions
       if (name === 'remote') return remoteFaces.remote
@@ -114,7 +132,7 @@ function makeCtx(options: FakeCtxOptions = {}) {
     }),
     on: vi.fn(),
   }
-  return { ctx, registered, injected, effects, slots, locale }
+  return { ctx, registered, injected, effects, slots, locale, provided }
 }
 
 /** Drain a handful of microtask hops — W2's host-command enumeration is
@@ -320,5 +338,103 @@ describe('apply() — fail-soft: a hostile Navigator failure never blocks shortc
     // ...but shortcuts and the guard-failure banner still went through.
     expect(registered).toContainEqual({ name: 'settings.section', id: 'shortcuts' })
     expect(registered).toContainEqual({ name: 'shell.overlay', id: 'dsh-workbench.guard-failure' })
+  })
+})
+
+// ---------------------------------------------------------------------
+// W3.1 — the public `ctx.workbenchActions` service, exposed end-to-end
+// through the real apply() (not just the standalone actions-api.test.ts
+// unit suite): reachability the documented cordis way, live registration
+// reaching the SAME registry the Settings section renders from, and
+// dispose-safety across a real plugin teardown sequence.
+// ---------------------------------------------------------------------
+describe('apply() — W3.1 workbench.actions service exposure', () => {
+  function shortcutsRegistry(injected: Record<string, unknown>) {
+    return (injected['shortcuts'] as { controller: { registry: { all(): Array<{ id: string; provider?: string }>; resolve: (chord: unknown) => unknown } } }).controller.registry
+  }
+
+  it('is reachable the documented way (ctx.reflect.provide) with protocol 1, and register() reaches the live shortcuts registry', async () => {
+    spyConsole()
+    const presentation = { state: { getSnapshot: () => ({ focused: 's1' }) }, close: vi.fn() }
+    const { ctx, injected, provided } = makeCtx({ sessions: { presentation } })
+    apply(ctx as never)
+    await flush()
+
+    const entry = provided.find((p) => p.name === 'workbenchActions')
+    expect(entry).toBeDefined()
+    const service = entry!.value as { protocol: number; register(def: unknown): () => void }
+    expect(service.protocol).toBe(1)
+
+    const run = vi.fn()
+    const disposeAction = service.register({ id: 'myplugin.foo', label: () => 'My Foo', run })
+    await flush()
+    const registry = shortcutsRegistry(injected)
+    expect(registry.all().map((a) => a.id)).toContain('myplugin.foo')
+
+    disposeAction()
+    await flush()
+    expect(registry.all().map((a) => a.id)).not.toContain('myplugin.foo')
+  })
+
+  it('registration is validated fail-closed through the real service (reserved namespace rejected synchronously)', async () => {
+    spyConsole()
+    const { ctx, provided } = makeCtx({ sessions: {} })
+    apply(ctx as never)
+    await flush()
+    const service = provided.find((p) => p.name === 'workbenchActions')!.value as { register(def: unknown): () => void }
+    expect(() => service.register({ id: 'workbench.foo', label: () => 'x', run: () => {} })).toThrow(/reserved/)
+    expect(() => service.register({ id: 'host.foo', label: () => 'x', run: () => {} })).toThrow(/reserved/)
+  })
+
+  it('GUARD: plugin teardown (ctx.effect binding disposer + ctx.on("dispose") handlers) disposes the service — a post-dispose register() throws cleanly, not a crash', async () => {
+    spyConsole()
+    const presentation = { state: { getSnapshot: () => ({ focused: 's1' }) }, close: vi.fn() }
+    const { ctx, provided, effects } = makeCtx({ sessions: { presentation } })
+    apply(ctx as never)
+    await flush()
+    const service = provided.find((p) => p.name === 'workbenchActions')!.value as { register(def: unknown): () => void }
+
+    // Drive the real teardown sequence a cordis fiber unload would run:
+    // the ctx.effect binding's own disposer (unregisters ctx.workbenchActions
+    // itself — this fixture's effect() runs eagerly but never tears down on
+    // its own) plus every ctx.on('dispose', ...) handler applyShortcuts (and
+    // applyNavigator) registered (this fixture's ctx.on is a bare vi.fn()
+    // that never invokes anything on its own either).
+    const bindingEffect = effects.find((e) => e.label === 'dsh-workbench: actions api service')
+    expect(bindingEffect).toBeDefined()
+    ;(bindingEffect!.dispose as () => void)()
+    const disposeHandlers = (ctx.on as ReturnType<typeof vi.fn>).mock.calls
+      .filter(([event]) => event === 'dispose')
+      .map(([, fn]) => fn as () => void)
+    expect(disposeHandlers.length).toBeGreaterThan(0)
+    for (const fn of disposeHandlers) fn()
+
+    expect(() => service.register({ id: 'p.foo', label: () => 'x', run: () => {} })).toThrow(/disposed/)
+  })
+
+  it('a third-party action with isEnabled() === false resolves to null on its bound chord (real registry, W1.1 fail-closed dispatch)', async () => {
+    spyConsole()
+    const presentation = { state: { getSnapshot: () => ({ focused: 's1' }) }, close: vi.fn() }
+    const { ctx, injected, provided } = makeCtx({ sessions: { presentation } })
+    apply(ctx as never)
+    await flush()
+    const service = provided.find((p) => p.name === 'workbenchActions')!.value as { register(def: unknown): () => void }
+    const run = vi.fn()
+    service.register({ id: 'myplugin.foo', label: () => 'My Foo', run, isEnabled: () => false })
+    await flush()
+    const registry = shortcutsRegistry(injected) as unknown as {
+      all(): Array<{ id: string }>
+      rebind(id: string, chord: string): { ok: boolean }
+      resolve(chord: ReturnType<typeof parseChord>): { id: string; run: () => void } | null
+    }
+    expect(registry.all().map((a) => a.id)).toContain('myplugin.foo')
+    // Bind a chord directly through the registry's own public rebind() — the
+    // W3 def declares no default chord (design.md anti-goal), so this
+    // stands in for a user having bound one through Settings.
+    expect(registry.rebind('myplugin.foo', 'Primary+Shift+K').ok).toBe(true)
+    const chord = parseChord('Primary+Shift+K')!
+    const resolved = registry.resolve(chord)
+    expect(resolved).toBeNull()
+    expect(run).not.toHaveBeenCalled()
   })
 })
