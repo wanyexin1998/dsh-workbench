@@ -174,7 +174,17 @@ rc.1→rc.2 与脚本内 `WORKBENCH_TGZ_SHA256` 盖章、§1 命令英文变体�
 | W3.1 `workbench.actions` 服务 | actions protocol 1：`{id, label(), run(), isEnabled?()}`，版本化、fail closed | 契约测试 + 与 W1 目录集成 | M |
 | W3.2 文档与示例 | 第三方插件接入文档（双语）+ 最小示例插件 | 示例插件注册的动作出现在设置页并可绑定 | S |
 
-### W4 首个 pinned 适配器
+### W4 首个 pinned 适配器——**已再定界**（2026-08-28）
+
+可行性调研（reports/W4-better-sidebar-feasibility.md）：pinned fork 无公开开关动词
+（`panes` capability 只有 `mountPane`，真正的 `togglePanel` 是私有 reducer），也未注
+册任何斜杠命令。原定的 Workbench 侧 DOM/capability 适配器不可行（禁 DOM 推断）。
+再定界（orchestrator 决定，待维护者追认）：**W4 = 给 Better Sidebar fork 的 client
+半侧打补丁**——可选注入 W3 的 `workbench.actions` 服务（Workbench 不在场时静默
+降级），注册 `better-sidebar.*` 开关动作直调自己的 store reducer。弃用调研报告推荐
+的斜杠命令路线：命令 handler 在 host 侧执行而面板状态在 client 侧，需额外
+host→client 通道；W3 路线零边界问题且让 W4 成为 W3 API 的第一个真实消费者。
+依赖：W3 交付并过审后启动；工作落在 fork 仓库（本地 commit、push 单独授权）。
 
 | 任务 | 内容 | 验收 | 量级 |
 | --- | --- | --- | --- |
