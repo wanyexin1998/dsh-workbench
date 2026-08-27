@@ -16,7 +16,8 @@
     "contract:check": "node scripts/release-contract-check.mjs",
     "secrets:check": "node scripts/scan-secrets.mjs",
     "bundle": "node scripts/build-release-bundle.mjs",
-    "release:check": "node scripts/release-check.mjs"
+    "release:check": "node scripts/release-check.mjs",
+    "install:contract:test": "node --test scripts/install/result.test.mjs"
   },
   "license": "MIT"
 }
