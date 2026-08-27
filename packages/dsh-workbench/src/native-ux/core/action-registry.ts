@@ -19,6 +19,15 @@ export interface ActionDef {
   /** Runtime gate consulted by resolve(). If it returns false (or throws)
    * the chord resolves to null instead of this action — see resolve(). */
   isEnabled?: () => boolean
+  /** W2.2: true when the underlying command declares free-form input (host
+   * commands only — absent for every other provider). Gates the
+   * Settings-UI "direct execute" opt-in control: it must never be offered
+   * for a has-input command. This flag is UI-only data; the enforcement
+   * that a has-input command never actually direct-executes lives in
+   * host-commands.ts's dispatch closure itself (checked against the live
+   * descriptor, not this flag), so a stale or hostile persisted opt-in can
+   * never bypass the ban even if this field were ever wrong. */
+  hasInput?: boolean
 }
 
 export interface ChordConflict {

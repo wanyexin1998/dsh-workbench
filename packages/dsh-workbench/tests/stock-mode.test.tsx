@@ -34,12 +34,30 @@ interface EffectEntry {
   dispose: unknown
 }
 
+/** A healthy, empty-catalog `remote`/`remote.commands` stub — what a real
+ * DSH client actually looks like (dsh-api-remotes/dsh-api-gateway are
+ * always mounted there; the W2.1 fail-soft path is for the RARE case where
+ * they genuinely are not). Defaulting every fixture in this file to this
+ * shape keeps the "no unexpected diagnostics" invariant this file pins for
+ * everything EXCEPT the one dedicated W2.1 absence test below, which opts
+ * out explicitly. */
+function healthyRemoteStub(descriptors: readonly { name: string; description: string }[] = []) {
+  return {
+    remote: { $on: vi.fn(() => () => {}) },
+    remoteCommands: { list: vi.fn(async () => ({ ok: true as const, value: descriptors })) },
+  }
+}
+
 interface FakeCtxOptions {
   /** The value `platform.sessions` (and ctx.get('sessions')) resolve to. */
   sessions?: unknown
   /** Override ctx.slots.inject — used only by the Navigator-failure test to
    * fail one specific slot seam without touching any other module. */
   slotsInject?: (name: string, setup: () => unknown) => unknown
+  /** Override what ctx.get('remote') / ctx.get('remote.commands') resolve
+   * to. Defaults to healthyRemoteStub() — pass `{ remote: undefined,
+   * remoteCommands: undefined }` to simulate a genuinely absent bridge. */
+  remote?: { remote: unknown; remoteCommands: unknown }
 }
 
 /**
@@ -49,12 +67,18 @@ interface FakeCtxOptions {
  * cast that applyNavigator/applyShortcuts consume. `sessions` is exposed
  * BOTH as `ctx.sessions` and via `ctx.get('sessions')` so both cast paths
  * observe the identical reference, exactly as the real cordis fiber does.
+ *
+ * Captures each `def.inject?.()` result alongside `registered` (keyed by
+ * slot id) so a test can reach the shortcuts settings section's live
+ * `controller` — e.g. to inspect `controller.registry` for W2 host actions.
  */
 function makeCtx(options: FakeCtxOptions = {}) {
   const registered: SlotRegistration[] = []
+  const injected: Record<string, unknown> = {}
   const effects: EffectEntry[] = []
-  const slotsRegister = vi.fn((def: { name: string; id: string }, _component: unknown) => {
+  const slotsRegister = vi.fn((def: { id: string; name: string; inject?: () => unknown }, _component: unknown) => {
     registered.push({ name: def.name, id: def.id })
+    if (def.inject !== undefined) injected[def.id] = def.inject()
     return vi.fn() // disposer
   })
   const slotsInject = vi.fn(options.slotsInject ?? ((_name: string, setup: () => unknown) => setup()))
@@ -75,16 +99,28 @@ function makeCtx(options: FakeCtxOptions = {}) {
   const effect = vi.fn((fn: () => unknown, label?: string) => {
     effects.push({ label, dispose: fn() })
   })
+  const remoteFaces = options.remote ?? healthyRemoteStub()
   const ctx = {
     sessions: options.sessions,
     slots,
     locale,
     settingsScope,
     effect,
-    get: vi.fn((name: string) => (name === 'sessions' ? options.sessions : undefined)),
+    get: vi.fn((name: string) => {
+      if (name === 'sessions') return options.sessions
+      if (name === 'remote') return remoteFaces.remote
+      if (name === 'remote.commands') return remoteFaces.remoteCommands
+      return undefined
+    }),
     on: vi.fn(),
   }
-  return { ctx, registered, effects, slots, locale }
+  return { ctx, registered, injected, effects, slots, locale }
+}
+
+/** Drain a handful of microtask hops — W2's host-command enumeration is
+ * async (at least one hop for `remote.commands.list()` to settle). */
+async function flush(times = 4): Promise<void> {
+  for (let i = 0; i < times; i++) await Promise.resolve()
 }
 
 /** A structurally complete protocol-2 presentation face (mirrors guard.test.ts's validPresentation). */
@@ -113,13 +149,46 @@ afterEach(() => {
 })
 
 describe('apply() — stock DeepSeek Harness (no compatible split-pane presentation)', () => {
-  it('completes without throwing and emits exactly the one documented disabled diagnostic', () => {
+  it('completes without throwing and emits exactly the one documented disabled diagnostic, and ZERO warnings', () => {
     const { error, warn } = spyConsole()
     const { ctx } = makeCtx({ sessions: {} }) // sessions present, presentation absent
     expect(() => apply(ctx as never)).not.toThrow()
     expect(error).toHaveBeenCalledTimes(1)
     expect(error.mock.calls[0]?.[0]).toBe('[dsh-workbench] disabled:')
+    // makeCtx() defaults to a healthy remote stub (a real DSH client always
+    // has one mounted), so W2's host-command bridge finds it and stays
+    // silent — this file's original "zero warnings in stock mode" invariant.
     expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('W2.1: a genuinely absent remote bridge still completes without throwing, with its own dedicated fail-soft warning', () => {
+    const { error, warn } = spyConsole()
+    const { ctx } = makeCtx({ sessions: {}, remote: { remote: undefined, remoteCommands: undefined } })
+    expect(() => apply(ctx as never)).not.toThrow()
+    expect(error).toHaveBeenCalledTimes(1)
+    expect(error.mock.calls[0]?.[0]).toBe('[dsh-workbench] disabled:')
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]?.[0])).toContain('host-commands-remote-absent')
+  })
+
+  it('W2 integration: a stubbed remote with one input-less command, focused session -> host.command.* action registers through apply()', async () => {
+    spyConsole()
+    const presentation = {
+      state: { getSnapshot: () => ({ focused: 's1' }) },
+      close: vi.fn(),
+    }
+    const { ctx, injected } = makeCtx({
+      sessions: { presentation },
+      remote: healthyRemoteStub([{ name: 'foo', description: 'Do foo' }]),
+    })
+    apply(ctx as never)
+    await flush()
+    const shortcutsInject = injected['shortcuts'] as { controller: { registry: { all(): Array<{ id: string; provider?: string }> } } } | undefined
+    expect(shortcutsInject).toBeDefined()
+    const actions = shortcutsInject!.controller.registry.all()
+    const hostAction = actions.find((a) => a.id === 'host.command.foo')
+    expect(hostAction).toBeDefined()
+    expect(hostAction?.provider).toBe('host')
   })
 
   it('registers Navigator and the shortcuts settings section regardless of the guard verdict', () => {
@@ -241,6 +310,9 @@ describe('apply() — fail-soft: a hostile Navigator failure never blocks shortc
       },
     })
     expect(() => apply(ctx as never)).not.toThrow()
+    // makeCtx() defaults to a healthy remote stub, so the only fail-soft
+    // warning this apply() call produces is the injected Navigator seam
+    // failure — restores this file's original single-warning invariant.
     expect(warn).toHaveBeenCalledTimes(1)
     expect(String(warn.mock.calls[0]?.[0])).toContain('navigator module failed to register')
     // Navigator itself never registered...

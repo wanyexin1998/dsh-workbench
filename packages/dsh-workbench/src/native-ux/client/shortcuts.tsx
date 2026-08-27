@@ -17,7 +17,19 @@ import {
 import { NS } from './locales.js'
 import { warnOnce } from './capabilities.js'
 import { navigatorBus } from './navigator-bus.js'
-import { resolveHarnessServices, type HarnessContext, type HarnessServices, type SettingsScopeFace } from './harness-adapter.js'
+import {
+  focusedSessionId,
+  resolveHarnessServices,
+  type HarnessContext,
+  type HarnessServices,
+  type SettingsScopeFace,
+} from './harness-adapter.js'
+import { focusedPaneScope, locateComposerInput } from './conversation-dom.js'
+import {
+  createHostCommandsHandle,
+  HOST_PROVIDER,
+  type HostCommandsHandle,
+} from './host-commands.js'
 
 export function platformOf(): Platform {
   return typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform) ? 'mac' : 'other'
@@ -36,49 +48,12 @@ export function settingsBindingSection(snapshot: unknown): Record<string, unknow
   return typeof section === 'object' && section !== null ? (section as Record<string, unknown>) : {}
 }
 
-/** Adapter (temporary, tracked in issue #1 proposal 4): no public composer
- * focus API exists in the harness rc — locate the composer input via DOM.
- * Defensive: `presentation` is a host-provided (protocol 2) face; its
- * `state`/`getSnapshot` shape is asserted by HarnessServices but not
- * guaranteed at runtime. The split-pane guard fails closed by *leaving
- * shortcuts registered* on a bad presentation face (by design), so this
- * accessor must degrade to "no focused session" on a malformed or
- * throwing `state`/`getSnapshot` rather than throw inside the keydown
- * handler. An uncaught throw here would *not* "take shortcuts down" —
- * the dispatcher already calls event.preventDefault() before action.run()
- * (see attachDispatcher, shortcuts.tsx:251-252) — it would just swallow
- * that one chord and make the action silently fail. Narrowed via
- * `unknown` once, here, rather than trusting the static type of a value
- * that ultimately came from `ctx.get()`. */
-function focusedSessionId(services: HarnessServices): string | undefined {
-  const state: unknown = services.sessions?.presentation?.state
-  if (typeof state !== 'object' || state === null) return undefined
-  const getSnapshot = (state as { getSnapshot?: unknown }).getSnapshot
-  if (typeof getSnapshot !== 'function') return undefined
-  let snapshot: unknown
-  try {
-    snapshot = getSnapshot.call(state)
-  } catch {
-    return undefined
-  }
-  return typeof snapshot === 'object' && snapshot !== null ? (snapshot as { focused?: string }).focused : undefined
-}
-
-function focusedPane(services: HarnessServices): ParentNode {
-  const focused = focusedSessionId(services)
-  if (focused === undefined) return document
-  for (const pane of Array.from(document.querySelectorAll<HTMLElement>('[data-session-pane]'))) {
-    if (pane.dataset.sessionPane === focused) return pane
-  }
-  return document
-}
+// focusedSessionId now lives in harness-adapter.ts (shared with
+// host-commands.ts, W2) — see its doc comment there for the full
+// fail-closed rationale this used to carry inline.
 
 function focusComposer(services: HarnessServices): void {
-  const seat = focusedPane(services).querySelector('[data-composer-seat]')
-  const target = seat?.querySelector(
-    'textarea, input[type="text"], [contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]',
-  )
-  if (target instanceof HTMLElement) target.focus()
+  locateComposerInput(focusedPaneScope(focusedSessionId(services)))?.focus()
 }
 
 function stopSession(services: HarnessServices): void {
@@ -129,6 +104,14 @@ export interface ShortcutActionOptions {
   overrides?: BindingOverrides
   disabled?: ReadonlySet<string>
   caps?: ShortcutCapabilities
+  /** W2.1: host slash-command bridge — resolved once by applyShortcuts and
+   * threaded through every rebuild so host.command.* actions stay in sync
+   * with the same overrides/disabled/reload lifecycle as built-ins. Absent
+   * in tests that do not exercise W2 (registerInto is simply never called). */
+  hostCommandsHandle?: HostCommandsHandle
+  /** W2.2: persisted per-action direct-execute opt-in (host.command.<name>
+   * ids). Consulted by host-commands.ts only for input-less commands. */
+  hostDirectExecute?: ReadonlySet<string>
 }
 
 /** Explicit-unbound sentinel maps to the registry's unbind marker (''). */
@@ -215,6 +198,16 @@ export function buildShortcutRegistry(options: ShortcutActionOptions = {}): Acti
       }, unbind(overrides[id]), disabled.has(id))
     }
   }
+  // W2.1: host slash-command actions — registered/removed incrementally by
+  // host-commands.ts's own sync logic (see createHostCommandSync), driven
+  // by whatever descriptor snapshot is currently known. A missing handle
+  // (tests that never construct one) simply means no host group, exactly
+  // like an absent remote face at runtime.
+  options.hostCommandsHandle?.registerInto(registry, services, {
+    overrides,
+    disabled,
+    directExecute: options.hostDirectExecute ?? new Set(),
+  })
   return registry
 }
 
@@ -236,12 +229,16 @@ const EDITABLE_ALLOWED_ACTIONS = new Set(['workbench.conversation.navigator.togg
 // (any provider), but only lets the user rebind/clear/unbind/toggle actions
 // from a provider we trust today. Per design.md §4/§7 the catalog is open
 // but nothing auto-discovered (L1 host commands, L2 plugin API, L3 pinned
-// adapters — all W2+) has landed yet, so the only trusted provider is
-// Workbench's own. A foreign-provider action (none exist until W2) still
-// renders — label, id, current binding, conflict/reserved badges — just
-// without the record button or overflow menu, so W2 does not have to
-// retrofit read-only rendering once real foreign actions show up.
-const EDITABLE_PROVIDERS: ReadonlySet<string> = new Set([DEFAULT_PROVIDER])
+// adapters) had landed until W2. A foreign-provider action still renders —
+// label, id, current binding, conflict/reserved badges — just without the
+// record button or overflow menu.
+// W2: 'host' joins the trusted set — host.command.* actions come from a
+// verified, declared access route (the remote commands bridge), not an
+// arbitrary third-party plugin, so users may bind chords to them exactly
+// like Workbench's own actions. A provider beyond workbench/host (future
+// L2 public-API plugins, L3 pinned adapters) stays read-only until its own
+// work lands.
+const EDITABLE_PROVIDERS: ReadonlySet<string> = new Set([DEFAULT_PROVIDER, HOST_PROVIDER])
 function isProviderEditable(provider: string | undefined): boolean {
   return EDITABLE_PROVIDERS.has(provider ?? DEFAULT_PROVIDER)
 }
@@ -281,13 +278,17 @@ export function attachDispatcher(
 export interface ShortcutSettingsController {
   registry: ActionRegistry
   scope: SettingsScopeFace
-  reload(overrides: BindingOverrides, disabled?: ReadonlySet<string>): void
+  /** W2.2: `hostDirectExecute` is optional here (unlike the required field
+   * of the same name in shortcut-persistence.ts's ShortcutPersistedStateV1)
+   * so every pre-W2 caller/test double keeps compiling unchanged; omitting
+   * it means "leave the currently committed opt-in set untouched". */
+  reload(overrides: BindingOverrides, disabled?: ReadonlySet<string>, hostDirectExecute?: ReadonlySet<string>): void
   /** GA-003/022: persist the full shortcut state (host-first, local fallback). */
-  persist(state: { bindings: BindingOverrides; disabled: ReadonlySet<string> }): Promise<'host' | 'local'>
+  persist(state: { bindings: BindingOverrides; disabled: ReadonlySet<string>; hostDirectExecute?: ReadonlySet<string> }): Promise<'host' | 'local'>
   /** Committed state: the same state the registry dispatches from (host if
    * durable, else the localStorage fallback). Set at hydration and on every
    * save/clear/unbind/toggle. */
-  persisted?: { bindings: BindingOverrides; disabled: ReadonlySet<string> }
+  persisted?: { bindings: BindingOverrides; disabled: ReadonlySet<string>; hostDirectExecute?: ReadonlySet<string> }
   /** Observe committed-state changes (hydration is async). Optional: test
    * controllers may omit it. */
   subscribeState?(fn: () => void): () => void
@@ -343,6 +344,8 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
   React.useEffect(() => {
     if (controller.persisted !== undefined) {
       setLocalDisabled(new Set(controller.persisted.disabled))
+      // W2.2: same hydration-sync reasoning as localDisabled above.
+      setLocalHostDirectExecute(new Set(controller.persisted.hostDirectExecute ?? []))
     }
   }, [controller.persisted])
 
@@ -377,6 +380,11 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
   // instead of relying solely on the effect to patch it in after the fact.
   const [localDisabled, setLocalDisabled] = React.useState<ReadonlySet<string>>(
     () => new Set(controller.persisted?.disabled ?? []),
+  )
+  // W2.2: mirrors localDisabled's own lazy-init reasoning (closes the same
+  // one-frame window before the hydration-sync effect above first runs).
+  const [localHostDirectExecute, setLocalHostDirectExecute] = React.useState<ReadonlySet<string>>(
+    () => new Set(controller.persisted?.hostDirectExecute ?? []),
   )
 
   const snapshot = controller.scope.getSnapshot()
@@ -466,7 +474,9 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
   const visibleOrphanedOverrides = orphanedOverrides.filter(([id]) => query === '' || id.toLowerCase().includes(query))
 
   const providerLabel = (providerId: string): string =>
-    providerId === DEFAULT_PROVIDER ? t('shortcuts.provider.workbench') : providerId
+    providerId === DEFAULT_PROVIDER ? t('shortcuts.provider.workbench')
+      : providerId === HOST_PROVIDER ? t('shortcuts.provider.host')
+      : providerId
 
   const toggleGroupCollapsed = (providerId: string) => {
     const next = new Set(collapsedProviders)
@@ -541,31 +551,31 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
     // GA-003/022: full-state persistence (host first, local fallback on
     // settings-not-exposed). The per-field scope.set below stays for host
     // snapshots that the settings UI reads back via getSnapshot.
-    void controller.persist({ bindings: next, disabled: localDisabled }).catch(() => {})
+    void controller.persist({ bindings: next, disabled: localDisabled, hostDirectExecute: localHostDirectExecute }).catch(() => {})
     controller.scope.set(actionId, pendingSpec).catch(() => {})
     for (const [id, spec] of Object.entries(next)) {
       if (id !== actionId) controller.scope.set(id, spec).catch(() => {})
     }
     setLocalOverrides(next)
-    controller.reload(next, localDisabled)
+    controller.reload(next, localDisabled, localHostDirectExecute)
     cancelRecording()
   }
 
   const clearBinding = async (actionId: string) => {
     const next = { ...overrides }
     delete next[actionId]
-    void controller.persist({ bindings: next, disabled: localDisabled }).catch(() => {})
+    void controller.persist({ bindings: next, disabled: localDisabled, hostDirectExecute: localHostDirectExecute }).catch(() => {})
     controller.scope.unset(actionId).catch(() => {})
     setLocalOverrides(next)
-    controller.reload(next, localDisabled)
+    controller.reload(next, localDisabled, localHostDirectExecute)
   }
 
   const unbindAction = async (actionId: string) => {
     const next = { ...overrides, [actionId]: UNBOUND_SENTINEL }
-    void controller.persist({ bindings: next, disabled: localDisabled }).catch(() => {})
+    void controller.persist({ bindings: next, disabled: localDisabled, hostDirectExecute: localHostDirectExecute }).catch(() => {})
     controller.scope.set(actionId, UNBOUND_SENTINEL).catch(() => {})
     setLocalOverrides(next)
-    controller.reload(next, localDisabled)
+    controller.reload(next, localDisabled, localHostDirectExecute)
   }
 
   const toggleEnabled = async (actionId: string) => {
@@ -573,8 +583,20 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
     if (disabled.has(actionId)) disabled.delete(actionId)
     else disabled.add(actionId)
     setLocalDisabled(disabled)
-    void controller.persist({ bindings: overrides, disabled }).catch(() => {})
-    controller.reload(overrides, disabled)
+    void controller.persist({ bindings: overrides, disabled, hostDirectExecute: localHostDirectExecute }).catch(() => {})
+    controller.reload(overrides, disabled, localHostDirectExecute)
+  }
+
+  // W2.2 — overflow toggle offered only on input-less host command rows
+  // (renderRow gates its render; buildHostActionDef re-enforces at dispatch
+  // time regardless of what this persisted set claims for a has-input id).
+  const toggleDirectExecute = async (actionId: string) => {
+    const next = new Set(localHostDirectExecute)
+    if (next.has(actionId)) next.delete(actionId)
+    else next.add(actionId)
+    setLocalHostDirectExecute(next)
+    void controller.persist({ bindings: overrides, disabled: localDisabled, hostDirectExecute: next }).catch(() => {})
+    controller.reload(overrides, localDisabled, next)
   }
 
   // W1.3 — orphaned overrides (design principle 3): the only mutation an
@@ -586,11 +608,14 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
     delete next[actionId]
     const disabled = new Set(localDisabled)
     disabled.delete(actionId)
-    void controller.persist({ bindings: next, disabled }).catch(() => {})
+    const hostDirectExecute = new Set(localHostDirectExecute)
+    hostDirectExecute.delete(actionId)
+    void controller.persist({ bindings: next, disabled, hostDirectExecute }).catch(() => {})
     controller.scope.unset(actionId).catch(() => {})
     setLocalOverrides(next)
     setLocalDisabled(disabled)
-    controller.reload(next, disabled)
+    setLocalHostDirectExecute(hostDirectExecute)
+    controller.reload(next, disabled, hostDirectExecute)
   }
 
   const startRecording = (actionId: string) => {
@@ -612,6 +637,15 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
     const pending = recording ? validateChordSpec(pendingSpec) : null
     const unbound = report.unbound === true
     const overflowOpen = editable && overflowId === action.id
+    // W2.2: the direct-execute opt-in is offered ONLY on host-provider rows
+    // whose command declares no `input` — a has-input command never gets
+    // the toggle at all (not merely disabled), since direct-execute could
+    // never carry the free-form argument the command needs. This is UI
+    // gating only; buildHostActionDef (host-commands.ts) independently
+    // re-checks the live descriptor at dispatch time, so a stale/hostile
+    // persisted opt-in for a has-input id can never take effect even if
+    // this condition were ever wrong.
+    const showDirectExecuteToggle = editable && action.provider === HOST_PROVIDER && action.hasInput !== true
     // GA-012: the chord button itself is the record entry. Its label is the
     // live chord display (or the recording hint / unbound state).
     const chordButtonLabel = recording
@@ -709,6 +743,26 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
                 />
                 {t('shortcuts.enabled')}
               </label>
+              {showDirectExecuteToggle && (
+                <label
+                  data-dsh-nux-overflow-direct-execute={action.id}
+                  style={{ display: 'flex', alignItems: 'flex-start', gap: 6, padding: '6px 8px', fontSize: 12, cursor: 'pointer' }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={localHostDirectExecute.has(action.id)}
+                    onChange={() => void toggleDirectExecute(action.id)}
+                    aria-label={t('shortcuts.host.directExecute')}
+                    style={{ marginTop: 2 }}
+                  />
+                  <span>
+                    {t('shortcuts.host.directExecute')}
+                    <div style={{ fontSize: 10, color: 'var(--dsw-alias-label-tertiary)', fontWeight: 400 }}>
+                      {t('shortcuts.host.directExecute.description')}
+                    </div>
+                  </span>
+                </label>
+              )}
               <button
                 type="button"
                 role="menuitem"
@@ -917,11 +971,31 @@ export function applyShortcuts(ctx: HarnessContext) {
         'host settings namespace "dsh-native-ux-shortcuts" is not durable for this client (not exposed / memory mode); shortcut chords persist in localStorage',
       ),
   )
-  let registry = buildShortcutRegistry({ services })
+  // W2.1: resolves the remote commands face fail-soft (zero actions if
+  // absent/malformed — see host-commands.ts's own doc comment); enumerates
+  // for the focused agent and subscribes to commands/change (debounced).
+  const hostCommandsHandle = createHostCommandsHandle(ctx, services)
+  let registry = buildShortcutRegistry({ services, hostCommandsHandle })
   let detach = attachDispatcher(registry)
-  const reload = (overrides: BindingOverrides, disabled?: ReadonlySet<string>) => {
+  // Last-known full state, threaded through every reload() call so a
+  // commands/change-triggered resync (which does not itself carry
+  // overrides/disabled/hostDirectExecute) can rebuild with the CURRENT
+  // committed values instead of reverting them to defaults.
+  let currentOverrides: BindingOverrides = {}
+  let currentDisabled: ReadonlySet<string> = new Set()
+  let currentHostDirectExecute: ReadonlySet<string> = new Set()
+  const reload = (overrides: BindingOverrides, disabled?: ReadonlySet<string>, hostDirectExecute?: ReadonlySet<string>) => {
+    currentOverrides = overrides
+    if (disabled !== undefined) currentDisabled = disabled
+    if (hostDirectExecute !== undefined) currentHostDirectExecute = hostDirectExecute
     detach()
-    registry = buildShortcutRegistry({ services, overrides, disabled })
+    registry = buildShortcutRegistry({
+      services,
+      overrides,
+      disabled: currentDisabled,
+      hostCommandsHandle,
+      hostDirectExecute: currentHostDirectExecute,
+    })
     detach = attachDispatcher(registry)
     controller.registry = registry
   }
@@ -936,25 +1010,48 @@ export function applyShortcuts(ctx: HarnessContext) {
     registry, scope, reload,
     subscribeState: (fn) => { stateListeners.add(fn); return () => { stateListeners.delete(fn) } },
     persist: (state) => {
-      controller.persisted = { bindings: { ...state.bindings }, disabled: new Set(state.disabled) }
+      // Falls back to whatever is already committed when this call omits
+      // hostDirectExecute (every pre-W2 call site does) — never silently
+      // wipes a previously-saved opt-in just because a binding/disabled
+      // change did not mention it. Note: a persist() call that races
+      // hydration (fired before controller.persisted is ever set) still
+      // falls through to `new Set()` here, the same pre-hydration window
+      // `disabled` (and `bindings`) have always had — this is parity with
+      // existing, pre-W2 behavior, not a new risk hostDirectExecute
+      // introduces.
+      const hostDirectExecute = state.hostDirectExecute ?? controller.persisted?.hostDirectExecute ?? new Set<string>()
+      controller.persisted = { bindings: { ...state.bindings }, disabled: new Set(state.disabled), hostDirectExecute: new Set(hostDirectExecute) }
       emitState()
       return persistence.save({
         schemaVersion: 1,
         bindings: state.bindings,
         disabled: Array.from(state.disabled),
+        hostDirectExecute: Array.from(hostDirectExecute),
       })
     },
   }
-  // GA-003/022: hydrate persisted bindings/disabled (host first, local
-  // fallback) into the live registry + controller state on startup. A
-  // hydration failure never blocks the dispatcher (defaults stay active).
+  // GA-003/022: hydrate persisted bindings/disabled/hostDirectExecute (host
+  // first, local fallback) into the live registry + controller state on
+  // startup. A hydration failure never blocks the dispatcher (defaults stay
+  // active).
   void persistence.load().then((state) => {
-    controller.persisted = { bindings: state.bindings, disabled: new Set(state.disabled) }
-    if (Object.keys(state.bindings).length > 0 || state.disabled.length > 0) {
-      controller.reload(state.bindings, new Set(state.disabled))
+    controller.persisted = { bindings: state.bindings, disabled: new Set(state.disabled), hostDirectExecute: new Set(state.hostDirectExecute) }
+    if (Object.keys(state.bindings).length > 0 || state.disabled.length > 0 || state.hostDirectExecute.length > 0) {
+      controller.reload(state.bindings, new Set(state.disabled), new Set(state.hostDirectExecute))
     }
     emitState()
   }).catch(() => {})
+  // W2.1: re-sync whenever the host command catalog actually changes
+  // (initial async enumeration counts as one such change, same as a later
+  // commands/change or focus-change resync) — rebuilds the registry with
+  // the CURRENT committed overrides/disabled/hostDirectExecute so an
+  // unrelated catalog change never reverts a pending settings change. Not
+  // captured for later unsubscription: hostCommandsHandle.dispose() below
+  // is self-sufficient (it clears every onChange listener itself — SF3),
+  // so there is no ordering requirement between the two calls.
+  hostCommandsHandle.onChange(() => {
+    reload(currentOverrides, currentDisabled, currentHostDirectExecute)
+  })
   ctx.slots.inject('settings.section', () =>
     ctx.slots.register(
       {
@@ -969,5 +1066,8 @@ export function applyShortcuts(ctx: HarnessContext) {
   )
   // Late-bound detach: reload replaces the listener, dispose must remove
   // whatever is currently attached (PRD §16: no duplicate listeners).
-  ctx.on('dispose', () => detach())
+  ctx.on('dispose', () => {
+    detach()
+    hostCommandsHandle.dispose()
+  })
 }

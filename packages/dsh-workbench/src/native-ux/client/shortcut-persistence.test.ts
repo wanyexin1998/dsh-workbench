@@ -105,6 +105,58 @@ describe('parsePersistedState', () => {
   })
 })
 
+// W2.2 — hostDirectExecute: structural-only tolerance (same contract as
+// `disabled`), no id-namespace migration (host.command.* never had a
+// pre-W1.2 bare form to migrate from).
+describe('parsePersistedState — hostDirectExecute (W2.2)', () => {
+  it('parses a valid array of action ids', () => {
+    const state = parsePersistedState({
+      schemaVersion: 1,
+      bindings: {},
+      disabled: [],
+      hostDirectExecute: ['host.command.foo', 'host.command.bar'],
+    })
+    expect(state.hostDirectExecute).toEqual(['host.command.foo', 'host.command.bar'])
+  })
+
+  it('defaults to [] when the field is absent (round-trips through EMPTY_SHORTCUT_STATE)', () => {
+    const state = parsePersistedState({ schemaVersion: 1, bindings: {}, disabled: [] })
+    expect(state.hostDirectExecute).toEqual([])
+    expect(state).toEqual(EMPTY_SHORTCUT_STATE)
+  })
+
+  it('drops non-string entries and tolerates a non-array shape without throwing', () => {
+    const state = parsePersistedState({
+      schemaVersion: 1,
+      bindings: {},
+      disabled: [],
+      hostDirectExecute: ['host.command.foo', 42, null, {}],
+    })
+    expect(state.hostDirectExecute).toEqual(['host.command.foo'])
+    const malformed = parsePersistedState({ schemaVersion: 1, bindings: {}, disabled: [], hostDirectExecute: 'not-an-array' })
+    expect(malformed.hostDirectExecute).toEqual([])
+  })
+
+  it('is NOT touched by the W1.2 id-namespace migration, even when a legacy bare bindings key is present in the same document', () => {
+    // A single fixed-input regression check, not exhaustive coverage of
+    // migrateLegacyActionIds' internals: it demonstrates that one
+    // parsePersistedState() call which DOES migrate an unrelated legacy
+    // bindings key leaves hostDirectExecute byte-for-byte untouched.
+    // hostDirectExecute ids never had a pre-W1.2 bare form, so there is
+    // nothing for that migration to touch in the first place — this pins
+    // the two fields being parsed independently, not a claim about every
+    // possible migrateLegacyActionIds input.
+    const state = parsePersistedState({
+      schemaVersion: 1,
+      bindings: { 'session.stop': 'Primary+K' }, // legacy bare id, gets migrated
+      disabled: [],
+      hostDirectExecute: ['host.command.foo'],
+    })
+    expect(state.bindings).toEqual({ 'workbench.session.stop': 'Primary+K' })
+    expect(state.hostDirectExecute).toEqual(['host.command.foo'])
+  })
+})
+
 // W1.2 — id namespacing migration: any key that exactly matches an old
 // (pre-W1.2, un-namespaced) built-in id is re-keyed to its
 // `workbench.`-prefixed form on read. Exercised both through the pure
@@ -180,7 +232,7 @@ describe('migrateLegacyActionIds (W1.2 id namespacing)', () => {
 describe('HostShortcutPersistence', () => {
   it('loads the versioned envelope from a durable, ready snapshot', async () => {
     const scope = fixedScope(
-      readySnapshot({ schemaVersion: 1, bindings: { 'workbench.session.stop': 'Primary+X' }, disabled: ['workbench.layout.sidebar.toggle'] }),
+      readySnapshot({ schemaVersion: 1, bindings: { 'workbench.session.stop': 'Primary+X' }, disabled: ['workbench.layout.sidebar.toggle'], hostDirectExecute: [] }),
     )
     const state = await new HostShortcutPersistence(scope).load()
     expect(state.bindings['workbench.session.stop']).toBe('Primary+X')
@@ -212,7 +264,7 @@ describe('HostShortcutPersistence', () => {
 
   it('saves the envelope to the single __state field on a durable host', async () => {
     const scope = fixedScope(readySnapshot(null))
-    await new HostShortcutPersistence(scope).save({ schemaVersion: 1, bindings: { 'workbench.session.stop': 'Primary+K' }, disabled: [] })
+    await new HostShortcutPersistence(scope).save({ schemaVersion: 1, bindings: { 'workbench.session.stop': 'Primary+K' }, disabled: [], hostDirectExecute: [] })
     expect(scope.set).toHaveBeenCalledTimes(1)
     const [field, raw] = scope.set.mock.calls[0] as [string, unknown]
     expect(field).toBe(HOST_STATE_FIELD)
@@ -223,7 +275,7 @@ describe('HostShortcutPersistence', () => {
     const scope = fixedScope({ status: 'unavailable', mode: 'host', user: undefined, value: undefined })
     const set = scope.set as ReturnType<typeof vi.fn>
     await expect(
-      new HostShortcutPersistence(scope).save({ schemaVersion: 1, bindings: { 'workbench.session.stop': 'Primary+K' }, disabled: [] }),
+      new HostShortcutPersistence(scope).save({ schemaVersion: 1, bindings: { 'workbench.session.stop': 'Primary+K' }, disabled: [], hostDirectExecute: [] }),
     ).rejects.toThrow('settings-not-exposed')
     expect(set).not.toHaveBeenCalled()
   })
@@ -235,6 +287,7 @@ describe('FallbackShortcutPersistence', () => {
       schemaVersion: 1,
       bindings: { 'workbench.pane.close-focused': 'Primary+Shift+W' },
       disabled: ['workbench.layout.sidebar.toggle'],
+      hostDirectExecute: [],
     }
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(legacy))
     const scope = fixedScope(readySnapshot(null))
@@ -263,6 +316,7 @@ describe('FallbackShortcutPersistence', () => {
       schemaVersion: 1,
       bindings: { 'workbench.pane.close-focused': 'Primary+Shift+W' },
       disabled: ['workbench.layout.sidebar.toggle'],
+      hostDirectExecute: [],
     }
     await expect(makeFallback(new HostShortcutPersistence(scope)).load()).resolves.toEqual(fullyMigrated)
     // The import write itself carries the namespaced ids, not the bare 0.1 ones.
@@ -286,7 +340,7 @@ describe('FallbackShortcutPersistence', () => {
     // cleared local data, losing the chord on reload.
     const scope = fixedScope({ status: 'unavailable', mode: 'host', user: {}, value: {} })
     const fallback = makeFallback(new HostShortcutPersistence(scope))
-    const where = await fallback.save({ schemaVersion: 1, bindings: { 'workbench.session.stop': 'Primary+K' }, disabled: ['workbench.layout.sidebar.toggle'] })
+    const where = await fallback.save({ schemaVersion: 1, bindings: { 'workbench.session.stop': 'Primary+K' }, disabled: ['workbench.layout.sidebar.toggle'], hostDirectExecute: [] })
     expect(where).toBe('local')
     // local must now hold the state (NOT the empty cleared state)
     const stored = JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY)!) as ShortcutPersistedStateV1
@@ -305,14 +359,14 @@ describe('FallbackShortcutPersistence', () => {
     )
     const scope = fixedScope(readySnapshot(null))
     const fallback = makeFallback(new HostShortcutPersistence(scope))
-    const where = await fallback.save({ schemaVersion: 1, bindings: { 'workbench.session.stop': 'Primary+K' }, disabled: [] })
+    const where = await fallback.save({ schemaVersion: 1, bindings: { 'workbench.session.stop': 'Primary+K' }, disabled: [], hostDirectExecute: [] })
     expect(where).toBe('host')
     // host accepted the state -> stale local fallback is cleared
     expect(JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY)!)).toEqual(EMPTY_SHORTCUT_STATE)
   })
 
   it('round-trips through a durable host snapshot (restart)', async () => {
-    const saved: ShortcutPersistedStateV1 = { schemaVersion: 1, bindings: { 'workbench.conversation.composer.focus': 'Primary+Shift+F' }, disabled: ['workbench.agent.favorite.open:1'] }
+    const saved: ShortcutPersistedStateV1 = { schemaVersion: 1, bindings: { 'workbench.conversation.composer.focus': 'Primary+Shift+F' }, disabled: ['workbench.agent.favorite.open:1'], hostDirectExecute: [] }
     const hostFor = () => new HostShortcutPersistence(fixedScope(readySnapshot(saved)))
     const first = makeFallback(hostFor())
     await first.save(saved)
@@ -323,10 +377,50 @@ describe('FallbackShortcutPersistence', () => {
     expect(state.disabled).toEqual(['workbench.agent.favorite.open:1'])
   })
 
+  it('W2.2: hostDirectExecute round-trips through a durable host snapshot (restart), alongside an unrelated W1.2 legacy-id bindings migration', async () => {
+    // Combines both W2.2's own persistence contract AND the "survives the
+    // W1.2 migration path untouched" requirement in one exercise: the
+    // bindings section carries a legacy bare id (migrated on read) while
+    // hostDirectExecute carries a host.command.* id (never migrated,
+    // preserved verbatim) — proof the two persisted fields are handled
+    // independently through the same save/load round trip.
+    const saved: ShortcutPersistedStateV1 = {
+      schemaVersion: 1,
+      bindings: { 'workbench.session.stop': 'Primary+K' },
+      disabled: [],
+      hostDirectExecute: ['host.command.foo', 'host.command.bar'],
+    }
+    const hostFor = () => new HostShortcutPersistence(fixedScope(readySnapshot(saved)))
+    const first = makeFallback(hostFor())
+    await first.save(saved)
+    const restarted = makeFallback(hostFor())
+    const state = await restarted.load()
+    expect(state.hostDirectExecute).toEqual(['host.command.foo', 'host.command.bar'])
+    expect(state.bindings).toEqual({ 'workbench.session.stop': 'Primary+K' })
+  })
+
+  it('W2.2: hostDirectExecute survives the local->host legacy import path (FallbackShortcutPersistence.load)', async () => {
+    // Mirrors the existing "imports a legacy local state when the durable
+    // Host section is empty" test above, but for hostDirectExecute
+    // specifically: a pre-existing local blob (as if written before the
+    // host namespace became durable) must import into the host WITH its
+    // hostDirectExecute entries intact, not dropped.
+    const legacy: ShortcutPersistedStateV1 = {
+      schemaVersion: 1,
+      bindings: {},
+      disabled: [],
+      hostDirectExecute: ['host.command.foo'],
+    }
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(legacy))
+    const scope = fixedScope(readySnapshot(null))
+    await expect(makeFallback(new HostShortcutPersistence(scope)).load()).resolves.toEqual(legacy)
+    expect(scope.set).toHaveBeenCalledWith('__state', JSON.stringify(legacy))
+  })
+
   it('local fallback round-trips after restart when the host is never durable', async () => {
     const hostFor = () => new HostShortcutPersistence(fixedScope({ status: 'unavailable', mode: 'host', user: {}, value: {} }))
     const first = makeFallback(hostFor())
-    await first.save({ schemaVersion: 1, bindings: { 'workbench.conversation.composer.focus': 'Primary+Shift+F' }, disabled: ['workbench.agent.favorite.open:1'] })
+    await first.save({ schemaVersion: 1, bindings: { 'workbench.conversation.composer.focus': 'Primary+Shift+F' }, disabled: ['workbench.agent.favorite.open:1'], hostDirectExecute: [] })
     const restarted = makeFallback(hostFor())
     const state = await restarted.load()
     expect(state.bindings['workbench.conversation.composer.focus']).toBe('Primary+Shift+F')

@@ -6,6 +6,71 @@ import type { ContentBlockView, InputNodeView } from '../core/derive-index.js'
 export const SCROLLPORT_SELECTOR = '[data-conversation-scroll]'
 export const ANCHOR_SELECTOR = '[data-chat-anchor-key]'
 export const COMPOSER_SELECTOR = '[data-composer-seat]'
+export const SESSION_PANE_SELECTOR = '[data-session-pane]'
+/** Matches the editable node inside one composer seat — textarea, plain
+ * text input, or a contenteditable variant. Shared by composer-focus (L0)
+ * and the W2 host-command composer-insert mapping. */
+export const COMPOSER_EDITABLE_SELECTOR =
+  'textarea, input[type="text"], [contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]'
+
+/**
+ * Resolve the DOM scope for one focused session's pane, falling back to
+ * `document` when there is no focused session id or no pane element carries
+ * a matching `[data-session-pane]`. Pure DOM lookup — deliberately decoupled
+ * from `HarnessServices`/`focusedSessionId` (harness-adapter.ts) so this
+ * adapter module never needs to know about the ctx/services boundary,
+ * matching ADR-0001 ("the ONLY module allowed to touch conversation DOM
+ * structure"). Callers resolve the session id first (harness-adapter.ts's
+ * `focusedSessionId`) and pass the plain string in here.
+ */
+export function focusedPaneScope(focusedSessionId: string | undefined, root: ParentNode = document): ParentNode {
+  if (focusedSessionId === undefined) return root
+  for (const pane of Array.from(root.querySelectorAll<HTMLElement>(SESSION_PANE_SELECTOR))) {
+    if (pane.dataset.sessionPane === focusedSessionId) return pane
+  }
+  return root
+}
+
+/** Locate the editable composer element inside one DOM scope (a pane, or
+ * `document` for the fallback case), or `null` when no composer seat /
+ * editable child is present in that scope. */
+export function locateComposerInput(scope: ParentNode): HTMLElement | null {
+  const seat = scope.querySelector(COMPOSER_SELECTOR)
+  const target = seat?.querySelector(COMPOSER_EDITABLE_SELECTOR)
+  return target instanceof HTMLElement ? target : null
+}
+
+/**
+ * Write text into a composer input the React-controlled way (adapter,
+ * tracked in issue #1 proposal 4 alongside `focusComposer` — no public
+ * composer/draft-write API exists in the harness rc; see host-commands.ts
+ * for the fuller investigation of why the DOM path was chosen over the one
+ * public API this repo did find, `dsh-client-ui-conversation`'s
+ * `SessionInput.setDraft`).
+ *
+ * Assigning `.value` directly is a no-op from React's perspective: React
+ * replaces the DOM property's own setter with a tracked one so it can
+ * detect the change; a plain assignment through the *original* prototype
+ * setter still lands the browser-visible value, but React's fiber never
+ * learns about it, and the next render can stomp the typed text right back
+ * to whatever React thinks the value still is. Grabbing the prototype's
+ * *native* setter (before React's override) and calling it directly writes
+ * the DOM value bypassing that tracked shortcut, then dispatching a real
+ * `input` event is what actually notifies React's synthetic-event listener
+ * — the same signal a real keystroke produces. `contenteditable` has no
+ * `.value` at all, so `textContent` + the same `input` event is the
+ * parallel path for that shape.
+ */
+export function setComposerValue(target: HTMLElement, text: string): void {
+  if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) {
+    const proto = target instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set
+    setter?.call(target, text)
+  } else {
+    target.textContent = text
+  }
+  target.dispatchEvent(new Event('input', { bubbles: true }))
+}
 
 /** Locate the conversation scrollport within one pane-owned DOM scope. */
 export function locateScrollport(root: ParentNode = document): HTMLElement | null {
