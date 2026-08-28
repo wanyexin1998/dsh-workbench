@@ -10,7 +10,7 @@
 4. Ordinary navigation replaces the focused Pane. Open Beside inserts beside focus when capacity permits; at capacity it replaces focus.
 5. Closing a Pane retains the durable Session and focuses the right neighbor, then the left neighbor.
 6. Releasing the last capacity-two request collapses around the focused Session.
-7. Workbench adds no Host filesystem, subprocess, credential, or arbitrary network capability.
+7. Workbench adds no Host filesystem, subprocess, credential, or arbitrary network capability, except the single chat-preset seeding write defined below.
 8. Without Panel Compatibility and an explicit provider adapter, Workbench changes no third-party panel behavior.
 
 ## Pane behavior
@@ -33,6 +33,16 @@
 - Both Panes may display independent right and bottom panels simultaneously.
 - Better Sidebar support requires the exact 0.16.1 downstream commit and Pane protocol 1 in `release-contract.json`.
 - Unknown overlays require their own explicit versioned adapter; private DOM inference is forbidden.
+
+## Chat preset seeding
+
+The one sanctioned exception to invariant 7:
+
+- The Host entry seeds the bundled `chat` agent preset (zero tools, conversation-only) into `$DSH_HOME/.agent-presets/chat/` at composition time.
+- Create-only: an existing `chat/` directory is never modified or overwritten.
+- A sibling marker (`.agent-presets/.workbench-chat-seeded`) records that seeding happened; deleting the preset directory is treated as user intent and Workbench never re-creates it.
+- Seeding failures degrade to a console warning and never block Host composition.
+- No other filesystem, subprocess, credential, or network capability is added.
 
 ## Out of scope for 0.2
 

@@ -34,6 +34,11 @@
     "implementationCommit": "53015a6f39710dac52ed08f05aca0c6bad7444ac",
     "distribution": "source-only"
   },
+  "chatPreset": {
+    "presetId": "chat",
+    "seeding": "create-only-with-marker",
+    "respectsUserDeletion": true
+  },
   "panelCompatibility": {
     "packageVersion": "0.1.0-rc.1",
     "provider": "dsh-better-sidebar",
