@@ -28,6 +28,18 @@ export interface ActionDef {
    * descriptor, not this flag), so a stale or hostile persisted opt-in can
    * never bypass the ban even if this field were ever wrong. */
   hasInput?: boolean
+  /** Opt-in escape from the editable-target dispatch suppression (see
+   * shortcuts.tsx's attachDispatcher / EDITABLE_ALLOWED_ACTIONS): when
+   * `true`, the bound chord still fires even while the keydown target is
+   * editable (e.g. the conversation composer). Defaults to `false`/absent —
+   * an action must opt in explicitly, since firing while the user is
+   * mid-sentence is usually the wrong default. Set this on an action whose
+   * entire job IS an explicit chord gesture fired from inside the composer
+   * (e.g. inserting `/name ` there) — the host slash-command bridge sets it
+   * on every action it registers, insert-mode and direct-execute alike,
+   * since the chord firing while typing is the whole point of that gesture,
+   * not an accident to suppress. */
+  allowWhileTyping?: boolean
 }
 
 export interface ChordConflict {

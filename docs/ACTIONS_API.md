@@ -26,6 +26,7 @@ interface WorkbenchActionDef {
   run: () => void
   isEnabled?: () => boolean
   provider?: string
+  allowWhileTyping?: boolean
 }
 ```
 
@@ -36,6 +37,7 @@ interface WorkbenchActionDef {
 | `run` | yes | Invoked when the user's bound chord fires. |
 | `isEnabled` | no | Runtime gate — see [`isEnabled` semantics](#isenabled-semantics). |
 | `provider` | no | Defaults to `id`'s own first dot-segment. If given, it must equal that segment. |
+| `allowWhileTyping` | no | Defaults to `false`. When `true`, the bound chord fires even while an editable element has focus — see [While-typing dispatch](#while-typing-dispatch). |
 
 `register` throws synchronously (never a silent no-op) when:
 
@@ -43,6 +45,7 @@ interface WorkbenchActionDef {
 - `id`'s provider segment case-insensitively equals the reserved `workbench` or `host` namespace (Workbench's own built-ins and the L1 host-command bridge) — `Workbench.foo` and `HOST.foo` are rejected exactly like `workbench.foo` and `host.foo`, not just an exact-case match;
 - `label` or `run` is not a function;
 - `isEnabled` is present but not a function;
+- `allowWhileTyping` is present but not a boolean;
 - `provider` is given but does not equal `id`'s own first segment;
 - `id` already has a live registration (from your plugin or any other — ids are global within Workbench's one action registry).
 
@@ -84,11 +87,33 @@ No default chord is ever assigned. A newly registered action starts unbound; onl
 
 Use this for "no-op instead of a confusing action" cases — for example, an action that only makes sense with something currently selected.
 
+## While-typing dispatch
+
+By default, a bound chord does not fire while the keydown target is editable — an `<input>`, a `<textarea>`, a `contentEditable` element, or (most commonly) the conversation composer. This protects normal typing: without it, every character the user types could accidentally trigger a bound action instead of being typed.
+
+Set `allowWhileTyping: true` when your action's entire purpose is an explicit chord gesture the user fires *from inside* an editable element — the canonical example is Workbench's own host slash-command bridge (`host.*`), whose default behavior is to insert `/name ` into the composer and focus it, so the chord firing only while the composer is unfocused would defeat the action's own purpose. Leave it absent (or `false`) for anything that should stay silent while the user is mid-sentence — this is the right default for almost every action, which is why it does not default to `true`.
+
+This is independent of `isEnabled`: `allowWhileTyping` only controls whether an editable-target keydown is eligible to resolve to your action at all. It never bypasses `isEnabled` — a `false`/throwing `isEnabled` still resolves the chord to nothing, editable target or not, exactly as it does for any other keydown.
+
+**`allowWhileTyping` does not exempt every chord from the editable-target check.** A chord made of Shift plus a single printable character (a letter, digit, or punctuation mark — e.g. `Shift+A`, `Shift+/`) is the literal character the user is typing (`A`, `?`, ...); firing it while typing would consume that keystroke instead of letting it reach the composer. So the escape only takes effect when the bound chord also carries a non-Shift modifier (`Primary` or `Alt`) or targets a non-printable key (`Enter`, `Escape`, an `F`-key, an arrow key, ...) — a Shift-only chord on a printable key stays suppressed while typing regardless of `allowWhileTyping`. **Bind a `Primary`- or `Alt`-modified chord (or a non-printable key) if you need it to fire while the user is typing.**
+
 ## When `label()` is called
 
-`label()` is called once when the action is first built into a live registry, and again every time Workbench rebuilds the registry (a settings change, hydration, or another provider's action catalog changing) — **not** on every render or keystroke. If your label text just changed and you need Settings to reflect it immediately, dispose and re-register the action.
+`label()` is called once when the action is first built into a live registry, and again every time Workbench rebuilds the registry — a settings change, hydration, another provider's action catalog changing, **or the Harness's active locale switching** (Workbench listens for the Harness's `locale/change` signal and rebuilds on it — see [Labels and the active locale](#labels-and-the-active-locale)) — **not** on every render or keystroke. If your label text just changed and you need Settings to reflect it immediately, dispose and re-register the action.
 
 If `label()` throws, or returns something other than a string, Workbench never lets that take down the registry build (which would otherwise strand every action, from every provider) — it falls back to rendering the action under its own `id` instead. Treat that fallback as a sign your `label()` has a bug to fix, not a supported way to label an action.
+
+## Labels and the active locale
+
+A registered action's label is a plain string, evaluated once by calling your `label()` at registry-build time (see above) — it is not itself a translation key. This matters when the Harness's active language changes: Workbench's own built-in actions store a dictionary *key* as their label and translate it fresh on every render, so they update instantly on a language switch. A third-party action registered through this API does not get that for free — the string `toActionDef` captured the last time your `label()` ran is what Settings keeps showing, in whatever language it was in when that build happened.
+
+Workbench closes most of this gap for you: it subscribes to the Harness's `locale/change` signal (`@deepseek-ai/dsh-client-locale`'s `Context` event, verified public surface — see `client/index.d.ts`'s `LocaleRuntime`/`Events['locale/change']` doc comments in the pinned package) and rebuilds the action registry when it fires, which re-calls every live `label()` — including yours. If your own `label()` reads the Harness's *current* language at call time (e.g. through your own bound `t()`), your label re-translates automatically on the next language switch, with no extra work on your part.
+
+What is **not** covered:
+
+- **Host command descriptions** (`host.*` action labels): these are host-authored, untranslated English text with no client-side locale hook at all — this is a data limitation of the host bridge, not something a rebuild can fix, and is out of scope for this API.
+- **A switch that happens between your `register()` call and Workbench's first rebuild**, or any window where Workbench itself has not yet loaded/subscribed: your label reflects whatever language was active when it was last evaluated, same as always.
+- **Workbench rebuilding is the only signal your label refreshes on.** If your plugin also needs to react to a language switch for reasons of its own (not just this label), subscribe to the Harness's own locale change notification directly rather than relying on Workbench's internal rebuild as a proxy for it — Workbench's rebuild is not a public API you can depend on staying wired exactly this way.
 
 ## No `providerLabel` in v1
 

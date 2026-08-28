@@ -28,6 +28,7 @@ import { focusedPaneScope, locateComposerInput } from './conversation-dom.js'
 import {
   createHostCommandsHandle,
   HOST_PROVIDER,
+  microtaskCoalesce,
   type HostCommandsHandle,
 } from './host-commands.js'
 import { createThirdPartyActionsHandle, type ThirdPartyActionsHandle } from './actions-api.js'
@@ -231,6 +232,11 @@ export function setRecordingActive(active: boolean): void {
 // NOTE: this is a *dispatch-time* allowlist (keydown-while-typing policy) —
 // unrelated to EDITABLE_PROVIDERS below, which gates *Settings-UI* rebinding.
 // The similar name is coincidental; do not conflate the two.
+// A per-action escape hatch also reaches while-typing dispatch without
+// joining this hardcoded set: ActionDef.allowWhileTyping (action-registry.ts)
+// — see attachDispatcher's onKeydown below for where the two are combined.
+// This legacy Set itself is frozen; never add to it — a new built-in that
+// needs to fire while typing should set allowWhileTyping instead.
 const EDITABLE_ALLOWED_ACTIONS = new Set(['workbench.conversation.navigator.toggle'])
 
 // W1.3 — open catalog: the Settings UI now renders every registered action
@@ -271,6 +277,19 @@ export function isTrustedShortcutEvent(
   return event.isTrusted || allowSyntheticEventsForTesting
 }
 
+/** MEDIUM 1 (Opus review, round 2 of the Finding-1 smoke fix): a chord's
+ * `key` (Chord.key — already lowercased by chordFromEvent) is "printable"
+ * iff it is exactly one character: a letter, digit, or punctuation mark
+ * that Shift alone turns into a different literal character (Shift+a ->
+ * 'A', Shift+/ -> '?', Shift+Enter inserts a newline in some composers).
+ * Multi-character key names (enter, escape, arrowup, f5, ...) are never a
+ * character the user could be trying to type, so they are never
+ * "printable" here regardless of Shift. Scoped to gating allowWhileTyping's
+ * escape below (see onKeydown) — not a general-purpose key classifier. */
+function isPrintableKey(key: string): boolean {
+  return Array.from(key).length === 1
+}
+
 export function attachDispatcher(
   registry: ActionRegistry,
   options: { allowSyntheticEventsForTesting?: boolean } = {},
@@ -284,7 +303,27 @@ export function attachDispatcher(
     const chord = chordFromEvent(event, platformOf())
     const action = registry.resolve(chord)
     if (action === null) return
-    if (isEditableEvent(event) && !EDITABLE_ALLOWED_ACTIONS.has(action.id)) return
+    // Finding 1 (smoke test): a bound host-command chord used to be dead
+    // while the composer was focused, because the default insert-mode
+    // mapping's whole job is to fire FROM the composer — the legacy
+    // allowlist above never covered host.command.* (or any third-party)
+    // ids. `action.allowWhileTyping === true` is the per-action opt-in that
+    // fixes this without touching the frozen legacy set.
+    // MEDIUM 1 (Opus review, round 2): that escape must not swallow a
+    // character the user is actually typing. A Shift-only chord on a
+    // printable key IS that character (Shift+A = 'A', Shift+/ = '?') —
+    // firing + preventDefault() on it while typing would eat it. Discrete
+    // editing gestures (Shift+Enter, Shift+Arrow, Shift+Tab) are DELIBERATELY
+    // not covered: binding one means taking it over, same as Primary+A —
+    // see ACTIONS_API.md. So the escape only applies when the
+    // chord carries a real modifier (Primary/Alt) or targets a non-printable
+    // key (Enter, Escape, F-keys, arrows, ...); a Shift-only printable
+    // chord stays suppressed while typing, exactly like the pre-Finding-1
+    // behavior, for precisely that dangerous subset.
+    const allowedWhileTyping =
+      EDITABLE_ALLOWED_ACTIONS.has(action.id) ||
+      (action.allowWhileTyping === true && (chord.primary || chord.alt || !isPrintableKey(chord.key)))
+    if (isEditableEvent(event) && !allowedWhileTyping) return
     event.preventDefault()
     action.run()
   }
@@ -1097,6 +1136,30 @@ export function applyShortcuts(ctx: HarnessContext): ThirdPartyActionsHandle {
   thirdPartyActionsHandle.onChange(() => {
     reload(currentOverrides, currentDisabled, currentHostDirectExecute)
   })
+  // Finding 2 (smoke test): a build-time-evaluated label (a third-party's
+  // `toActionDef` snapshot, or a foreign/L3 provider poked into a registry
+  // some other way) goes stale on a global language switch until something
+  // rebuilds the registry — Workbench's own dictionary-key labels are exempt
+  // (t() re-evaluates them at render, see renderRow), but nothing previously
+  // drove a rebuild on a locale switch itself. `locale/change` (see
+  // HarnessContext.on's doc comment, harness-adapter.ts, for the verified
+  // citation) is exactly that "language changed" signal — subscribing here
+  // and reusing the same debounced-reload shape as hostCommandsHandle.
+  // onChange (microtaskCoalesce, imported from host-commands.ts) means a
+  // registry rebuild — the same rebuild ACTIONS_API.md's "When label() is
+  // called" already documents as re-evaluating every function-label — now
+  // also runs on a language switch, not only on a settings/catalog change.
+  const localeChangeResync = microtaskCoalesce(() => {
+    reload(currentOverrides, currentDisabled, currentHostDirectExecute)
+  })
+  const localeChangeUnsub = ctx.on('locale/change', localeChangeResync)
+  // LOW 3 (Opus review, round 2): HarnessContext.on('locale/change', ...)'s
+  // return type is `(() => void) | undefined` (see its doc comment,
+  // harness-adapter.ts) precisely because a test double built from a plain
+  // `vi.fn()` resolves to `undefined` at runtime even though real cordis
+  // always returns a disposer — this typeof check is a genuinely reachable
+  // branch under that type, not dead code papering over a lie.
+  const offLocaleChange = typeof localeChangeUnsub === 'function' ? localeChangeUnsub : () => {}
   ctx.slots.inject('settings.section', () =>
     ctx.slots.register(
       {
@@ -1115,6 +1178,7 @@ export function applyShortcuts(ctx: HarnessContext): ThirdPartyActionsHandle {
     detach()
     hostCommandsHandle.dispose()
     thirdPartyActionsHandle.dispose()
+    offLocaleChange()
   })
   return thirdPartyActionsHandle
 }

@@ -125,6 +125,23 @@ describe('validateActionDef — remaining field validation', () => {
   it('rejects a provider that does not match the id\'s own namespace', () => {
     expect(() => validateActionDef(def({ id: 'myplugin.foo', provider: 'otherplugin' }))).toThrow(/does not match/)
   })
+
+  // Finding 1 (smoke test) — allowWhileTyping: boolean when present,
+  // snapshotted like every other field (read once, into the returned
+  // ValidatedActionDef).
+  it('rejects a non-boolean allowWhileTyping when present', () => {
+    expect(() => validateActionDef({ ...def({ id: 'p.foo' }), allowWhileTyping: 'yes' as unknown as boolean })).toThrow(/allowWhileTyping/)
+  })
+
+  it('accepts an absent allowWhileTyping (defaults to undefined/false downstream)', () => {
+    const validated = validateActionDef(def({ id: 'p.foo' }))
+    expect(validated.allowWhileTyping).toBeUndefined()
+  })
+
+  it('accepts and snapshots an explicit allowWhileTyping: true', () => {
+    const validated = validateActionDef(def({ id: 'p.foo', allowWhileTyping: true }))
+    expect(validated.allowWhileTyping).toBe(true)
+  })
 })
 
 describe('createThirdPartyActionsHandle — registerInto (registry build consults the store)', () => {
@@ -150,6 +167,25 @@ describe('createThirdPartyActionsHandle — registerInto (registry build consult
     const registry = new ActionRegistry()
     handle.registerInto(registry, { overrides: {}, disabled: new Set() })
     expect(registry.all()[0]?.provider).toBe('myplugin')
+  })
+
+  // Finding 1 (smoke test): allowWhileTyping must survive the raw
+  // WorkbenchActionDef -> ValidatedActionDef -> ActionDef pipeline — this is
+  // what the dispatcher (shortcuts.tsx) actually reads at keydown time.
+  it('carries allowWhileTyping: true onto the built ActionDef', () => {
+    const handle = createThirdPartyActionsHandle()
+    handle.service.register(def({ id: 'p.foo', allowWhileTyping: true }))
+    const registry = new ActionRegistry()
+    handle.registerInto(registry, { overrides: {}, disabled: new Set() })
+    expect(registry.all()[0]?.allowWhileTyping).toBe(true)
+  })
+
+  it('an absent allowWhileTyping carries through as undefined (no implicit true)', () => {
+    const handle = createThirdPartyActionsHandle()
+    handle.service.register(def({ id: 'p.foo' }))
+    const registry = new ActionRegistry()
+    handle.registerInto(registry, { overrides: {}, disabled: new Set() })
+    expect(registry.all()[0]?.allowWhileTyping).toBeUndefined()
   })
 
   it('MUTATION: registration survives a reload rebuild — a brand-new registry instance gets it registered fresh, not skipped', () => {

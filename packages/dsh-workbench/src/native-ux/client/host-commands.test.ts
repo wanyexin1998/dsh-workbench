@@ -601,6 +601,23 @@ describe('W2.2 dispatch — insert vs direct-execute, has-input enforcement', ()
     expect(action.hasInput).toBe(false)
   })
 
+  // Finding 1 (smoke test) — every host bridge action's own default mapping
+  // fires FROM inside the composer; suppressing while typing made the
+  // bridge dead for its primary flow. Both dispatch branches (insert-mode
+  // default, direct-execute opt-in) must set the escape hatch — the chord
+  // gesture is explicit either way.
+  it('sets allowWhileTyping: true regardless of direct-execute opt-in (insert-mode branch)', () => {
+    const services = servicesWithFocus('s1')
+    const action = buildHostActionDef(descriptor('foo'), services, new Set())
+    expect(action.allowWhileTyping).toBe(true)
+  })
+
+  it('sets allowWhileTyping: true regardless of direct-execute opt-in (direct-execute branch)', () => {
+    const services = servicesWithFocus('s1')
+    const action = buildHostActionDef(descriptor('foo'), services, new Set([hostCommandActionId('foo')]))
+    expect(action.allowWhileTyping).toBe(true)
+  })
+
   it('no focused session at run() time -> no-op (neither insert nor execute)', () => {
     const commandFn = vi.fn(async () => ({ ok: true as const, value: { matched: true } }))
     const services = servicesWithFocus(undefined, () => ({ session: { command: commandFn } }))

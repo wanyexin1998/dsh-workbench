@@ -170,6 +170,13 @@ export function buildHostActionDef(
     defaultChord: null,
     provider: HOST_PROVIDER,
     hasInput,
+    // Finding 1 (smoke test): every host bridge action's own default mapping
+    // IS an explicit chord gesture fired from inside the composer (insert
+    // `/name ` there) — direct-execute is the same explicit gesture, just
+    // skipping the composer round-trip. Suppressing the chord while the
+    // composer itself is focused made the bridge dead for its primary use
+    // case, so both modes opt into while-typing dispatch unconditionally.
+    allowWhileTyping: true,
     run: () => {
       // Async-identity rule: captured now, at keypress — never re-read after
       // an await inside this closure or its callees.
@@ -303,8 +310,12 @@ function createHostCommandSync() {
  * `fn`, scheduled on the microtask queue — the "one microtask/short timer
  * coalescing bursts" debounce the V-report's residual-risk list calls for
  * (`commands/change` firing at high frequency across plugin
- * install/uninstall churn). */
-function microtaskCoalesce(fn: () => void): () => void {
+ * install/uninstall churn). Exported: shortcuts.tsx reuses this exact
+ * coalescing shape for its own `locale/change`-triggered resync (Finding 2,
+ * smoke test) — same "one microtask, whatever fired inside it wins" need,
+ * imported rather than duplicated since the direction (shortcuts.tsx already
+ * imports from this module) is not circular. */
+export function microtaskCoalesce(fn: () => void): () => void {
   let scheduled = false
   return () => {
     if (scheduled) return

@@ -240,6 +240,32 @@ export interface HarnessContext {
   settingsScope: { bind(options: { namespace: string }): SettingsScopeFace }
   effect(fn: () => void, label?: string): void
   on(event: 'dispose', fn: () => void): void
+  /**
+   * Finding 2 (smoke test) — the active-locale-switch signal. Verified
+   * against the pinned 0.1.1-rc.2 store:
+   * `@deepseek-ai/dsh-client-locale/lib/types/client/index.d.ts:44-58`
+   * declares this as a genuine cordis `Context` event (`declare module
+   * '@deepseek-ai/cordis' { interface Events { 'locale/change'(snapshot):
+   * void } }`), fired ONLY when `LocaleRuntime.setLocale` actually changes
+   * the active locale — unlike `LocaleService`'s (not yet widened here)
+   * underlying `LocaleRuntime.subscribe`, which also fires on every
+   * dictionary `register()` call (every feature's own boot-time namespace
+   * registration), this is the precise "language changed" signal, not a
+   * broader "something about locale state changed" one. The real cordis
+   * `on()` calls the listener with a `LocaleSnapshot` argument; the listener
+   * type here omits it (unused by any consumer) — a function with fewer
+   * parameters is a valid implementation of one declared with more, the same
+   * narrowing `RemoteFace.$on` already applies to `commands/change` above.
+   * Return type is `(() => void) | undefined`, not a bare `() => void`: the
+   * real cordis `on()` always returns a disposer, but a test double built
+   * from a plain `vi.fn()` (no explicit return) resolves to `undefined` at
+   * runtime — LOW 3 (Opus review, round 2) caught the previous non-optional
+   * signature making the caller's `typeof localeChangeUnsub === 'function'`
+   * defensive check statically dead code. Honest here, so that check is a
+   * real, reachable branch rather than a lie the type system told the
+   * caller was unnecessary.
+   */
+  on(event: 'locale/change', fn: () => void): (() => void) | undefined
 }
 
 /**

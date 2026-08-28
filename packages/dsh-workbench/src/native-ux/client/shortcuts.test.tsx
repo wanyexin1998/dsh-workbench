@@ -1,8 +1,17 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { attachDispatcher as attachProductionDispatcher, buildShortcutRegistry, isEditableTarget, isTrustedShortcutEvent } from './shortcuts.js'
+import {
+  applyShortcuts,
+  attachDispatcher as attachProductionDispatcher,
+  buildShortcutRegistry,
+  isEditableTarget,
+  isTrustedShortcutEvent,
+} from './shortcuts.js'
 import { navigatorBus } from './navigator-bus.js'
 import { createThirdPartyActionsHandle } from './actions-api.js'
+import { ActionRegistry } from '../core/action-registry.js'
+import { HOST_PROVIDER } from './host-commands.js'
+import type { HarnessContext } from './harness-adapter.js'
 
 describe('shortcut dispatcher (seam B)', () => {
   let detach: () => void
@@ -333,5 +342,235 @@ describe('shortcut dispatcher (seam B)', () => {
     expect(toggle).toHaveBeenCalledOnce()
     expect(event.defaultPrevented).toBe(true)
     off()
+  })
+
+  // -------------------------------------------------------------------
+  // Finding 1 (smoke test) — a bound host-command chord used to be dead
+  // while the composer was focused: the dispatcher suppressed every
+  // editable-target keydown unless the action id was in the hardcoded
+  // EDITABLE_ALLOWED_ACTIONS set, and host.command.* ids never joined that
+  // set. Firing while typing is the insert-mode bridge's PRIMARY flow, so
+  // this was the real-user-visible bug. Fix: ActionDef.allowWhileTyping.
+  // -------------------------------------------------------------------
+  describe('Finding 1 — allowWhileTyping (editable-target dispatch)', () => {
+    it('a host-bridge action (allowWhileTyping: true) fires from inside a textarea — fails against the pre-fix dispatcher', () => {
+      const registry = new ActionRegistry()
+      const run = vi.fn()
+      const result = registry.register(
+        { id: 'host.command.foo', label: 'Foo', defaultChord: null, provider: HOST_PROVIDER, allowWhileTyping: true, run },
+        'Primary+K',
+      )
+      expect(result.ok).toBe(true)
+      detach = attachDispatcher(registry)
+      const input = document.createElement('textarea')
+      document.body.appendChild(input)
+      const event = new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true, cancelable: true })
+      input.dispatchEvent(event) // real path: composedPath()[0] === input (editable)
+      expect(run).toHaveBeenCalledOnce()
+      expect(event.defaultPrevented).toBe(true)
+      input.remove()
+    })
+
+    it('a Workbench action NOT in the legacy EDITABLE_ALLOWED_ACTIONS set stays suppressed while typing (no regression)', () => {
+      // Session stop is a workbench.* built-in with no allowWhileTyping set —
+      // the fix must not accidentally widen the legacy allowlist's coverage.
+      const cancel = vi.fn()
+      const scope = vi.fn(() => ({ get: () => ({ cancel }) }))
+      const registry = buildShortcutRegistry({ services: { sessions: { scope, presentation: presentation('s-edit') } } })
+      detach = attachDispatcher(registry)
+      const input = document.createElement('textarea')
+      document.body.appendChild(input)
+      const event = new KeyboardEvent('keydown', { key: 'X', shiftKey: true, ctrlKey: true, bubbles: true, cancelable: true })
+      input.dispatchEvent(event)
+      expect(cancel).not.toHaveBeenCalled()
+      expect(event.defaultPrevented).toBe(false)
+      input.remove()
+    })
+
+    it('a third-party action without allowWhileTyping stays suppressed while typing; the same action WITH the flag fires', () => {
+      const handle = createThirdPartyActionsHandle()
+      const runWithout = vi.fn()
+      const runWith = vi.fn()
+      handle.service.register({ id: 'p.withoutFlag', label: () => 'Without', run: runWithout })
+      handle.service.register({ id: 'p.withFlag', label: () => 'With', run: runWith, allowWhileTyping: true })
+      const registry = buildShortcutRegistry({
+        thirdPartyActionsHandle: handle,
+        overrides: { 'p.withoutFlag': 'Primary+1', 'p.withFlag': 'Primary+2' },
+      })
+      detach = attachDispatcher(registry)
+      const input = document.createElement('textarea')
+      document.body.appendChild(input)
+
+      const withoutEvent = new KeyboardEvent('keydown', { key: '1', ctrlKey: true, bubbles: true, cancelable: true })
+      input.dispatchEvent(withoutEvent)
+      expect(runWithout).not.toHaveBeenCalled()
+      expect(withoutEvent.defaultPrevented).toBe(false)
+
+      const withEvent = new KeyboardEvent('keydown', { key: '2', ctrlKey: true, bubbles: true, cancelable: true })
+      input.dispatchEvent(withEvent)
+      expect(runWith).toHaveBeenCalledOnce()
+      expect(withEvent.defaultPrevented).toBe(true)
+
+      input.remove()
+    })
+  })
+
+  // -------------------------------------------------------------------
+  // MEDIUM 1 (Opus review, round 2 of Finding 1) — the allowWhileTyping
+  // escape must not swallow a character the user is actually typing.
+  // Reviewer-verified probe: a host command bound to Shift+A (or Shift+/ =
+  // '?', Shift+Enter = newline) fired + preventDefault()ed WHILE TYPING,
+  // eating the character. Fix: the escape only applies when the chord
+  // carries a real modifier (Primary/Alt) or targets a non-printable key —
+  // a Shift-only chord on a printable key stays suppressed while typing.
+  // -------------------------------------------------------------------
+  describe('MEDIUM 1 — allowWhileTyping does not swallow a typed character (Shift-only printable chords)', () => {
+    it('a Shift-only host-bridge chord on a printable key stays suppressed while typing, and the character survives (event NOT defaultPrevented) — fails against the pre-MEDIUM-1 dispatcher', () => {
+      const registry = new ActionRegistry()
+      const run = vi.fn()
+      registry.register(
+        { id: 'host.command.bang', label: 'Bang', defaultChord: null, provider: HOST_PROVIDER, allowWhileTyping: true, run },
+        'Shift+A',
+      )
+      detach = attachDispatcher(registry)
+      const input = document.createElement('textarea')
+      document.body.appendChild(input)
+      const event = new KeyboardEvent('keydown', { key: 'A', shiftKey: true, bubbles: true, cancelable: true })
+      input.dispatchEvent(event) // real path: composedPath()[0] === input (editable)
+      expect(run).not.toHaveBeenCalled()
+      expect(event.defaultPrevented).toBe(false) // the 'A' character is not eaten
+      input.remove()
+    })
+
+    it('the same action bound to Primary+letter DOES fire while typing (Primary is a real modifier, not the dangerous Shift-only case)', () => {
+      const registry = new ActionRegistry()
+      const run = vi.fn()
+      registry.register(
+        { id: 'host.command.bang', label: 'Bang', defaultChord: null, provider: HOST_PROVIDER, allowWhileTyping: true, run },
+        'Primary+A',
+      )
+      detach = attachDispatcher(registry)
+      const input = document.createElement('textarea')
+      document.body.appendChild(input)
+      const event = new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true })
+      input.dispatchEvent(event)
+      expect(run).toHaveBeenCalledOnce()
+      expect(event.defaultPrevented).toBe(true)
+      input.remove()
+    })
+
+    it('a Shift-only chord on a NON-printable key (F5) still fires while typing — there is no character to swallow', () => {
+      const registry = new ActionRegistry()
+      const run = vi.fn()
+      registry.register(
+        { id: 'host.command.refresh', label: 'Refresh', defaultChord: null, provider: HOST_PROVIDER, allowWhileTyping: true, run },
+        'Shift+F5',
+      )
+      detach = attachDispatcher(registry)
+      const input = document.createElement('textarea')
+      document.body.appendChild(input)
+      const event = new KeyboardEvent('keydown', { key: 'F5', shiftKey: true, bubbles: true, cancelable: true })
+      input.dispatchEvent(event)
+      expect(run).toHaveBeenCalledOnce()
+      expect(event.defaultPrevented).toBe(true)
+      input.remove()
+    })
+
+    it('the same Shift-only printable chord still fires OUTSIDE an editable context (no over-suppression from the MEDIUM-1 fix)', () => {
+      const registry = new ActionRegistry()
+      const run = vi.fn()
+      registry.register(
+        { id: 'host.command.bang', label: 'Bang', defaultChord: null, provider: HOST_PROVIDER, allowWhileTyping: true, run },
+        'Shift+A',
+      )
+      detach = attachDispatcher(registry)
+      const event = new KeyboardEvent('keydown', { key: 'A', shiftKey: true, bubbles: true, cancelable: true })
+      document.body.dispatchEvent(event) // non-editable target — the while-typing gate never applies here
+      expect(run).toHaveBeenCalledOnce()
+      expect(event.defaultPrevented).toBe(true)
+    })
+  })
+})
+
+// ---------------------------------------------------------------------
+// Finding 2 (smoke test) — labels evaluated at registry-build time (a
+// third-party's toActionDef snapshot) went stale on a global language
+// switch until something else happened to rebuild the registry. Public
+// surface found: `dsh-client-locale` fires a genuine cordis `Context` event
+// `'locale/change'` ONLY on an actual active-locale switch (verified at the
+// pinned 0.1.1-rc.2 store: `@deepseek-ai/dsh-client-locale/lib/types/client/
+// index.d.ts:44-58`) — see harness-adapter.ts's `HarnessContext.on` overload
+// doc comment for the full citation. applyShortcuts subscribes to it and
+// reuses host-commands.ts's microtaskCoalesce to debounce a burst into one
+// rebuild, mirroring the existing hostCommandsHandle.onChange /
+// thirdPartyActionsHandle.onChange wiring.
+// ---------------------------------------------------------------------
+describe('applyShortcuts — Finding 2 (locale/change public surface)', () => {
+  async function flush(times = 4): Promise<void> {
+    for (let i = 0; i < times; i++) await Promise.resolve()
+  }
+
+  function makeApplyCtx() {
+    const localeListeners = new Set<() => void>()
+    const disposeListeners = new Set<() => void>()
+    let capturedInject: (() => { controller: { registry: { all(): Array<{ id: string; label: string }> } } }) | undefined
+    const ctx = {
+      get: vi.fn(() => undefined),
+      locale: { register: vi.fn(), bind: vi.fn(() => (key: string) => key) },
+      slots: {
+        register: vi.fn((def: { inject?: () => unknown }, _component: unknown) => {
+          capturedInject = def.inject as typeof capturedInject
+        }),
+        inject: vi.fn((_slot: string, fn: () => void) => fn()),
+      },
+      settingsScope: {
+        bind: vi.fn(() => ({ getSnapshot: () => ({}), subscribe: () => () => {}, set: vi.fn(), unset: vi.fn() })),
+      },
+      effect: vi.fn((fn: () => void) => fn()),
+      on: vi.fn((event: string, fn: (...args: never[]) => void) => {
+        if (event === 'locale/change') {
+          localeListeners.add(fn)
+          return () => localeListeners.delete(fn)
+        }
+        if (event === 'dispose') {
+          disposeListeners.add(fn)
+          return () => disposeListeners.delete(fn)
+        }
+        return () => {}
+      }),
+    }
+    return {
+      ctx: ctx as unknown as HarnessContext,
+      fireLocaleChange: () => { for (const fn of [...localeListeners]) fn() },
+      fireDispose: () => { for (const fn of [...disposeListeners]) fn() },
+      localeListenerCount: () => localeListeners.size,
+      getController: () => capturedInject!().controller,
+    }
+  }
+
+  it('a synchronous burst of locale/change triggers exactly one debounced registry rebuild, and re-evaluates a third-party function-label', async () => {
+    const { ctx, fireLocaleChange, getController } = makeApplyCtx()
+    const handle = applyShortcuts(ctx)
+    let lang: 'en' | 'zh' = 'en'
+    handle.service.register({ id: 'p.greet', label: () => (lang === 'en' ? 'Hello' : '你好'), run: () => {} })
+    expect(getController().registry.all().find((a) => a.id === 'p.greet')?.label).toBe('Hello')
+
+    const registerIntoSpy = vi.spyOn(handle, 'registerInto')
+    lang = 'zh'
+    fireLocaleChange()
+    fireLocaleChange()
+    fireLocaleChange() // synchronous burst — must coalesce to one rebuild, not three
+    expect(registerIntoSpy).not.toHaveBeenCalled() // still queued on the microtask (genuinely debounced)
+    await flush()
+    expect(registerIntoSpy).toHaveBeenCalledTimes(1)
+    expect(getController().registry.all().find((a) => a.id === 'p.greet')?.label).toBe('你好')
+  })
+
+  it('the locale/change subscription is disposed with the plugin (ctx.on("dispose", ...))', () => {
+    const { ctx, fireDispose, localeListenerCount } = makeApplyCtx()
+    applyShortcuts(ctx)
+    expect(localeListenerCount()).toBe(1)
+    fireDispose()
+    expect(localeListenerCount()).toBe(0)
   })
 })

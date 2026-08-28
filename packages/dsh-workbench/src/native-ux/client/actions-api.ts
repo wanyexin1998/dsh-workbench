@@ -42,6 +42,15 @@ export interface WorkbenchActionDef {
    * grouping honest: a plugin cannot register actions that visually group
    * under a DIFFERENT plugin's namespace). */
   readonly provider?: string
+  /** Defaults to `false`. When `true`, the bound chord fires even while an
+   * editable element (the composer, an `<input>`, ...) has focus — see
+   * ACTIONS_API.md's "While-typing dispatch" section and
+   * {@link ActionDef.allowWhileTyping} (action-registry.ts) for the full
+   * semantics this threads straight through to. Set this only for an action
+   * whose entire job is an explicit chord gesture the user fires FROM inside
+   * an editable element; leave it absent/`false` for anything that should
+   * stay silent while the user is mid-sentence (Workbench's own default). */
+  readonly allowWhileTyping?: boolean
 }
 
 /** Public contract exposed on `ctx.workbenchActions` — see src/client/
@@ -66,6 +75,7 @@ export interface WorkbenchActionsService {
    *     match);
    *   - `label` or `run` is not a function;
    *   - `isEnabled` is present but not a function;
+   *   - `allowWhileTyping` is present but not a boolean;
    *   - `provider` is given but does not equal `id`'s own first segment;
    *   - `id` already has a live registration (from this call or any other
    *     — duplicate ids across providers are rejected too, since ids are
@@ -79,10 +89,13 @@ export interface WorkbenchActionsService {
    *
    * `label()` is called once when the action is first built into a live
    * registry, and again every time Workbench rebuilds the registry (a
-   * settings change, hydration, or another provider's catalog changing) —
-   * NOT on every render or keystroke. A plugin whose label text just
-   * changed and needs that reflected immediately should dispose and
-   * re-register. A `label()` that throws, or returns a non-string, never
+   * settings change, hydration, another provider's catalog changing, or a
+   * Harness `locale/change` — Finding 2 smoke fix: see applyShortcuts'
+   * `locale/change` subscription in shortcuts.tsx and ACTIONS_API.md's
+   * "Labels and the active locale") — NOT on every render or keystroke. A
+   * plugin whose label text just changed and needs that reflected
+   * immediately should dispose and re-register. A `label()` that throws, or
+   * returns a non-string, never
    * takes down the registry build — it falls back to rendering `id` (see
    * toActionDef) — but the underlying bug should still be fixed; treat a
    * fallback-rendered id as a signal something is wrong, not a supported
@@ -136,6 +149,7 @@ interface ValidatedActionDef {
   readonly run: () => void
   readonly isEnabled?: () => boolean
   readonly provider: string
+  readonly allowWhileTyping?: boolean
 }
 
 /** `id`'s own first dot-segment, or `null` when `id` is not validly
@@ -192,13 +206,17 @@ export function validateActionDef(def: WorkbenchActionDef): ValidatedActionDef {
   if (isEnabled !== undefined && typeof isEnabled !== 'function') {
     throw new Error(`workbench.actions: register(def).isEnabled must be a function when present (action "${id}")`)
   }
+  const allowWhileTyping = def.allowWhileTyping
+  if (allowWhileTyping !== undefined && typeof allowWhileTyping !== 'boolean') {
+    throw new Error(`workbench.actions: register(def).allowWhileTyping must be a boolean when present (action "${id}")`)
+  }
   const explicitProvider = def.provider
   if (explicitProvider !== undefined && explicitProvider !== provider) {
     throw new Error(
       `workbench.actions: register(def).provider "${explicitProvider}" does not match the id's own namespace "${provider}" (action "${id}")`,
     )
   }
-  return { id, label, run, isEnabled, provider }
+  return { id, label, run, isEnabled, provider, allowWhileTyping }
 }
 
 /** Same '' -> explicit-unbind / undefined -> default-chord mapping used by
@@ -245,6 +263,7 @@ function toActionDef(def: ValidatedActionDef): ActionDef {
     provider: def.provider,
     run: def.run,
     isEnabled: def.isEnabled,
+    allowWhileTyping: def.allowWhileTyping,
   }
 }
 
