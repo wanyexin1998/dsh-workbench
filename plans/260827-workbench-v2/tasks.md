@@ -155,7 +155,7 @@ rc.1→rc.2 与脚本内 `WORKBENCH_TGZ_SHA256` 盖章、§1 命令英文变体�
 | 任务 | 内容 | 触发条件 | 量级 | 状态 |
 | --- | --- | --- | --- | --- |
 | B1 提案正文条文化 | 渲染按 id 绑定升为协议条款、`visible` 禁重复 id、close 永不归档 + 右邻后左邻、外部移除独立 reconciliation 事件、`open()` 类型化返回 | 等 denial123789 回复优先级后一并编辑 #4718 正文 | S | 等待回复 |
-| B2 fork 异步身份捕获审计 | send/paste/upload/model-selection/question/approval 各路径是否在发起时绑定 pane session id；结论写入契约 + 验收用例 | 无前置，可随时做 | M | **审计已完成**（reports/B2：SAFE 6 / UNSAFE 1——拖拽上传监听挂 document、分屏下一次拖放进所有 Pane；fork 侧修复与回馈社区待维护者决策） |
+| B2 fork 异步身份捕获审计 | send/paste/upload/model-selection/question/approval 各路径是否在发起时绑定 pane session id；结论写入契约 + 验收用例 | 无前置，可随时做 | M | **审计+修复均完成**（reports/B2：SAFE 6 / UNSAFE 1；UNSAFE 已修——harness fork 分支 `fix/pane-scoped-drop` @ `5adeadf`：owns() 按 Pane 收窄入库/遮罩、页面级 preventDefault 保留防导航、38 测试、Opus 三轮验收；**本地 commit，push 待授权；维护者决定不报社区**） |
 | B3 跑 22 个验收用例 | SandBase handbook 用例对照 fork e2e，如实汇报通过/未通过 | 无前置 | M | 未开始 |
 | B4 guard 加固 | = T0.4，双重登记以防遗漏 | 无前置 | S | **已完成**（=T0.4，commit 7c9bd5a） |
 | B5 版本号让渡 | 提案编号改为 upstream-owned（从 1 起或 capability/version 对）；未知版本 fail closed 到容量 1 | 等上游表态 | S | 等待上游 |
@@ -256,6 +256,20 @@ Phase 0: T0.1  T0.2  T0.3  T0.4(=B4)   （并行，先行）
 | bootstrap 脚本分发 | 不可变 Release 附件，哈希进 SHA256SUMS | A3 形态与 §1 命令形态确定；不做仓库内脚本或远程一行执行 |
 | git 授权 | 本地 commit 允许（含 plans/），不 push | §7 更新；push/tag/Release 仍逐次授权 |
 | 平台覆盖 | Windows + macOS（`.ps1` + `.sh` 双版），Linux 保持未验证 | A3 双脚本；A5 两平台矩阵；macOS 复测走真实用户渠道 |
+
+## 10. 冒烟与后续修复记录（2026-08-28/29）
+
+- **真实客户端冒烟（维护者本人执行）**：W2/W4 结构性验证全过——两个新分组出现、
+  绑键可用、面板收放正常、浏览器保留键警告正常。发现两缺陷，均已修复并过 Opus
+  双轮验收（commit `36e7ec5`，分支 feat/chat-mode-l1）：① 输入框聚焦时快捷键被
+  while-typing 白名单压制——新增 `allowWhileTyping`（含 Shift 单修饰键防吞字
+  守卫）；② 构建期求值的标签在切换全局语言后不刷新——订阅 `locale/change`
+  事件防抖重建。host 命令描述为官方英文原文，属数据限制，不译。
+- **B2 拖拽 bug 修复完成**（见 §4 B2 行）。
+- **待维护者决策**：① 无参数命令的默认执行模式（插入 vs 直接执行）；
+  ② harness fork `fix/pane-scoped-drop` 与后续各分支的 push；③ smoke 修复
+  commit 落在 feat/chat-mode-l1（与聊天预设并行线共存），是否 cherry-pick 回
+  feat/w3-open-actions 保持快捷键线独立。
 
 ## 9. Sprint 收尾记录（2026-08-27，feat/workbench-v2）
 
