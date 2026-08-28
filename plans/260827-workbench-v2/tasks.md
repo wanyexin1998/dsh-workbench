@@ -93,6 +93,28 @@ rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2
 
 **命令形态**（按 §8 决策）：命令 = 下载 rc.2 Release 附件中的 bootstrap 脚本 → 校验 SHA256（对照 `SHA256SUMS`）→ 运行；TGZ 的下载与校验由 bootstrap 脚本自身负责（见上）。Windows（`.ps1`）与 macOS（`.sh`）各一版，话术按用户平台只展示对应的那一份完整样本。
 
+**Sidebar fork 征询话术**（normative；zh；en 版本随 P05 一并产出，两版进产品字典）：
+
+**适用场景**：Agent 在任意安装路径中检测到当前 profile 已装有官方 Better Sidebar 插件（`dsh-better-sidebar`，检测方式见 `docs/INSTALL.md` §4）时，在安装或替换为固定版本 fork 之前，必须先展示下面这段征询话术并等待用户明确回答；用户未回答或回答"不要"一律等同于拒绝——不执行任何安装、替换或改动，官方插件保持原样（对齐 task_plan §3.4"不自动安装、升级或替换 Better Sidebar"的边界，向下延伸到这条新增的 consent-based 提议流程本身，绝不允许静默动作）。`scripts/install/result.mjs` 的 `evaluateEnvironment` 只在 `betterSidebar === 'official'` 时才在其非终态 `proceed` 决策上附带 `offer: 'sidebar-fork'` 提示位；`betterSidebar === 'none'`（未检测到）不提议（不 upsell），`'fork-compatible'`（已装固定版本 fork）同样不提议——这条提议只在"用户已证明自己想要 Better Sidebar 功能，但装的是官方版"这一种情形下出现。
+
+```text
+ℹ️ 检测到你的 profile 中已经安装了官方 Better Sidebar 插件（dsh-better-sidebar）。
+
+这是一项可选功能升级：如果你现在不需要，直接忽略即可——官方 Better Sidebar 会保持原样，不会有任何改动，继续正常工作。
+
+如果你回答"要"，会发生什么：官方 Better Sidebar 插件会被替换为维护者提供的固定版本 fork（版本 0.16.1，提交 1685770，安装前会做哈希/提交校验）。作为交换，你会获得每个 Pane 独立展开的右侧/底部面板，以及可绑定快捷键的面板开关动作（面板快捷键）。
+
+要不要现在安装这个 fork？请回答"要"或"不要"——不回答同样视为"不要"，不会执行任何安装。
+```
+
+**五要素硬性要求**（验收时逐项检查；`scripts/install/result.mjs` 的 `validateSidebarOffer` 对本样本逐项校验）：
+
+1. 明示这是**可选**功能，且拒绝（不回答同样视为拒绝）后官方 Better Sidebar **保持原样、不受任何改动**，继续正常工作；
+2. 明示回答"要"后**具体会发生什么**：官方插件被维护者提供的**固定版本 fork 替换**，点名版本号与短提交（当前为 `0.16.1` / `1685770`），且替换前会做哈希/提交校验；
+3. 如实点名换来的能力：**每 Pane 独立面板**（右侧/底部）与**面板快捷键**（可绑定快捷键的面板开关动作），不夸大、不虚构其他能力；
+4. 包含一句明确等待用户表态的问句（"要"/"不要"措辞），不得出现"将自动安装""直接为你安装"等暗示已经/即将自动执行的祈使语气；
+5. 本段话术本身**不夹带任何命令**——它只是一次征询，真正的安装命令属于用户明确回答"要"之后的 `docs/INSTALL.md` §4 固定版本 fork 安装步骤，二者不得在同一段话术里混合出现。
+
 ---
 
 ## 2. Phase 0 — 低成本验证（先于主线 A 执行）
@@ -174,16 +196,21 @@ rc.1→rc.2 与脚本内 `WORKBENCH_TGZ_SHA256` 盖章、§1 命令英文变体�
 | W3.1 `workbench.actions` 服务 | actions protocol 1：`{id, label(), run(), isEnabled?()}`，版本化、fail closed | 契约测试 + 与 W1 目录集成 | M |
 | W3.2 文档与示例 | 第三方插件接入文档（双语）+ 最小示例插件 | 示例插件注册的动作出现在设置页并可绑定 | S |
 
-### W4 首个 pinned 适配器——**已再定界并完成**（2026-08-28）
+### W4 首个 pinned 适配器——**已再定界并完成，pin 已推进**（2026-08-28）
 
-**完成记录**：fork 分支 `feat/workbench-actions-consumer`（本地 commit `1685770`，**push 待授权**）：
+**完成记录**：fork 分支 `feat/workbench-actions-consumer`（commit `168577078bf63a16cb514e879669298565991b07`，**已 push，现已发布**——`origin/feat/workbench-actions-consumer` 存在且与本地一致）：
 client 半侧可选注入 `workbenchActions`，注册 `better-sidebar.toggle-panel` /
 `toggle-bottom-panel`（复用自身 store reducer 与 tooltip locale key），缺席/协议
 不符降级为 no-op，部分注册失败先回收再抛出；12 项 spec 全绿，Opus 验收（fork 侧
-一轮即批，跨仓契约比对无 drift）。Workbench 侧 `actionsProtocol: 1` 已入
-release-contract（语义：本配对**面向**的协议版本；pin 待 fork 分支发布后一并推进）。
-**合并门**：fork 分支 push 授权 + 真实客户端冒烟（Workbench + Sidebar 同装，
-设置页出现 better-sidebar 分组、绑键可收放面板）。
+一轮即批，跨仓契约比对无 drift）。**pin 已推进**：`release-contract.json` 的
+`panelCompatibility.branch`/`.implementationCommit` 已从上一枚 Pane-protocol-only
+pin（`feat/pane-scoped-panel-mounts` @ `91e772a0…`）前移到这枚发布的 actions-consumer
+commit（该 commit 直接 stack 在 `91e772a0` 之上，Pane protocol 1 未受影响）；
+`actionsProtocol: 1` 现在是"当前 pin 已实现"而非"本配对面向"的语义——与
+`paneProtocol` 一致。README/README_EN/COMPATIBILITY_MATRIX/INSTALL §4/ACTIONS_API
+"First known consumer" 均已同步；`release-contract-check.mjs` 48 项全绿。
+**合并门剩余项**：真实客户端冒烟（Workbench + Sidebar 同装，设置页出现
+better-sidebar 分组、绑键可收放面板）——仍是维护者动作，未执行。
 
 可行性调研（reports/W4-better-sidebar-feasibility.md）：pinned fork 无公开开关动词
 （`panes` capability 只有 `mountPane`，真正的 `togglePanel` 是私有 reducer），也未注

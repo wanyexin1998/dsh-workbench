@@ -123,6 +123,16 @@ export function makeResult(state, options = {}) {
  *   anything that reads as "verified" — evaluateEnvironment does not itself
  *   verify anything, it only enforces that unverified artifacts never
  *   proceed.
+ * @property {'none'|'official'|'fork-compatible'} [betterSidebar] What the
+ *   agent detected installed in the target profile for the official
+ *   `dsh-better-sidebar` package name (see `docs/INSTALL.md` §4 for the real
+ *   detection command): `'none'` — not installed; `'official'` — the
+ *   upstream/npm-resolved build is installed; `'fork-compatible'` — the
+ *   maintainer's pinned fork (already Pane-protocol- and, as of this pin,
+ *   actions-protocol-compatible) is installed. Optional: an absent field
+ *   means "unknown" and is treated exactly like `'none'` for every decision
+ *   below — an installer that cannot detect Better Sidebar at all simply
+ *   never sees the advisory `offer` described under {@link EnvironmentDecision}.
  */
 
 /**
@@ -149,9 +159,14 @@ export function makeResult(state, options = {}) {
 
 /**
  * @typedef {{ terminal: InstallResult }} TerminalDecision
- * @typedef {{ proceed: InstallPhase }} ProceedDecision
+ * @typedef {{ proceed: InstallPhase, offer?: 'sidebar-fork' }} ProceedDecision
  * @typedef {TerminalDecision | ProceedDecision} EnvironmentDecision
  */
+
+// The one advisory value `offer` can carry today. A future second offer
+// (unrelated to Better Sidebar) would add a value here, never repurpose this
+// one — see the "offer" paragraph in evaluateEnvironment's own doc comment.
+const SIDEBAR_FORK_OFFER = 'sidebar-fork'
 
 /**
  * Pure short-circuit evaluator encoding task_plan.md §4.2's install state
@@ -183,11 +198,32 @@ export function makeResult(state, options = {}) {
  *    - compatible → non-terminal `{ proceed: 'full-install' }` (becomes the
  *      `installed` terminal only after the caller's own load verification).
  *
+ * Advisory `offer` (orthogonal to the three rules above, not a fourth
+ * short-circuit branch): whenever this function reaches a non-terminal
+ * `proceed` decision — any of the three phases above, regardless of which —
+ * it additionally attaches `offer: 'sidebar-fork'` if and only if
+ * `betterSidebar === 'official'`. `'none'`, `'fork-compatible'`, and an
+ * absent/unknown field all produce no `offer` key at all (never `offer:
+ * undefined` — the key itself is omitted, so `'offer' in decision` is a
+ * reliable presence check). This deliberately does NOT fire for
+ * `'fork-compatible'`: a user who already has the pinned fork does not need
+ * to be upsold it again, and does NOT fire for `'none'`: a user with no
+ * Better Sidebar at all did not demonstrably ask for sidebar functionality,
+ * so offering it would be an unprompted upsell rather than a relevant
+ * option. A terminal decision NEVER carries `offer` — reaching `failed` or
+ * `manual-action-required` means no install phase was even chosen, so there
+ * is nothing to attach an install-time advisory to. The advisory never
+ * changes which phase is chosen, never blocks it, and never turns a
+ * non-terminal decision into a terminal one by itself — see
+ * `validateSidebarOffer` below for the consent text this advisory is
+ * expected to trigger, and `docs/INSTALL.md` §4 for how an installing agent
+ * detects `betterSidebar` in the first place.
+ *
  * @param {InstallEnvironment} env
  * @returns {EnvironmentDecision}
  */
 export function evaluateEnvironment(env) {
-  const { presentationProtocol, wantsSplitPane, dshHomeWritable, artifactsVerified } = env
+  const { presentationProtocol, wantsSplitPane, dshHomeWritable, artifactsVerified, betterSidebar } = env
 
   // Rule 1: unverified artifacts never proceed to any build/install action.
   if (!artifactsVerified) {
@@ -218,13 +254,18 @@ export function evaluateEnvironment(env) {
 
   const compatible = presentationProtocol === 2
 
+  // Advisory only — see the "Advisory `offer`" paragraph above. Spreading an
+  // empty object when not offering keeps the decision's own-property shape
+  // identical to before this field existed (no `offer: undefined`).
+  const offer = betterSidebar === 'official' ? { offer: SIDEBAR_FORK_OFFER } : {}
+
   if (!compatible) {
     return wantsSplitPane
-      ? { proceed: 'generic-install-offer-bootstrap' }
-      : { proceed: 'generic-install' }
+      ? { proceed: 'generic-install-offer-bootstrap', ...offer }
+      : { proceed: 'generic-install', ...offer }
   }
 
-  return { proceed: 'full-install' }
+  return { proceed: 'full-install', ...offer }
 }
 
 // --- Post-install disclosure gate (tasks.md §1's five hard requirements) ---
@@ -381,6 +422,118 @@ export function validateDisclosure(text) {
     if (commandLines.length !== 1) {
       failures.push(`requirement 5 violated: expected exactly 1 command line, found ${commandLines.length}`)
     }
+  }
+
+  return { valid: failures.length === 0, failures }
+}
+
+// --- Sidebar-fork consent-offer gate (tasks.md §1 "Sidebar fork 征询话术"'s five hard requirements) ---
+
+/**
+ * @typedef {Object} SidebarOfferValidation
+ * @property {boolean} valid True only when all five requirements pass.
+ * @property {string[]} failures Human-readable labels of failed requirements, empty when valid.
+ */
+
+// Requirement 4's forbidden imperative-auto-action wording: phrasing that
+// reads as "this already ran" or "this will run for you" rather than a
+// question awaiting the user's own yes/no. Mirrors the spirit of
+// validateDisclosure's ambiguous-Harness-modification guard, but for
+// auto-action framing instead of an ambiguous-modification claim.
+const IMPERATIVE_AUTO_ACTION_PATTERN = /(将自动|自动为你|已(经)?自动|正在(为你)?安装|直接(为你)?安装|马上(为你)?安装)/u
+
+/**
+ * Heuristic validator for the Sidebar-fork consent-offer script defined in
+ * `plans/260827-workbench-v2/tasks.md` §1's "Sidebar fork 征询话术" sibling
+ * block. Mirrors {@link validateDisclosure}'s substring/regex approach and
+ * carries the same limits: no semantic understanding, tuned primarily for
+ * the normative Chinese sample text, negation-blind unless a pattern
+ * specifically guards against it. Treat this as a fast pre-check, not a
+ * substitute for human review of the actual product copy.
+ *
+ * The five requirements checked (see tasks.md §1 for the authoritative
+ * prose):
+ *
+ * 1. States the offer is OPTIONAL and that the current official Better
+ *    Sidebar install keeps working, untouched, if declined.
+ * 2. States exactly what changes on a "yes": the official plugin is
+ *    replaced by the maintainer's pinned fork, naming a version and a short
+ *    commit, and that the replacement is hash/commit-verified.
+ * 3. Honestly names the gained capabilities: per-Pane independent panels
+ *    and panel shortcut actions (面板快捷键) — nothing more.
+ * 4. Contains an explicit 要/不要-phrased question awaiting the user's own
+ *    consent, and no imperative wording that reads as an auto-action
+ *    already under way or about to happen unprompted.
+ * 5. Carries no fenced command block (the enforcement scans fenced code
+ *    blocks only; an inline backtick span or bare unfenced command line is
+ *    not caught — this is a pure consent ask, so authors must not embed a
+ *    command in ANY form even though only the fenced shape is machine-checked;
+ *    the
+ *    actual install command lives in the separate `docs/INSTALL.md` §4
+ *    flow that only runs after an explicit "yes") and asks exactly one
+ *    confirm-question, never more than one and never fewer.
+ *
+ * @param {string} text
+ * @returns {SidebarOfferValidation}
+ */
+export function validateSidebarOffer(text) {
+  const failures = []
+
+  if (typeof text !== 'string' || text.trim() === '') {
+    return { valid: false, failures: ['text is empty'] }
+  }
+
+  // Requirement 1: optional + official keeps working untouched if declined.
+  const statesOptional = /可选/u.test(text)
+  const statesUntouchedIfDeclined = /官方[\s\S]{0,20}(保持原样|不受影响|不受任何改动|不会有任何改动|继续正常工作)/u.test(text)
+  if (!(statesOptional && statesUntouchedIfDeclined)) {
+    failures.push('missing requirement 1: optional + official Better Sidebar keeps working untouched if declined')
+  }
+
+  // Requirement 2: replacement + version + short commit + hash/commit verification.
+  const statesReplacement = /替换/u.test(text) && /官方[\s\S]{0,10}(Better Sidebar|插件)/u.test(text) && /fork/iu.test(text)
+  const statesVersion = /\d+\.\d+\.\d+/u.test(text)
+  const statesCommit = /\b[0-9a-f]{7,40}\b/iu.test(text)
+  const statesVerification = /(哈希|commit|提交)[\s\S]{0,6}校验/u.test(text)
+  if (!(statesReplacement && statesVersion && statesCommit && statesVerification)) {
+    failures.push('missing requirement 2: replacement + version + short commit + hash/commit-verification statement')
+  }
+
+  // Requirement 3: honestly names the gained capabilities — per-Pane
+  // independent panels + panel shortcut actions, nothing invented beyond that.
+  const statesPanelCapability = /每\s*个?\s*Pane[\s\S]{0,10}(独立|面板)/u.test(text)
+  const statesShortcutCapability = /面板快捷键/u.test(text)
+  if (!(statesPanelCapability && statesShortcutCapability)) {
+    failures.push('missing requirement 3: per-Pane independent panel + panel-shortcut-actions capability statement')
+  }
+
+  // Requirement 4: an explicit 要/不要 consent question, no imperative
+  // auto-action wording implying the install already ran or runs unprompted.
+  const hasConsentQuestion = /要[\s\S]{0,10}不要[\s\S]{0,30}？/u.test(text)
+  const hasImperativeAutoAction = IMPERATIVE_AUTO_ACTION_PATTERN.test(text)
+  if (!hasConsentQuestion) {
+    failures.push('missing requirement 4: explicit 要/不要 consent question')
+  }
+  if (hasImperativeAutoAction) {
+    failures.push('requirement 4 violated: contains imperative auto-action wording')
+  }
+
+  // Requirement 5: no bundled command (this is a pure consent ask), and
+  // exactly one confirm-question — counted by the full-width "？" the
+  // normative sample and requirement 4 both use, so a text that asks two
+  // separate things (or asks nothing) is caught here rather than silently
+  // passing requirement 4's presence-only check.
+  const fencedBlocks = [...text.matchAll(/```(?:[^\n]*)\n([\s\S]*?)```/gu)]
+  const commandLines = fencedBlocks
+    .flatMap(match => match[1].split(/\r?\n/u))
+    .map(line => line.trim())
+    .filter(line => line !== '')
+  if (commandLines.length > 0) {
+    failures.push('requirement 5 violated: contains a bundled command mixed with the consent question')
+  }
+  const questionMarkCount = (text.match(/？/gu) ?? []).length
+  if (questionMarkCount !== 1) {
+    failures.push(`requirement 5 violated: expected exactly 1 confirm-question, found ${questionMarkCount}`)
   }
 
   return { valid: failures.length === 0, failures }

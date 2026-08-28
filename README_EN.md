@@ -67,7 +67,7 @@ Shortcut labels follow the Harness global language. Conflicts, browser-reserved 
 | --- | --- | --- | --- |
 | DeepSeek Harness | Yes | fork `codex/presentation-v2`, commit `53015a6…` | Provides Session Presentation `protocol 2` |
 | DSH Workbench | Yes | `0.2.0-rc.1` | Maximum two visible Panes |
-| Better Sidebar | Optional | fork `0.16.1`, commit `91e772a…` | Provides Pane capability `protocol 1` |
+| Better Sidebar | Optional | fork `0.16.1`, commit `1685770…` | Provides Pane capability `protocol 1`, plus panel shortcut actions (`actionsProtocol 1`) |
 | Panel Compatibility | Optional | `0.1.0-rc.1` | Connects only explicit compatible providers |
 
 [`release-contract.json`](release-contract.json) is authoritative for full SHAs, branches, and distribution status. Stock Harness `0.1.1-rc.2` does not expose the required split interface, and stock Better Sidebar `0.16.1` has no multi-instance Pane capability.

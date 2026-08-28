@@ -41,8 +41,8 @@
     "paneProtocol": 1,
     "actionsProtocol": 1,
     "repository": "https://github.com/wanyexin1998/DSH-better-sidebar",
-    "branch": "feat/pane-scoped-panel-mounts",
-    "implementationCommit": "91e772a09e5f66a14c36036f69adb4d866f06ac3",
+    "branch": "feat/workbench-actions-consumer",
+    "implementationCommit": "168577078bf63a16cb514e879669298565991b07",
     "distribution": "optional-source-only"
   },
   "distribution": {

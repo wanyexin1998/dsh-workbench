@@ -360,12 +360,99 @@ dsh plugin --profile web add file:C:\absolute\path\to\dsh-workbench\dist\wanyexi
 
 The Split Pane module fails closed unless Harness exposes `sessions.presentation` with `protocol === 2` *and* passes a structural probe of the actual interface shape it needs — a `requestCapacity` function and a `state.getSnapshot()` that returns `{ visible: Array, capacity: number }` without throwing. A matching protocol number alone is not accepted as proof (see `packages/dsh-workbench/src/client/guard.ts`).
 
-### 4. Optional Pane panels
+### 4. Optional Pane panels — consent-based
 
-Workbench does not require Better Sidebar. Only prepare this checkout if you want independent right and bottom panels in each Pane.
+Workbench does not require Better Sidebar. This section only matters if you
+want independent right and bottom panels in each Pane, and — this is
+stricter than the "does not automatically install a third-party plugin"
+statement that already covers the rest of this document — nothing below
+runs without your own explicit, freshly-given yes. Wanting to be in this
+section at all is not itself consent to install anything; detection and the
+consent ask below still happen first.
+
+#### Detect what is already installed
+
+Before offering or installing anything, the installing agent checks whether
+the *official* Better Sidebar plugin (npm name `dsh-better-sidebar`) is
+already present in the target profile:
+
+1. Confirm the profile directory already exists —
+   `<DSH_HOME>/profiles/<profile>/package.json` (e.g.
+   `~/.dsh/profiles/web/package.json` on a default install). If it does not
+   exist yet, skip straight to [Nothing installed
+   yet](#nothing-installed-yet) below: running any `dsh plugin` subcommand
+   against a nonexistent profile silently *creates* one as a side effect of
+   `dsh`'s own profile-bootstrap behavior (`initProfile`, in
+   `@deepseek-ai/dsh-app-boot`) — not an acceptable side effect for a step
+   that is only supposed to look.
+2. Once the profile exists, read that `package.json`'s `dependencies` field
+   directly (a plain file read, zero side effects) for a `dsh-better-sidebar`
+   key. There is no dedicated `dsh`-native "list installed plugins" command
+   today — `dsh plugin --profile <name> <args...>` is a thin forwarder that
+   runs `pnpm <args...>` verbatim inside the profile directory (confirmed by
+   reading the shipped CLI; see
+   `plans/260827-workbench-v2/reports/T0.3-dsh-plugin-add.md`) — so the
+   command-line equivalent, `dsh plugin --profile <name> list
+   dsh-better-sidebar --json`, works too and reports the same fact, but only
+   because `pnpm list` happens to be one of the arbitrary subcommands the
+   forwarder passes through, not because `dsh` defines a listing command of
+   its own. Prefer the direct file read: it cannot trigger the profile-init
+   side effect described in step 1 even by accident.
+3. Classify what you found:
+   - No `dsh-better-sidebar` dependency at all → **nothing installed yet**.
+   - Present, and its resolution does not match this project's pinned fork
+     commit (an npm-registry resolution is the common case) → **official**.
+   - Present, and its resolution matches this project's pinned fork commit
+     (`168577078bf63a16cb514e879669298565991b07`) → **already have the
+     pinned fork** — nothing to offer or install; stop here.
+
+This is a best-effort read, not a guarantee — `pnpm list --json`'s
+`resolved`/`from` fields distinguish an npm-registry resolution from a
+git/tarball resolution pointing at this fork's repository, but nothing stops
+a differently-packaged copy from looking ambiguous. When detection is
+inconclusive, ask the user directly rather than guessing which case applies.
+
+#### If the official plugin is installed: ask before replacing it
+
+Replacing an already-installed official plugin with the pinned fork is
+exactly the situation `plans/260827-workbench-v2/tasks.md` §1's "Sidebar
+fork 征询话术" exists for. Show the user that script — quoted verbatim below,
+normative there, do not reword it — and wait for an explicit "要" before
+proceeding to [Pinned-fork install
+steps](#pinned-fork-install-steps-only-after-explicit-consent). Any other
+answer, including silence, means stop here: do not install, upgrade, or
+otherwise touch the official plugin in any way. It keeps working exactly as
+before, and Pane-local panels simply stay unavailable — panels remain
+global, exactly as before this section was ever opened.
+
+````text
+ℹ️ 检测到你的 profile 中已经安装了官方 Better Sidebar 插件（dsh-better-sidebar）。
+
+这是一项可选功能升级：如果你现在不需要，直接忽略即可——官方 Better Sidebar 会保持原样，不会有任何改动，继续正常工作。
+
+如果你回答"要"，会发生什么：官方 Better Sidebar 插件会被替换为维护者提供的固定版本 fork（版本 0.16.1，提交 1685770，安装前会做哈希/提交校验）。作为交换，你会获得每个 Pane 独立展开的右侧/底部面板，以及可绑定快捷键的面板开关动作（面板快捷键）。
+
+要不要现在安装这个 fork？请回答"要"或"不要"——不回答同样视为"不要"，不会执行任何安装。
+````
+
+#### Nothing installed yet
+
+If detection found no Better Sidebar at all — official or fork — there is
+nothing to *replace*, so the "Sidebar fork 征询话术" script's replacement
+framing does not apply verbatim (per `scripts/install/result.mjs`'s
+`evaluateEnvironment`, this is deliberately also the one case the automatic
+post-install advisory never offers unprompted — see that module's `offer`
+documentation). But installing anything here still requires the user's own
+explicit yes: ask directly, in the user's own language, whether they want
+the pinned Better Sidebar fork installed for Pane-local panels, and proceed
+to [Pinned-fork install
+steps](#pinned-fork-install-steps-only-after-explicit-consent) only once
+they say yes.
+
+#### Pinned-fork install steps (only after explicit consent)
 
 ```powershell
-$BetterSidebarCommit = '91e772a09e5f66a14c36036f69adb4d866f06ac3'
+$BetterSidebarCommit = '168577078bf63a16cb514e879669298565991b07'
 if ($BetterSidebarCommit -notmatch '^[0-9a-f]{40}$') { throw 'Better Sidebar commit must be a full 40-character hexadecimal value' }
 if (Test-Path -LiteralPath 'DSH-better-sidebar') { throw 'Target directory DSH-better-sidebar already exists; retry from an empty directory' }
 git clone --no-checkout https://github.com/wanyexin1998/DSH-better-sidebar.git DSH-better-sidebar
@@ -386,13 +473,16 @@ if ($BetterSidebarWorktreeState) { throw 'Better Sidebar worktree is not clean' 
 
 # BETTER-SIDEBAR-INSTRUCTIONS-AFTER-SOURCE-VERIFICATION
 
-After that verification succeeds:
+Reaching this point already required the user's explicit "要" (or, in the
+[nothing-installed-yet](#nothing-installed-yet) case, an explicit direct
+yes) — nothing above this line runs on its own. After that verification
+succeeds:
 
 1. Build the verified Better Sidebar checkout using its reviewed local instructions.
 2. Install that local fork into the same profile.
 3. Install `dsh-workbench/dist/wanyexin1998-dsh-workbench-panel-compat-0.1.0-rc.1.tgz`.
 
-The compatibility package does not download, install, update, or remove Better Sidebar. Stock Better Sidebar without Pane protocol 1 remains on its original global path.
+The compatibility package does not download, install, update, or remove Better Sidebar. Stock Better Sidebar without Pane protocol 1 remains on its original global path. And — the decline path this whole section exists to protect — if the user never said yes, none of this runs at all: whatever Better Sidebar state was detected above (official, the pinned fork, or nothing) is exactly what remains, byte-for-byte, and Pane-local panels simply stay unavailable.
 
 ### 5. Verify
 

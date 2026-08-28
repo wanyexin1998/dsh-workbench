@@ -18,7 +18,7 @@ This statement covers the `0.2.0-rc.1` source preview.
 - Every executable pinned dependency checkout, including the Harness fork and optional Better Sidebar fork, must pass per-command error checks, exact HEAD comparison, detached-HEAD proof, and clean-worktree verification before its repository instructions run.
 - Every supported bundle invocation requires a committed clean worktree, rebuilds both packages, and scans generated runtime before packing.
 - The Workbench TGZ carries complete MIT notices for bundled Schemastery and Cosmokit code.
-- No automatic installer downloads or modifies third-party packages.
+- No automatic or silent download or modification of a third-party package, ever. A user-consented, hash/commit-verified installation offered through a documented flow (`docs/INSTALL.md` §4's Better Sidebar consent ask) is the one narrow exception, and only on an explicit yes — it is neither automatic nor silent, and it never runs unprompted.
 - GitHub Actions are disabled; local gates are authoritative.
 
 ## Disclosure

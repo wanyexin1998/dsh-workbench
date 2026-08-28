@@ -8,12 +8,34 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { makeResult, evaluateEnvironment, validateDisclosure, TERMINAL_STATES } from './result.mjs'
+import { makeResult, evaluateEnvironment, validateDisclosure, validateSidebarOffer, TERMINAL_STATES } from './result.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const fixturePath = join(here, 'fixtures', '260827-macos-replay.json')
 const fixtureRaw = readFileSync(fixturePath, 'utf8')
 const fixture = JSON.parse(fixtureRaw)
+
+const tasksMdPath = join(here, '..', '..', 'plans', '260827-workbench-v2', 'tasks.md')
+const tasksMdRaw = readFileSync(tasksMdPath, 'utf8')
+
+/**
+ * Extract the fenced sample text immediately following a given normative
+ * heading in tasks.md, so tests validate the actual doc content rather than
+ * a copy that could silently drift from it.
+ * @param {string} heading
+ * @returns {string}
+ */
+function extractFencedSampleAfter(heading) {
+  const headingIndex = tasksMdRaw.indexOf(heading)
+  if (headingIndex < 0) throw new Error(`heading not found in tasks.md: ${heading}`)
+  const afterHeading = tasksMdRaw.slice(headingIndex)
+  const fenceStart = afterHeading.indexOf('```text\n')
+  if (fenceStart < 0) throw new Error(`no \`\`\`text fence found after heading: ${heading}`)
+  const contentStart = fenceStart + '```text\n'.length
+  const fenceEnd = afterHeading.indexOf('\n```', contentStart)
+  if (fenceEnd < 0) throw new Error(`unterminated \`\`\`text fence after heading: ${heading}`)
+  return afterHeading.slice(contentStart, fenceEnd)
+}
 
 // --- makeResult: four terminal states + validation ---
 
@@ -367,4 +389,207 @@ test('fixture file contains no sensitive path, email, or raw-commit-hash pattern
   assert.equal(macUserPath.test(fixtureRaw), false, 'fixture must not contain a real-looking macOS user path')
   assert.equal(emailAddress.test(fixtureRaw), false, 'fixture must not contain an email address')
   assert.equal(fortyHex.test(fixtureRaw), false, 'fixture must not contain a raw 40-hex commit hash')
+})
+
+// --- evaluateEnvironment: advisory `offer` (Better Sidebar consent flow) ---
+
+test('evaluateEnvironment attaches offer: "sidebar-fork" on every proceed phase when betterSidebar is "official"', () => {
+  const base = { dshHomeWritable: true, artifactsVerified: true, betterSidebar: 'official' }
+
+  const genericOnly = evaluateEnvironment({ ...base, presentationProtocol: 1, wantsSplitPane: false })
+  assert.deepEqual(genericOnly, { proceed: 'generic-install', offer: 'sidebar-fork' })
+
+  const offerBootstrap = evaluateEnvironment({ ...base, presentationProtocol: null, wantsSplitPane: true })
+  assert.deepEqual(offerBootstrap, { proceed: 'generic-install-offer-bootstrap', offer: 'sidebar-fork' })
+
+  const fullInstall = evaluateEnvironment({ ...base, presentationProtocol: 2, wantsSplitPane: true })
+  assert.deepEqual(fullInstall, { proceed: 'full-install', offer: 'sidebar-fork' })
+})
+
+test('evaluateEnvironment does NOT attach offer when betterSidebar is "none" (no upsell)', () => {
+  const decision = evaluateEnvironment({
+    presentationProtocol: 2, wantsSplitPane: true, dshHomeWritable: true, artifactsVerified: true, betterSidebar: 'none',
+  })
+  assert.deepEqual(decision, { proceed: 'full-install' })
+  assert.ok(!('offer' in decision))
+})
+
+test('evaluateEnvironment does NOT attach offer when betterSidebar is "fork-compatible" (already installed, nothing to offer)', () => {
+  const decision = evaluateEnvironment({
+    presentationProtocol: 2, wantsSplitPane: true, dshHomeWritable: true, artifactsVerified: true, betterSidebar: 'fork-compatible',
+  })
+  assert.deepEqual(decision, { proceed: 'full-install' })
+  assert.ok(!('offer' in decision))
+})
+
+test('evaluateEnvironment treats an absent betterSidebar field as unknown/"none" — no offer, no throw', () => {
+  const decision = evaluateEnvironment({ presentationProtocol: 2, wantsSplitPane: true, dshHomeWritable: true, artifactsVerified: true })
+  assert.deepEqual(decision, { proceed: 'full-install' })
+  assert.ok(!('offer' in decision))
+})
+
+test('evaluateEnvironment never attaches offer to a terminal decision, even when betterSidebar is "official"', () => {
+  const manualAction = evaluateEnvironment({
+    presentationProtocol: null, wantsSplitPane: true, dshHomeWritable: false, artifactsVerified: true, betterSidebar: 'official',
+  })
+  assert.ok('terminal' in manualAction)
+  assert.equal(manualAction.terminal.state, 'manual-action-required')
+  assert.ok(!('offer' in manualAction), 'a terminal decision must never carry the advisory offer key')
+  // The terminal outcome itself (state/reason/nextStep/details) must be
+  // byte-identical to the no-betterSidebar-field case — the advisory field
+  // must not leak into or alter terminal-state construction at all.
+  const manualActionNoField = evaluateEnvironment({
+    presentationProtocol: null, wantsSplitPane: true, dshHomeWritable: false, artifactsVerified: true,
+  })
+  assert.deepEqual(manualAction.terminal, manualActionNoField.terminal)
+
+  const failed = evaluateEnvironment({
+    presentationProtocol: 2, wantsSplitPane: true, dshHomeWritable: true, artifactsVerified: false, betterSidebar: 'official',
+  })
+  assert.ok('terminal' in failed)
+  assert.equal(failed.terminal.state, 'failed')
+  assert.ok(!('offer' in failed))
+})
+
+test('evaluateEnvironment tolerates an unrelated unknown field alongside betterSidebar without throwing', () => {
+  assert.doesNotThrow(() => evaluateEnvironment({
+    presentationProtocol: 2,
+    wantsSplitPane: true,
+    dshHomeWritable: true,
+    artifactsVerified: true,
+    betterSidebar: 'official',
+    somethingFutureCallersMightAdd: { nested: true },
+  }))
+  const decision = evaluateEnvironment({
+    presentationProtocol: 2,
+    wantsSplitPane: true,
+    dshHomeWritable: true,
+    artifactsVerified: true,
+    betterSidebar: 'official',
+    somethingFutureCallersMightAdd: { nested: true },
+  })
+  assert.deepEqual(decision, { proceed: 'full-install', offer: 'sidebar-fork' })
+})
+
+// --- validateSidebarOffer: tasks.md §1 "Sidebar fork 征询话术"'s five hard requirements ---
+
+// Extracted from the actual doc (not a hand-copied duplicate) so this suite
+// fails loudly if the shipped tasks.md sample ever drifts from what
+// validateSidebarOffer actually accepts.
+const compliantSidebarOffer = extractFencedSampleAfter('**Sidebar fork 征询话术**')
+
+test('validateSidebarOffer accepts the normative tasks.md §1 "Sidebar fork 征询话术" sample, read directly from the doc', () => {
+  const result = validateSidebarOffer(compliantSidebarOffer)
+  assert.deepEqual(result.failures, [])
+  assert.equal(result.valid, true)
+})
+
+test('the normative sidebar offer names the CURRENT contract pin: providerVersion and the implementationCommit short sha from release-contract.json', () => {
+  // validateSidebarOffer only shape-checks the version/commit (any x.y.z /
+  // 7-hex passes), so this test is the doc<->contract binding: a future pin
+  // advance that updates release-contract.json but forgets the consent
+  // script must fail here.
+  const contract = JSON.parse(readFileSync(new URL('../../release-contract.json', import.meta.url), 'utf8'))
+  const pin = contract.panelCompatibility
+  assert.ok(compliantSidebarOffer.includes(pin.providerVersion), `offer must name providerVersion ${pin.providerVersion}`)
+  assert.ok(compliantSidebarOffer.includes(pin.implementationCommit.slice(0, 7)), `offer must name the pinned commit short sha ${pin.implementationCommit.slice(0, 7)}`)
+})
+
+test('validateSidebarOffer rejects text missing requirement 1\'s "optional" conjunct (可选), even with the untouched-if-declined conjunct present', () => {
+  const missingOptional = compliantSidebarOffer.replace('这是一项可选功能升级', '这是一项功能升级')
+  assert.ok(!missingOptional.includes('可选'), 'test setup: 可选 must not appear anywhere in the mutated sample')
+  const result = validateSidebarOffer(missingOptional)
+  assert.equal(result.valid, false)
+  assert.ok(result.failures.some(failure => failure.includes('requirement 1')))
+})
+
+test('validateSidebarOffer rejects text missing requirement 1\'s "untouched if declined" conjunct, even with 可选 present', () => {
+  const missingUntouched = compliantSidebarOffer.replace(
+    '官方 Better Sidebar 会保持原样，不会有任何改动，继续正常工作。',
+    '官方 Better Sidebar 的情况这里不做进一步说明。',
+  )
+  assert.ok(missingUntouched.includes('可选'), 'test setup: 可选 must remain present')
+  assert.ok(!/(保持原样|不受影响|不受任何改动|不会有任何改动|继续正常工作)/u.test(missingUntouched), 'test setup: no untouched-if-declined phrase may remain anywhere')
+  const result = validateSidebarOffer(missingUntouched)
+  assert.equal(result.valid, false)
+  assert.ok(result.failures.some(failure => failure.includes('requirement 1')))
+})
+
+test('validateSidebarOffer rejects text missing requirement 2\'s version number, even with commit + verification + replacement wording present', () => {
+  const missingVersion = compliantSidebarOffer.replace('版本 0.16.1，提交 1685770', '提交 1685770')
+  assert.ok(!/\d+\.\d+\.\d+/u.test(missingVersion), 'test setup: no version-triplet pattern may remain anywhere')
+  assert.ok(missingVersion.includes('1685770'), 'test setup: the short commit must remain present')
+  const result = validateSidebarOffer(missingVersion)
+  assert.equal(result.valid, false)
+  assert.ok(result.failures.some(failure => failure.includes('requirement 2')))
+})
+
+test('validateSidebarOffer rejects text missing requirement 2\'s hash/commit-verification conjunct, even with version + commit present', () => {
+  const missingVerification = compliantSidebarOffer.replace('，安装前会做哈希/提交校验', '')
+  assert.ok(!/(哈希|commit|提交)[\s\S]{0,6}校验/u.test(missingVerification), 'test setup: no verification phrase may remain anywhere')
+  assert.ok(missingVerification.includes('0.16.1') && missingVerification.includes('1685770'), 'test setup: version + commit must remain present')
+  const result = validateSidebarOffer(missingVerification)
+  assert.equal(result.valid, false)
+  assert.ok(result.failures.some(failure => failure.includes('requirement 2')))
+})
+
+test('validateSidebarOffer rejects text missing requirement 3\'s panel-shortcut-actions conjunct (面板快捷键), even with per-Pane panel wording present', () => {
+  const missingShortcutCapability = compliantSidebarOffer.replace('面板开关动作（面板快捷键）', '面板开关动作')
+  assert.ok(!missingShortcutCapability.includes('面板快捷键'), 'test setup: 面板快捷键 must not appear anywhere in the mutated sample')
+  assert.ok(/每\s*个?\s*Pane[\s\S]{0,10}(独立|面板)/u.test(missingShortcutCapability), 'test setup: per-Pane panel wording must remain present')
+  const result = validateSidebarOffer(missingShortcutCapability)
+  assert.equal(result.valid, false)
+  assert.ok(result.failures.some(failure => failure.includes('requirement 3')))
+})
+
+test('validateSidebarOffer rejects text missing requirement 4\'s explicit 要/不要 consent question (a lone "？" with no 要...不要 framing does not satisfy it)', () => {
+  const missingConsentQuestion = compliantSidebarOffer.replace(
+    '要不要现在安装这个 fork？',
+    '现在安装这个 fork？',
+  )
+  const result = validateSidebarOffer(missingConsentQuestion)
+  assert.equal(result.valid, false)
+  assert.ok(result.failures.some(failure => failure.includes('requirement 4')))
+  // Isolation check: exactly one "？" still remains, so this failure is
+  // attributable to requirement 4 alone, not a requirement-5 question-count
+  // side effect.
+  assert.equal((missingConsentQuestion.match(/？/gu) ?? []).length, 1)
+})
+
+test('validateSidebarOffer rejects an otherwise-compliant text carrying imperative auto-action wording ("将自动...")', () => {
+  const withImperativeWording = `${compliantSidebarOffer}\n\n本次将自动为你安装。`
+  const result = validateSidebarOffer(withImperativeWording)
+  assert.equal(result.valid, false)
+  assert.ok(result.failures.some(failure => failure.includes('imperative auto-action')))
+})
+
+test('validateSidebarOffer rejects text with a bundled command mixed into the consent ask (requirement 5)', () => {
+  const withBundledCommand = `${compliantSidebarOffer}\n\n\`\`\`\npwsh -File .\\dsh-workbench-bootstrap.ps1\n\`\`\``
+  const result = validateSidebarOffer(withBundledCommand)
+  assert.equal(result.valid, false)
+  assert.ok(result.failures.some(failure => failure.includes('bundled command')))
+})
+
+test('validateSidebarOffer rejects text with zero confirm-questions (requirement 5)', () => {
+  const withoutQuestion = compliantSidebarOffer.replace(
+    '要不要现在安装这个 fork？请回答"要"或"不要"——不回答同样视为"不要"，不会执行任何安装。',
+    '是否安装由你自行决定。',
+  )
+  assert.equal((withoutQuestion.match(/？/gu) ?? []).length, 0)
+  const result = validateSidebarOffer(withoutQuestion)
+  assert.equal(result.valid, false)
+  assert.ok(result.failures.some(failure => failure.includes('requirement 5')))
+})
+
+test('validateSidebarOffer rejects text with two confirm-questions (requirement 5, "exactly one")', () => {
+  const withTwoQuestions = `${compliantSidebarOffer}\n\n真的确定吗？`
+  assert.equal((withTwoQuestions.match(/？/gu) ?? []).length, 2)
+  const result = validateSidebarOffer(withTwoQuestions)
+  assert.equal(result.valid, false)
+  assert.ok(result.failures.some(failure => failure.includes('requirement 5')))
+})
+
+test('validateSidebarOffer rejects empty text', () => {
+  assert.deepEqual(validateSidebarOffer(''), { valid: false, failures: ['text is empty'] })
+  assert.deepEqual(validateSidebarOffer('   '), { valid: false, failures: ['text is empty'] })
 })
