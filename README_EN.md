@@ -182,9 +182,25 @@ To give each Pane its own right or bottom panel, install:
 
 The adapter consumes only a versioned Pane capability and public `data-session-pane*` host markers. It does not patch Better Sidebar private stores or infer unknown DOM.
 
+## Chat mode (a zero-tool agent preset)
+
+After installing Workbench, the Host entry seeds an agent preset named **聊天模式 / Chat mode** into `~/.dsh/.agent-presets/chat/` (create-only, never overwritten; never re-created after you delete it). It is a **zero-tool** preset: the model only converses — no file reads or writes, no command execution, no project context — so each request is tiny and fast (measured example: 181 input tokens on the first turn). Pick it in the new-session preset selector; model and provider stay freely selectable per session.
+
+The boundary against the built-in Minimal mode: **Minimal mode cuts the scaffolding (planning / skills / subagents / context compaction) but keeps execution ability; Chat mode cuts execution ability itself.**
+
+| | Minimal mode (built-in) | Chat mode (seeded by Workbench) |
+| --- | --- | --- |
+| Tools | 2: persistent shell + `str_replace_editor` | 0 |
+| Can touch your system | Yes — still edits files and runs commands | No — there are no tools by construction |
+| Filesystem | Unsandboxed `fs-local`; editor writes bypass the access mode | None |
+| System prompt | software engineer assistant | Conversation partner that declares it has no tools |
+| Best for | Lightweight coding tasks | Q&A, design discussions, quick questions |
+
+To remove it, delete `~/.dsh/.agent-presets/chat/`; Workbench records the deletion as intent and never re-seeds.
+
 ## Security and privacy
 
-- Adds no Host filesystem, subprocess, credential, or arbitrary network permission.
+- Adds no Host filesystem, subprocess, credential, or arbitrary network permission, except the single create-only chat-preset seeding write (never overwrites, respects deletion; see [`docs/PRODUCT_CONTRACT.md`](docs/PRODUCT_CONTRACT.md)).
 - Persists no Prompt, tool, or Session content outside Harness-owned storage.
 - Both packages are `private: true` to prevent accidental npm publication.
 - The repository contains no GitHub Actions; local release gates are authoritative.

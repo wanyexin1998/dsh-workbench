@@ -178,9 +178,25 @@ pnpm release:check
 
 兼容包只消费版本化 Pane capability 和公开的 `data-session-pane*` host marker，不会修补 Better Sidebar 私有 store，也不会推断未知 DOM。
 
+## 聊天模式（零工具 Agent 预设）
+
+安装 Workbench 后，Host 启动时会把一个名为 **聊天模式 / Chat mode** 的 Agent 预设写入 `~/.dsh/.agent-presets/chat/`（只创建、绝不覆盖；你删除后不会重建）。它是一个**零工具**预设：模型只对话，不读写文件、不执行命令、不加载项目上下文，请求极小、响应更快（实测示例：首轮输入 181 token）。在新会话页的预设选择器里选择它即可使用；模型与供应商仍按会话自由选择。
+
+与官方内置"极简模式"的边界：**极简模式砍的是脚手架（计划 / Skills / 子代理 / 上下文压缩），保留执行能力；聊天模式砍的是执行能力本身。**
+
+| | 极简模式（官方内置） | 聊天模式（Workbench 分发） |
+| --- | --- | --- |
+| 工具 | 2 个：持久 shell + `str_replace_editor` | 0 个 |
+| 能否改动你的系统 | 能——仍会改文件、跑命令 | 不能——架构上没有工具 |
+| 文件系统 | 非沙箱 `fs-local`，编辑器写入绕过访问模式 | 无 |
+| 系统提示词 | software engineer assistant | 纯对话伙伴，并声明自身无工具 |
+| 适用场景 | 轻量编码任务 | 问答、探讨方案、随手提问 |
+
+不想要它时，删除 `~/.dsh/.agent-presets/chat/` 目录即可；Workbench 记录你的删除意图，不会重新写入。
+
 ## 安全与隐私
 
-- 不新增 Host filesystem、subprocess、credential 或任意网络权限。
+- 除聊天模式预设的一次性写入（只创建、绝不覆盖、尊重删除，见 [`docs/PRODUCT_CONTRACT.md`](docs/PRODUCT_CONTRACT.md)）外，不新增 Host filesystem、subprocess、credential 或任意网络权限。
 - 不在 Harness 自有存储之外持久化 Prompt、工具调用或 Session 内容。
 - 两个 package 均为 `private: true`，防止意外 npm 发布。
 - 仓库不包含 GitHub Actions；发布检查只在本地运行。
