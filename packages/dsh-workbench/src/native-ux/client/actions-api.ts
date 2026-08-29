@@ -2,26 +2,33 @@
 // client plugins register shortcut-bindable actions without touching
 // Workbench internals ("actions protocol 1").
 //
-// Two responsibilities, mirroring host-commands.ts's own split:
+// Two responsibilities:
 //   - Validation (fail-closed): reserved namespaces, function-typed fields,
 //     provider/id-prefix agreement — see validateActionDef.
 //   - A module-level (per-apply) store of live third-party defs that
-//     shortcuts.tsx's registry build consults via registerInto, exactly like
-//     HostCommandsHandle.registerInto (host-commands.ts). Unlike the host
-//     bridge (which POLLS a remote descriptor snapshot), this store is
-//     PUSH-based: a plugin calls `register()` once, at any point in its own
-//     lifecycle, and `registerInto` is the only place that ever touches a
-//     live ActionRegistry — register()/dispose() only ever mutate the store
-//     and notify onChange listeners. This keeps the store's own bookkeeping
-//     independent of registry-rebuild timing (register() never needs to know
-//     whether a registry currently exists), while still guaranteeing that a
-//     late registration (a third-party plugin's apply() running after
-//     Workbench's own) reaches the live registry: shortcuts.tsx subscribes
-//     to onChange and reloads (a full registry rebuild) exactly the way it
-//     already does for HostCommandsHandle.onChange.
+//     shortcuts.tsx's registry build consults via registerInto. This store
+//     is PUSH-based: a plugin calls `register()` once, at any point in its
+//     own lifecycle, and `registerInto` is the only place that ever touches
+//     a live ActionRegistry — register()/dispose() only ever mutate the
+//     store and notify onChange listeners. This keeps the store's own
+//     bookkeeping independent of registry-rebuild timing (register() never
+//     needs to know whether a registry currently exists), while still
+//     guaranteeing that a late registration (a third-party plugin's apply()
+//     running after Workbench's own) reaches the live registry: shortcuts.tsx
+//     subscribes to onChange and reloads (a full registry rebuild).
 import { ActionRegistry, DEFAULT_PROVIDER, type ActionDef } from '../core/action-registry.js'
 import { UNBOUND_SENTINEL, type BindingOverrides } from '../core/shortcut-settings.js'
-import { HOST_PROVIDER } from './host-commands.js'
+
+/** Reserved provider segment for a future L1-style host access route. The W2
+ * host slash-command bridge that used to live under this namespace was
+ * REMOVED by product decision (native-actions-pivot: command shortcuts were
+ * redundant with the composer's own '/' entry — see shortcuts.tsx's
+ * EDITABLE_PROVIDERS comment and ACTIONS_API.md). The reservation itself
+ * survives the removal — kept as a literal (no longer imported from a
+ * deleted host-commands.ts module) so a third-party plugin can never claim
+ * the 'host.' namespace and collide with whatever, if anything, uses it
+ * next. */
+const RESERVED_HOST_PROVIDER = 'host'
 
 /** actions protocol 1 (design.md §3 "L2"). */
 export const ACTIONS_PROTOCOL = 1 as const
@@ -69,10 +76,10 @@ export interface WorkbenchActionsService {
    *     <something>` (at least one dot; no leading, trailing, or duplicate
    *     dots; the provider segment matches `/^[a-z0-9][a-z0-9-]*$/i`);
    *   - `id`'s provider segment case-insensitively equals the reserved
-   *     `workbench` or `host` namespace (Workbench's own built-ins and the
-   *     L1 host-command bridge — `Workbench.foo`/`HOST.foo` are rejected
-   *     exactly like `workbench.foo`/`host.foo`, not just an exact-case
-   *     match);
+   *     `workbench` or `host` namespace (Workbench's own built-ins and a
+   *     reserved namespace held for a future L1-style host access route —
+   *     `Workbench.foo`/`HOST.foo` are rejected exactly like
+   *     `workbench.foo`/`host.foo`, not just an exact-case match);
    *   - `label` or `run` is not a function;
    *   - `isEnabled` is present but not a function;
    *   - `allowWhileTyping` is present but not a boolean;
@@ -121,14 +128,14 @@ export interface WorkbenchActionsService {
   register(def: WorkbenchActionDef): () => void
 }
 
-/** Reserved namespaces (design.md §3 L2): Workbench's own built-ins and the
- * L1 host-command bridge. Imported, not duplicated, so this file can never
- * drift from the actual constants those two providers register under.
- * Compared case-insensitively against a candidate provider segment — see
- * firstSegment's own doc comment for why an exact-case Set.has() alone is
- * not enough (SF3: `Workbench.foo` / `HOST.foo` must be rejected too, not
- * just the exact-case forms). */
-const RESERVED_PROVIDERS: ReadonlySet<string> = new Set([DEFAULT_PROVIDER, HOST_PROVIDER])
+/** Reserved namespaces (design.md §3 L2): Workbench's own built-ins
+ * (imported, so this file can never drift from the actual constant that
+ * provider registers under) plus the reserved 'host' namespace (see
+ * RESERVED_HOST_PROVIDER above). Compared case-insensitively against a
+ * candidate provider segment — see firstSegment's own doc comment for why an
+ * exact-case Set.has() alone is not enough (SF3: `Workbench.foo` / `HOST.foo`
+ * must be rejected too, not just the exact-case forms). */
+const RESERVED_PROVIDERS: ReadonlySet<string> = new Set([DEFAULT_PROVIDER, RESERVED_HOST_PROVIDER])
 
 /** Provider-segment charset: must start with a letter or digit, and contain
  * only letters, digits, or hyphens afterwards. A provider segment is a
@@ -220,11 +227,10 @@ export function validateActionDef(def: WorkbenchActionDef): ValidatedActionDef {
 }
 
 /** Same '' -> explicit-unbind / undefined -> default-chord mapping used by
- * shortcuts.tsx and host-commands.ts. Duplicated (not imported) for the same
- * reason host-commands.ts duplicates it: avoids a circular import back to
+ * shortcuts.tsx. Duplicated (not imported) to avoid a circular import back to
  * shortcuts.tsx. Third-party actions never have a default chord (see
- * toActionDef), so — same as host-commands.ts's copy — this only ever
- * distinguishes an explicit Unbound override from "no override yet". */
+ * toActionDef), so this only ever distinguishes an explicit Unbound override
+ * from "no override yet". */
 function unbindSpec(spec: string | undefined): string | null {
   return spec === UNBOUND_SENTINEL ? '' : (spec ?? null)
 }
@@ -286,9 +292,9 @@ export interface ThirdPartyActionsHandle {
    * `ctx.workbenchActions` by src/client/index.tsx. */
   readonly service: WorkbenchActionsService
   /** Reconcile `registry` to the current live third-party defs. Called by
-   * shortcuts.tsx's buildShortcutRegistry on every rebuild — mirrors
-   * HostCommandsHandle.registerInto exactly: a `registry` instance not seen
-   * before gets every currently-live def freshly registered into it (this
+   * shortcuts.tsx's buildShortcutRegistry on every rebuild: a `registry`
+   * instance not seen before gets every currently-live def freshly
+   * registered into it (this
    * is what makes a registration "survive" a settings-reload rebuild); the
    * same `registry` instance seen again is a no-op (every live def is
    * already synced into it — register()/the returned disposer keep it
@@ -311,10 +317,10 @@ export interface ThirdPartyActionsHandle {
    * Settings row on every render for no reason). */
   liveProviders(): ReadonlySet<string>
   /** Fires whenever the live def set changes (a registration or a dispose).
-   * shortcuts.tsx re-triggers its own registry rebuild, exactly like
-   * HostCommandsHandle.onChange. A listener that throws is isolated (SF2):
-   * it neither blocks delivery to any other listener nor propagates back
-   * out of whatever register()/dispose() call triggered this emit. */
+   * shortcuts.tsx re-triggers its own registry rebuild in response. A
+   * listener that throws is isolated (SF2): it neither blocks delivery to
+   * any other listener nor propagates back out of whatever
+   * register()/dispose() call triggered this emit. */
   onChange(fn: () => void): () => void
   /** apply()-lifecycle teardown: clears the store and disposes every live
    * registration this handle currently holds in whatever registry it was

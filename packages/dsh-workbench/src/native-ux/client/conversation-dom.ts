@@ -43,10 +43,12 @@ export function locateComposerInput(scope: ParentNode): HTMLElement | null {
 /**
  * Write text into a composer input the React-controlled way (adapter,
  * tracked in issue #1 proposal 4 alongside `focusComposer` — no public
- * composer/draft-write API exists in the harness rc; see host-commands.ts
- * for the fuller investigation of why the DOM path was chosen over the one
- * public API this repo did find, `dsh-client-ui-conversation`'s
- * `SessionInput.setDraft`).
+ * composer/draft-write API exists in the harness rc; the one public API this
+ * repo did find, `dsh-client-ui-conversation`'s `SessionInput.setDraft`, only
+ * writes the draft text with no "focus the composer" verb of its own, so it
+ * would still need this same DOM marker for focus anyway — not currently a
+ * live consumer of this function, but kept here as the sanctioned adapter
+ * seam (ADR-0001) for the next feature that needs to write into the composer).
  *
  * Assigning `.value` directly is a no-op from React's perspective: React
  * replaces the DOM property's own setter with a tracked one so it can

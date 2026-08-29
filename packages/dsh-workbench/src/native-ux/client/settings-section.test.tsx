@@ -6,7 +6,6 @@ import { buildShortcutRegistry } from './shortcuts.js'
 import { SettingsSection, type ShortcutCapabilities, type ShortcutSettingsController } from './shortcuts.js'
 import { en, zh } from './locales.js'
 import { parsePersistedState } from './shortcut-persistence.js'
-import { HOST_PROVIDER, hostCommandActionId } from './host-commands.js'
 import { createThirdPartyActionsHandle, type ThirdPartyActionsHandle } from './actions-api.js'
 
 /** Host where both services exist (the realistic case): service-backed
@@ -91,6 +90,26 @@ describe('SettingsSection (T8)', () => {
     renderSection()
     expect(screen.getByText('reserved.note.bookmarks')).toBeTruthy()
     expect(screen.getByText('Ctrl+B')).toBeTruthy()
+  })
+
+  // MEDIUM 2 (Opus review, round 2 of native-actions-pivot): reviewer's claim
+  // was that the reserved-note warning only ever fires for a RECORDED
+  // (overridden) binding, never for an action's shipped defaultChord. The
+  // test above already disproves this in general (sidebar.toggle's
+  // Primary+B default renders 'reserved.note.bookmarks' with an EMPTY
+  // overrides object — renderRow's bindingReport() call unifies override and
+  // default before ever consulting isBrowserReserved, so there is no
+  // separate "was this recorded" branch to suppress on). This pins the SAME
+  // fact specifically for workbench.session.new's own default (Primary+N,
+  // kept as the maintainer's explicit choice — see its doc comment in
+  // shortcuts.tsx) — the concrete row the review was actually worried about.
+  it('MEDIUM 2: the settings row for workbench.session.new (default chord, no override) shows the newWindow reserved note', () => {
+    const services = { ...HOST_SERVICES, sessions: { ...HOST_SERVICES.sessions, clear: () => {} } }
+    const controller = makeController({}, undefined, services)
+    renderSection(controller)
+    const row = document.querySelector('[data-dsh-nux-shortcut-row="workbench.session.new"]')
+    expect(row).not.toBeNull()
+    expect(row!.textContent).toContain('reserved.note.newWindow')
   })
 
   it('recording captures a chord, saves it, and reloads the dispatcher', async () => {
@@ -335,6 +354,26 @@ describe('SettingsSection (T8)', () => {
     expect(document.querySelector('[data-dsh-nux-orphan-row="ghostplugin.doThing"]')).not.toBeNull()
   })
 
+  it('native-actions-pivot: a persisted host.command.* chord binding (from the removed W2 bridge) renders as a removable orphan — the provider is genuinely absent now', () => {
+    // Before removal, 'host' was a live, editable provider (EDITABLE_PROVIDERS
+    // included HOST_PROVIDER) and a host.command.* id was never orphaned —
+    // it was a real, bindable row. Now that host-commands.ts is gone, no
+    // live action ever registers under that id again, and 'host.command.'
+    // does not start with the built-in `workbench.` namespace the orphan
+    // derivation exempts — so this id falls through to the exact same
+    // generic "foreign provider, genuinely absent" path the ghostplugin.*
+    // tests already pin, exercised here for the SPECIFIC id shape a real
+    // user's pre-removal persisted state would actually contain.
+    const controller = makeController()
+    controller.persisted = { bindings: { 'host.command.foo': 'Primary+Shift+G' }, disabled: new Set() }
+    renderSection(controller)
+    const orphanRow = document.querySelector('[data-dsh-nux-orphan-row="host.command.foo"]')
+    expect(orphanRow).not.toBeNull()
+    expect(orphanRow!.textContent).toContain('Ctrl+Shift+G')
+    fireEvent.click(orphanRow!.querySelector('[data-dsh-nux-orphan-remove]')!)
+    expect(controller.scope.unset).toHaveBeenCalledWith('host.command.foo')
+  })
+
   it('W1.3: provider group header is a disclosure toggle (default expanded)', () => {
     const controller = makeController()
     renderSection(controller)
@@ -455,116 +494,6 @@ describe('SettingsSection (T8)', () => {
     const row = document.querySelector('[data-dsh-nux-shortcut-row="workbench.session.stop"]')
     expect(row).not.toBeNull()
     expect(row!.querySelector('[data-dsh-nux-chord-button]')?.textContent).toContain('Ctrl+Shift+Y')
-  })
-
-  // -------------------------------------------------------------------
-  // W2.2 — host provider group: editable bindings, direct-execute toggle
-  // gated to input-less commands only.
-  // -------------------------------------------------------------------
-
-  const registerHostAction = (
-    controller: ShortcutSettingsController,
-    name: string,
-    opts: { hasInput?: boolean } = {},
-  ) => {
-    controller.registry.register({
-      id: hostCommandActionId(name),
-      label: 'Run ' + name, // host text verbatim, not a dictionary key
-      defaultChord: null,
-      provider: HOST_PROVIDER,
-      hasInput: opts.hasInput ?? false,
-      run: () => {},
-    })
-  }
-
-  it('W2.2: the host provider group renders with the localized host label', () => {
-    const controller = makeController()
-    registerHostAction(controller, 'foo')
-    render(
-      <SettingsSection
-        t={(key: string) => (zh as Record<string, string>)[key] ?? key}
-        controller={controller}
-        allowSyntheticEventsForTesting
-      />,
-    )
-    expect(screen.getByText(zh['shortcuts.provider.host'])).toBeTruthy()
-    expect(screen.getByText('Run foo')).toBeTruthy()
-  })
-
-  it('W2.2: a host action is editable — chord button enabled, overflow menu present, binding can be recorded', async () => {
-    const controller = makeController()
-    registerHostAction(controller, 'foo')
-    renderSection(controller)
-    const row = document.querySelector(`[data-dsh-nux-shortcut-row="${hostCommandActionId('foo')}"]`)!
-    const button = row.querySelector('[data-dsh-nux-chord-button]') as HTMLButtonElement
-    expect(button.disabled).toBe(false)
-    expect(row.querySelector('[data-dsh-nux-overflow]')).not.toBeNull()
-    fireEvent.click(button)
-    expect(button.getAttribute('aria-pressed')).toBe('true')
-    fireEvent.keyDown(window, { key: 'G', shiftKey: true, ctrlKey: true })
-    const save = screen.getByText('shortcuts.save')
-    fireEvent.click(save)
-    await act(async () => {})
-    expect(controller.scope.set).toHaveBeenCalledWith(hostCommandActionId('foo'), 'Primary+Shift+G')
-  })
-
-  it('W2.2: the direct-execute toggle is offered for an input-less host command', () => {
-    const controller = makeController()
-    registerHostAction(controller, 'foo', { hasInput: false })
-    renderSection(controller)
-    const row = document.querySelector(`[data-dsh-nux-shortcut-row="${hostCommandActionId('foo')}"]`)!
-    fireEvent.click(row.querySelector('[data-dsh-nux-overflow]')!)
-    expect(row.querySelector(`[data-dsh-nux-overflow-direct-execute="${hostCommandActionId('foo')}"]`)).not.toBeNull()
-  })
-
-  it('W2.2: the direct-execute toggle is NEVER offered for a has-input host command', () => {
-    const controller = makeController()
-    registerHostAction(controller, 'withArgs', { hasInput: true })
-    renderSection(controller)
-    const row = document.querySelector(`[data-dsh-nux-shortcut-row="${hostCommandActionId('withArgs')}"]`)!
-    fireEvent.click(row.querySelector('[data-dsh-nux-overflow]')!)
-    expect(row.querySelector(`[data-dsh-nux-overflow-direct-execute="${hostCommandActionId('withArgs')}"]`)).toBeNull()
-    // The enabled toggle and clear/reset controls still render normally —
-    // only the direct-execute row is withheld.
-    expect(row.querySelector(`[data-dsh-nux-overflow-enabled="${hostCommandActionId('withArgs')}"]`)).not.toBeNull()
-  })
-
-  it('W2.2: the direct-execute toggle is never offered on a Workbench built-in row', () => {
-    const controller = makeController()
-    renderSection(controller)
-    const row = document.querySelector('[data-dsh-nux-shortcut-row="workbench.session.stop"]')!
-    fireEvent.click(row.querySelector('[data-dsh-nux-overflow]')!)
-    expect(row.querySelector('[data-dsh-nux-overflow-direct-execute="workbench.session.stop"]')).toBeNull()
-  })
-
-  it('W2.2: toggling direct-execute persists the opt-in and reloads with it', async () => {
-    const controller = makeController()
-    registerHostAction(controller, 'foo')
-    renderSection(controller)
-    const id = hostCommandActionId('foo')
-    const row = document.querySelector(`[data-dsh-nux-shortcut-row="${id}"]`)!
-    fireEvent.click(row.querySelector('[data-dsh-nux-overflow]')!)
-    const toggle = row.querySelector(`[data-dsh-nux-overflow-direct-execute="${id}"] input`) as HTMLInputElement
-    expect(toggle.checked).toBe(false)
-    fireEvent.click(toggle)
-    await act(async () => {})
-    expect(controller.reload).toHaveBeenCalledWith(expect.anything(), expect.anything(), new Set([id]))
-    const lastPersist = (controller.persist as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0] as {
-      hostDirectExecute: ReadonlySet<string>
-    }
-    expect(Array.from(lastPersist.hostDirectExecute)).toEqual([id])
-  })
-
-  it('W2.2: the toggle reflects a persisted direct-execute opt-in on hydration', () => {
-    const controller = makeController()
-    registerHostAction(controller, 'foo')
-    const id = hostCommandActionId('foo')
-    controller.persisted = { bindings: {}, disabled: new Set(), hostDirectExecute: new Set([id]) }
-    renderSection(controller)
-    const row = document.querySelector(`[data-dsh-nux-shortcut-row="${id}"]`)!
-    fireEvent.click(row.querySelector('[data-dsh-nux-overflow]')!)
-    const toggle = row.querySelector(`[data-dsh-nux-overflow-direct-execute="${id}"] input`) as HTMLInputElement
-    expect(toggle.checked).toBe(true)
   })
 
   // -------------------------------------------------------------------

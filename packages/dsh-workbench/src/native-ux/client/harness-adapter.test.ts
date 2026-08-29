@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest'
-import { resolveHarnessServices, type HarnessContext } from './harness-adapter.js'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  currentSessionId,
+  resolveHarnessServices,
+  subscribeCurrentSessionId,
+  type HarnessContext,
+  type HarnessServices,
+} from './harness-adapter.js'
 import { settingsBindingSection } from './shortcuts.js'
 import { detectConversationDom, normalizeInputNode } from './conversation-dom.js'
 
@@ -31,6 +37,66 @@ describe('resolveHarnessServices (GA-040, §9A.1)', () => {
     const services = resolveHarnessServices(makeCtx())
     expect(services.layout).toBeUndefined()
     expect(services.sessions).toBeUndefined()
+  })
+})
+
+// MEDIUM 1 (Opus review, round 2 of native-actions-pivot): `currentSessionId`/
+// `subscribeCurrentSessionId` are the stock-public `sessions.list` feed that
+// replaced the fork-only `presentation` feed as workbench.session.previous's
+// tracker source — see `SessionsService.list`'s doc comment in
+// harness-adapter.ts for the full divergence trace this rests on. Same
+// defensive-narrowing shape as `focusedSessionId`/`subscribeFocusedSessionId`
+// (untested directly, by precedent — exercised only through shortcuts.tsx's
+// dispatch tests): a missing/malformed `list`, or one that throws, must
+// degrade to "unknown" / "no subscription" rather than throw inside a
+// keydown handler or a store notification callback.
+describe('currentSessionId / subscribeCurrentSessionId (MEDIUM 1: the sessions.list tracker feed)', () => {
+  let listeners: Set<() => void>
+  beforeEach(() => { listeners = new Set() })
+
+  const fakeListStore = (current?: string) => ({
+    getSnapshot: () => ({ current }),
+    subscribe: vi.fn((fn: () => void) => { listeners.add(fn); return () => listeners.delete(fn) }),
+  })
+  const services = (list: unknown): HarnessServices => ({ sessions: { scope: vi.fn(), list } as never })
+
+  it('reads SessionListState.current through list.getSnapshot()', () => {
+    expect(currentSessionId(services(fakeListStore('s1')))).toBe('s1')
+  })
+
+  it('returns undefined when sessions.list is absent', () => {
+    expect(currentSessionId({})).toBeUndefined()
+    expect(currentSessionId({ sessions: { scope: vi.fn() } as never })).toBeUndefined()
+  })
+
+  it('returns undefined when list is present but malformed (no getSnapshot function)', () => {
+    expect(currentSessionId(services({ getSnapshot: 'not-a-function' }))).toBeUndefined()
+    expect(currentSessionId(services(null))).toBeUndefined()
+  })
+
+  it('returns undefined (never throws) when getSnapshot itself throws', () => {
+    const throwing = { getSnapshot: () => { throw new Error('boom') } }
+    expect(() => currentSessionId(services(throwing))).not.toThrow()
+    expect(currentSessionId(services(throwing))).toBeUndefined()
+  })
+
+  it('subscribeCurrentSessionId forwards list notifications to the listener', () => {
+    const store = fakeListStore('s1')
+    const listener = vi.fn()
+    const unsubscribe = subscribeCurrentSessionId(services(store), listener)
+    expect(store.subscribe).toHaveBeenCalledOnce()
+    for (const fn of [...listeners]) fn() // simulate a store notification
+    expect(listener).toHaveBeenCalledOnce()
+    unsubscribe()
+    expect(listeners.size).toBe(0)
+  })
+
+  it('subscribeCurrentSessionId degrades to a no-op unsubscribe when list/subscribe is absent or throws', () => {
+    expect(() => subscribeCurrentSessionId({}, vi.fn())()).not.toThrow()
+    expect(() => subscribeCurrentSessionId(services({ getSnapshot: () => ({}) }), vi.fn())()).not.toThrow()
+    const throwingSubscribe = { getSnapshot: () => ({}), subscribe: () => { throw new Error('boom') } }
+    const unsubscribe = subscribeCurrentSessionId(services(throwingSubscribe), vi.fn())
+    expect(() => unsubscribe()).not.toThrow()
   })
 })
 

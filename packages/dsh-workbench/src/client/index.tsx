@@ -111,9 +111,10 @@ export function apply(ctx: ClientContext): void {
     warnOnce('navigator-apply-failed', 'navigator module failed to register: ' + String(error))
   }
   // W3.1: applyShortcuts() owns the third-party-actions handle's full
-  // lifecycle (create + dispose, alongside its own hostCommandsHandle) and
-  // hands it back so the cordis service binding below can expose exactly
-  // that live handle's `.service` — never a second, disconnected instance.
+  // lifecycle (create + dispose, alongside its own previous-session focus
+  // tracking subscription) and hands it back so the cordis service binding
+  // below can expose exactly that live handle's `.service` — never a
+  // second, disconnected instance.
   // A failed applyShortcuts() (caught above) leaves no live registry for
   // third-party registrations to reach anyway, so the service is correctly
   // left unexposed in that case rather than accepting registrations into a

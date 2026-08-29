@@ -10,8 +10,16 @@ import {
 import { navigatorBus } from './navigator-bus.js'
 import { createThirdPartyActionsHandle } from './actions-api.js'
 import { ActionRegistry } from '../core/action-registry.js'
-import { HOST_PROVIDER } from './host-commands.js'
+import { createPreviousSessionTracker } from '../core/previous-session-tracker.js'
 import type { HarnessContext } from './harness-adapter.js'
+
+// Generic non-workbench provider used by the allowWhileTyping tests below —
+// these exercise the DISPATCHER's own escape-hatch mechanism (ActionDef.
+// allowWhileTyping), not any specific provider's bridge. Formerly modeled
+// after the W2 host slash-command bridge (removed by product decision — see
+// shortcuts.tsx's EDITABLE_PROVIDERS comment); a plain third-party provider
+// id exercises the identical dispatcher code path.
+const THIRD_PARTY_PROVIDER = 'thirdparty'
 
 describe('shortcut dispatcher (seam B)', () => {
   let detach: () => void
@@ -345,19 +353,22 @@ describe('shortcut dispatcher (seam B)', () => {
   })
 
   // -------------------------------------------------------------------
-  // Finding 1 (smoke test) — a bound host-command chord used to be dead
-  // while the composer was focused: the dispatcher suppressed every
+  // Finding 1 (smoke test) — a bound third-party-provider chord used to be
+  // dead while the composer was focused: the dispatcher suppressed every
   // editable-target keydown unless the action id was in the hardcoded
-  // EDITABLE_ALLOWED_ACTIONS set, and host.command.* ids never joined that
-  // set. Firing while typing is the insert-mode bridge's PRIMARY flow, so
-  // this was the real-user-visible bug. Fix: ActionDef.allowWhileTyping.
+  // EDITABLE_ALLOWED_ACTIONS set, and no third-party id ever joined that
+  // set. Firing while typing is exactly the case allowWhileTyping exists
+  // for (originally motivated by the W2 host slash-command bridge's own
+  // insert-mode PRIMARY flow — that bridge was later removed by product
+  // decision, but the dispatcher mechanism it motivated stays general-
+  // purpose). Fix: ActionDef.allowWhileTyping.
   // -------------------------------------------------------------------
   describe('Finding 1 — allowWhileTyping (editable-target dispatch)', () => {
-    it('a host-bridge action (allowWhileTyping: true) fires from inside a textarea — fails against the pre-fix dispatcher', () => {
+    it('a third-party action (allowWhileTyping: true) fires from inside a textarea — fails against the pre-fix dispatcher', () => {
       const registry = new ActionRegistry()
       const run = vi.fn()
       const result = registry.register(
-        { id: 'host.command.foo', label: 'Foo', defaultChord: null, provider: HOST_PROVIDER, allowWhileTyping: true, run },
+        { id: 'thirdparty.foo', label: 'Foo', defaultChord: null, provider: THIRD_PARTY_PROVIDER, allowWhileTyping: true, run },
         'Primary+K',
       )
       expect(result.ok).toBe(true)
@@ -418,18 +429,18 @@ describe('shortcut dispatcher (seam B)', () => {
   // -------------------------------------------------------------------
   // MEDIUM 1 (Opus review, round 2 of Finding 1) — the allowWhileTyping
   // escape must not swallow a character the user is actually typing.
-  // Reviewer-verified probe: a host command bound to Shift+A (or Shift+/ =
-  // '?', Shift+Enter = newline) fired + preventDefault()ed WHILE TYPING,
-  // eating the character. Fix: the escape only applies when the chord
-  // carries a real modifier (Primary/Alt) or targets a non-printable key —
-  // a Shift-only chord on a printable key stays suppressed while typing.
+  // Reviewer-verified probe: a third-party action bound to Shift+A (or
+  // Shift+/ = '?', Shift+Enter = newline) fired + preventDefault()ed WHILE
+  // TYPING, eating the character. Fix: the escape only applies when the
+  // chord carries a real modifier (Primary/Alt) or targets a non-printable
+  // key — a Shift-only chord on a printable key stays suppressed while typing.
   // -------------------------------------------------------------------
   describe('MEDIUM 1 — allowWhileTyping does not swallow a typed character (Shift-only printable chords)', () => {
-    it('a Shift-only host-bridge chord on a printable key stays suppressed while typing, and the character survives (event NOT defaultPrevented) — fails against the pre-MEDIUM-1 dispatcher', () => {
+    it('a Shift-only third-party chord on a printable key stays suppressed while typing, and the character survives (event NOT defaultPrevented) — fails against the pre-MEDIUM-1 dispatcher', () => {
       const registry = new ActionRegistry()
       const run = vi.fn()
       registry.register(
-        { id: 'host.command.bang', label: 'Bang', defaultChord: null, provider: HOST_PROVIDER, allowWhileTyping: true, run },
+        { id: 'thirdparty.bang', label: 'Bang', defaultChord: null, provider: THIRD_PARTY_PROVIDER, allowWhileTyping: true, run },
         'Shift+A',
       )
       detach = attachDispatcher(registry)
@@ -446,7 +457,7 @@ describe('shortcut dispatcher (seam B)', () => {
       const registry = new ActionRegistry()
       const run = vi.fn()
       registry.register(
-        { id: 'host.command.bang', label: 'Bang', defaultChord: null, provider: HOST_PROVIDER, allowWhileTyping: true, run },
+        { id: 'thirdparty.bang', label: 'Bang', defaultChord: null, provider: THIRD_PARTY_PROVIDER, allowWhileTyping: true, run },
         'Primary+A',
       )
       detach = attachDispatcher(registry)
@@ -463,7 +474,7 @@ describe('shortcut dispatcher (seam B)', () => {
       const registry = new ActionRegistry()
       const run = vi.fn()
       registry.register(
-        { id: 'host.command.refresh', label: 'Refresh', defaultChord: null, provider: HOST_PROVIDER, allowWhileTyping: true, run },
+        { id: 'thirdparty.refresh', label: 'Refresh', defaultChord: null, provider: THIRD_PARTY_PROVIDER, allowWhileTyping: true, run },
         'Shift+F5',
       )
       detach = attachDispatcher(registry)
@@ -480,7 +491,7 @@ describe('shortcut dispatcher (seam B)', () => {
       const registry = new ActionRegistry()
       const run = vi.fn()
       registry.register(
-        { id: 'host.command.bang', label: 'Bang', defaultChord: null, provider: HOST_PROVIDER, allowWhileTyping: true, run },
+        { id: 'thirdparty.bang', label: 'Bang', defaultChord: null, provider: THIRD_PARTY_PROVIDER, allowWhileTyping: true, run },
         'Shift+A',
       )
       detach = attachDispatcher(registry)
@@ -488,6 +499,182 @@ describe('shortcut dispatcher (seam B)', () => {
       document.body.dispatchEvent(event) // non-editable target — the while-typing gate never applies here
       expect(run).toHaveBeenCalledOnce()
       expect(event.defaultPrevented).toBe(true)
+    })
+  })
+
+  // -------------------------------------------------------------------
+  // native-actions-pivot — Part B: the four new native L0 actions.
+  // Registration gating (seam-present vs seam-absent) is pinned in
+  // capabilities.test.ts's GA-043 describe block; these tests cover the
+  // DISPATCH side — the traced verb each action's run() actually calls, its
+  // default chord, and (since all four set allowWhileTyping: true) that they
+  // still fire from inside an editable target without the MEDIUM-1 Shift
+  // guard swallowing a real keystroke — none of Primary+N / Primary+Space /
+  // Alt+Q / Primary+Shift+L is a Shift-only chord on a printable key, so the
+  // guard's `chord.primary || chord.alt` branch always admits them (see
+  // attachDispatcher's own doc comment for the guard itself).
+  // -------------------------------------------------------------------
+  describe('native-actions-pivot — Part B: session.new / settings.open / session.previous / conversation.jump-latest', () => {
+    it('workbench.session.new: Primary+N calls sessions.clear() — the same fallback startSession() itself uses (see harness-adapter.ts)', () => {
+      const clear = vi.fn()
+      const registry = buildShortcutRegistry({ services: { sessions: { scope: vi.fn(), clear } } })
+      detach = attachDispatcher(registry)
+      const event = keydown({ key: 'n', ctrlKey: true })
+      expect(clear).toHaveBeenCalledOnce()
+      expect(event.defaultPrevented).toBe(true)
+    })
+
+    it('workbench.session.new fires from inside a textarea (allowWhileTyping — starting a new session from wherever you are, composer included)', () => {
+      const clear = vi.fn()
+      const registry = buildShortcutRegistry({ services: { sessions: { scope: vi.fn(), clear } } })
+      detach = attachDispatcher(registry)
+      const input = document.createElement('textarea')
+      document.body.appendChild(input)
+      const event = new KeyboardEvent('keydown', { key: 'n', ctrlKey: true, bubbles: true, cancelable: true })
+      input.dispatchEvent(event) // real path: composedPath()[0] === input (editable)
+      expect(clear).toHaveBeenCalledOnce()
+      expect(event.defaultPrevented).toBe(true)
+      input.remove()
+    })
+
+    it('workbench.settings.open: Primary+Space calls layout.openSettings() when a test double supplies the seam (no real seam ships yet in production — see harness-adapter.ts)', () => {
+      const openSettings = vi.fn()
+      const registry = buildShortcutRegistry({ services: { layout: { toggleSidebar: vi.fn(), openSettings } } })
+      detach = attachDispatcher(registry)
+      // event.key for the physical Space bar is the literal ' ' character
+      // (KeyboardEvent spec) — chordFromEvent lowercases it to the same ' '
+      // parseChord('Primary+Space') itself resolves to (chord.ts's own
+      // 'Space' -> ' ' mapping), so recording and matching agree.
+      const event = keydown({ key: ' ', ctrlKey: true })
+      expect(openSettings).toHaveBeenCalledOnce()
+      expect(event.defaultPrevented).toBe(true)
+    })
+
+    // LOW 3 (Opus review, round 2): the missing while-typing dispatch test
+    // for settings.open. ' ' (the physical Space bar's event.key) IS a
+    // printable key (isPrintableKey has no non-printable exception for it,
+    // unlike Enter/Escape/F-keys/arrows), so unlike jump-latest's
+    // Primary+Shift+L (a non-printable-adjacent letter chord) or
+    // session.new's Primary+N, this specific chord's allowWhileTyping escape
+    // can ONLY clear the MEDIUM-1-era Shift guard (attachDispatcher:
+    // `chord.primary || chord.alt || !isPrintableKey(chord.key)`) via the
+    // `chord.primary` branch — `!isPrintableKey(chord.key)` is FALSE here,
+    // so if a future edit ever dropped `chord.primary` from that guard (or
+    // the chord fired without Ctrl), this chord specifically would regress
+    // to the pre-Finding-1 suppressed-while-typing behavior. A seam-supplied
+    // test double stands in for `layout.openSettings` since no real seam
+    // ships yet (see the test above).
+    it('workbench.settings.open fires from inside a textarea (allowWhileTyping — ' + "' '" + ' is printable, so this exercises the chord.primary branch of the Shift guard specifically)', () => {
+      const openSettings = vi.fn()
+      const registry = buildShortcutRegistry({ services: { layout: { toggleSidebar: vi.fn(), openSettings } } })
+      detach = attachDispatcher(registry)
+      const input = document.createElement('textarea')
+      document.body.appendChild(input)
+      const event = new KeyboardEvent('keydown', { key: ' ', ctrlKey: true, bubbles: true, cancelable: true })
+      input.dispatchEvent(event) // real path: composedPath()[0] === input (editable)
+      expect(openSettings).toHaveBeenCalledOnce()
+      expect(event.defaultPrevented).toBe(true)
+      input.remove()
+    })
+
+    // MEDIUM 1 (Opus review, round 2): registration now also requires
+    // `sessions.list` (see harness-adapter.ts's `SessionsService.list` doc
+    // comment) alongside `sessions.open` — these dispatch-level tests drive
+    // `previousSessionTracker` directly via `.noteFocus()` (they are not
+    // exercising the real `list`-subscription feed itself; that lives in the
+    // `applyShortcuts` describe block below), so `list` here is a bare stub
+    // that only needs to satisfy the registration gate.
+    const stubListSeam = () => ({ getSnapshot: () => ({}), subscribe: () => () => {} })
+
+    it('workbench.session.previous: Alt+Q switches to the tracked previous session via sessions.open()', () => {
+      const open = vi.fn()
+      const tracker = createPreviousSessionTracker()
+      tracker.noteFocus('s1')
+      tracker.noteFocus('s2') // previous() now resolves to 's1'
+      const registry = buildShortcutRegistry({
+        services: { sessions: { scope: vi.fn(), open, list: stubListSeam() } },
+        previousSessionTracker: tracker,
+      })
+      detach = attachDispatcher(registry)
+      const event = keydown({ key: 'q', altKey: true })
+      expect(open).toHaveBeenCalledWith('s1')
+      expect(event.defaultPrevented).toBe(true)
+    })
+
+    it('workbench.session.previous: isEnabled is false (chord resolves to nothing, no dead preventDefault) before any previous session has ever been observed', () => {
+      const open = vi.fn()
+      const tracker = createPreviousSessionTracker() // fresh — no noteFocus calls yet
+      const registry = buildShortcutRegistry({
+        services: { sessions: { scope: vi.fn(), open, list: stubListSeam() } },
+        previousSessionTracker: tracker,
+      })
+      detach = attachDispatcher(registry)
+      // The action IS registered (both seams present) — this specifically
+      // exercises isEnabled() returning false, not a missing registration.
+      expect(registry.all().some((a) => a.id === 'workbench.session.previous')).toBe(true)
+      const event = keydown({ key: 'q', altKey: true })
+      expect(open).not.toHaveBeenCalled()
+      expect(event.defaultPrevented).toBe(false) // ActionRegistry.resolve: false isEnabled -> null, key behaves unbound
+    })
+
+    it('workbench.session.previous fires from inside a textarea (allowWhileTyping)', () => {
+      const open = vi.fn()
+      const tracker = createPreviousSessionTracker()
+      tracker.noteFocus('s1')
+      tracker.noteFocus('s2')
+      const registry = buildShortcutRegistry({
+        services: { sessions: { scope: vi.fn(), open, list: stubListSeam() } },
+        previousSessionTracker: tracker,
+      })
+      detach = attachDispatcher(registry)
+      const input = document.createElement('textarea')
+      document.body.appendChild(input)
+      const event = new KeyboardEvent('keydown', { key: 'q', altKey: true, bubbles: true, cancelable: true })
+      input.dispatchEvent(event)
+      expect(open).toHaveBeenCalledWith('s1')
+      expect(event.defaultPrevented).toBe(true)
+      input.remove()
+    })
+
+    it('workbench.conversation.jump-latest: Primary+Shift+L scrolls the focused pane scrollport to bottom', () => {
+      const scrollport = document.createElement('div')
+      scrollport.setAttribute('data-conversation-scroll', '')
+      Object.defineProperty(scrollport, 'scrollHeight', { value: 4000, configurable: true })
+      document.body.appendChild(scrollport)
+      const registry = buildShortcutRegistry({ services: focusedServices() })
+      detach = attachDispatcher(registry)
+      const event = keydown({ key: 'L', shiftKey: true, ctrlKey: true })
+      expect(scrollport.scrollTop).toBe(4000)
+      expect(event.defaultPrevented).toBe(true)
+      scrollport.remove()
+    })
+
+    it('workbench.conversation.jump-latest is a silent no-op when no scrollport is mounted yet (fail-soft, mirrors focusComposer\'s optional-chained .focus())', () => {
+      const registry = buildShortcutRegistry({ services: focusedServices() })
+      detach = attachDispatcher(registry)
+      const event = keydown({ key: 'L', shiftKey: true, ctrlKey: true })
+      // Still resolves and fires (the action IS registered — jump-latest has
+      // no registration-time seam gate) — only the DOM lookup inside run()
+      // degrades silently. preventDefault() still happens: dispatch itself
+      // does not know the scrollport lookup came back empty.
+      expect(event.defaultPrevented).toBe(true)
+    })
+
+    it('workbench.conversation.jump-latest fires from inside a textarea (allowWhileTyping)', () => {
+      const scrollport = document.createElement('div')
+      scrollport.setAttribute('data-conversation-scroll', '')
+      Object.defineProperty(scrollport, 'scrollHeight', { value: 1200, configurable: true })
+      document.body.appendChild(scrollport)
+      const registry = buildShortcutRegistry({ services: focusedServices() })
+      detach = attachDispatcher(registry)
+      const input = document.createElement('textarea')
+      document.body.appendChild(input)
+      const event = new KeyboardEvent('keydown', { key: 'L', shiftKey: true, ctrlKey: true, bubbles: true, cancelable: true })
+      input.dispatchEvent(event)
+      expect(scrollport.scrollTop).toBe(1200)
+      expect(event.defaultPrevented).toBe(true)
+      scrollport.remove()
+      input.remove()
     })
   })
 })
@@ -501,9 +688,8 @@ describe('shortcut dispatcher (seam B)', () => {
 // pinned 0.1.1-rc.2 store: `@deepseek-ai/dsh-client-locale/lib/types/client/
 // index.d.ts:44-58`) — see harness-adapter.ts's `HarnessContext.on` overload
 // doc comment for the full citation. applyShortcuts subscribes to it and
-// reuses host-commands.ts's microtaskCoalesce to debounce a burst into one
-// rebuild, mirroring the existing hostCommandsHandle.onChange /
-// thirdPartyActionsHandle.onChange wiring.
+// uses its own microtaskCoalesce helper to debounce a burst into one
+// rebuild, mirroring the existing thirdPartyActionsHandle.onChange wiring.
 // ---------------------------------------------------------------------
 describe('applyShortcuts — Finding 2 (locale/change public surface)', () => {
   async function flush(times = 4): Promise<void> {
@@ -572,5 +758,102 @@ describe('applyShortcuts — Finding 2 (locale/change public surface)', () => {
     expect(localeListenerCount()).toBe(1)
     fireDispose()
     expect(localeListenerCount()).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------
+// MEDIUM 1 (Opus review, round 2 of native-actions-pivot) — end-to-end,
+// through the REAL applyShortcuts() wiring (not buildShortcutRegistry
+// called directly, and not a hand-fed PreviousSessionTracker): a fake
+// `sessions.list` observable feeds the tracker exactly the way a real Host
+// would, proving the fix works through the actual subscription wiring, not
+// just in isolation. See harness-adapter.ts's `SessionsService.list` doc
+// comment for the full fork-vs-stock divergence trace this rests on, and
+// capabilities.test.ts's GA-043 block for the registration-gate-only
+// (buildShortcutRegistry-level) coverage of the same seams.
+// ---------------------------------------------------------------------
+describe('applyShortcuts — MEDIUM 1 (workbench.session.previous fed via sessions.list)', () => {
+  let detach: (() => void) | undefined
+  afterEach(() => { detach?.(); detach = undefined })
+
+  function keydown(init: KeyboardEventInit) {
+    const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init })
+    window.dispatchEvent(event)
+    return event
+  }
+
+  function fakeListStore(initialCurrent: string | undefined) {
+    let current = initialCurrent
+    const listeners = new Set<() => void>()
+    return {
+      store: {
+        getSnapshot: () => ({ current }),
+        subscribe: (fn: () => void) => { listeners.add(fn); return () => listeners.delete(fn) },
+      },
+      setCurrent: (id: string | undefined) => {
+        current = id
+        for (const fn of [...listeners]) fn()
+      },
+    }
+  }
+
+  function makeApplyCtx(sessions: unknown) {
+    let capturedInject: (() => {
+      controller: { registry: { all(): Array<{ id: string; isEnabled?: () => boolean; run: () => void }> } }
+    }) | undefined
+    const ctx = {
+      get: vi.fn((name: string) => (name === 'sessions' ? sessions : undefined)),
+      locale: { register: vi.fn(), bind: vi.fn(() => (key: string) => key) },
+      slots: {
+        register: vi.fn((def: { inject?: () => unknown }) => {
+          capturedInject = def.inject as typeof capturedInject
+        }),
+        inject: vi.fn((_slot: string, fn: () => void) => fn()),
+      },
+      settingsScope: {
+        bind: vi.fn(() => ({ getSnapshot: () => ({}), subscribe: () => () => {}, set: vi.fn(), unset: vi.fn() })),
+      },
+      effect: vi.fn((fn: () => void) => fn()),
+      on: vi.fn(() => () => {}),
+    }
+    return {
+      ctx: ctx as unknown as HarnessContext,
+      getController: () => capturedInject!().controller,
+    }
+  }
+
+  it('a real list.subscribe notification updates the tracker, and stock-shaped services (open + list, NO presentation at all) register the action AND make it genuinely functional — the exact bug MEDIUM 1 found', () => {
+    const { store, setCurrent } = fakeListStore('s1')
+    const open = vi.fn()
+    // Stock-shaped: `open` + `list`, deliberately no `presentation` — the
+    // real-world shape the original (presentation-fed) implementation left
+    // permanently inert.
+    const sessions = { scope: vi.fn(), open, list: store }
+    const { ctx, getController } = makeApplyCtx(sessions)
+    applyShortcuts(ctx)
+    // Simulates a manual session switch reaching the tracker through the
+    // SAME list.subscribe wiring applyShortcuts itself set up — not a
+    // hand-fed tracker.
+    setCurrent('s2')
+
+    const registry = getController().registry
+    const action = registry.all().find((a) => a.id === 'workbench.session.previous')
+    expect(action).toBeDefined()
+    expect(action!.isEnabled?.()).toBe(true)
+
+    detach = attachProductionDispatcher(registry as unknown as ReturnType<typeof buildShortcutRegistry>, {
+      allowSyntheticEventsForTesting: true,
+    })
+    const event = keydown({ key: 'q', altKey: true })
+    expect(open).toHaveBeenCalledWith('s1')
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('feed absent (no list, no presentation — `open` alone is not enough) -> workbench.session.previous does not register', () => {
+    const sessions = { scope: vi.fn(), open: vi.fn() } // stock reality if `list` were ever missing
+    const { ctx, getController } = makeApplyCtx(sessions)
+    applyShortcuts(ctx)
+    const registry = getController().registry
+    expect(registry.all().some((a) => a.id === 'workbench.session.previous')).toBe(false)
   })
 })

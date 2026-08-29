@@ -1,6 +1,8 @@
 # Workbench actions API (`workbench.actions`, protocol 1)
 
-Any client plugin can register shortcut-bindable actions into DSH Workbench's Settings → Shortcuts page without touching Workbench internals. This is design.md's "L2" discovery layer (`plans/260827-shortcuts-open-actions/design.md` §3, §6 W3 rows) — the long-term, correct way for a third-party plugin to appear in the open action catalog, alongside Workbench's own built-ins (`workbench.*`) and the host slash-command bridge (`host.*`).
+Any client plugin can register shortcut-bindable actions into DSH Workbench's Settings → Shortcuts page without touching Workbench internals. This is design.md's "L2" discovery layer (`plans/260827-shortcuts-open-actions/design.md` §3, §6 W3 rows) — the long-term, correct way for a third-party plugin to appear in the open action catalog, alongside Workbench's own built-ins (`workbench.*`).
+
+> **Note (native-actions-pivot):** an earlier "L1" host slash-command bridge (`host.*`) — which surfaced the Host's own commands as bindable chords — was **removed by product decision**: users found it redundant with the composer's own `/` entry point, and Workbench now ships curated native actions instead (see `workbench.*` below). Git history preserves the removed implementation. The `host` provider namespace stays reserved (see [Id and namespace rules](#id-and-namespace-rules)) so a future access route in that shape cannot collide with a third-party plugin's ids in the meantime.
 
 ## The service
 
@@ -42,7 +44,7 @@ interface WorkbenchActionDef {
 `register` throws synchronously (never a silent no-op) when:
 
 - `id` is not namespaced as `<provider>.<something>` (at least one dot; no leading, trailing, or duplicate dots anywhere in `id`; the provider segment matches the charset in [Id and namespace rules](#id-and-namespace-rules));
-- `id`'s provider segment case-insensitively equals the reserved `workbench` or `host` namespace (Workbench's own built-ins and the L1 host-command bridge) — `Workbench.foo` and `HOST.foo` are rejected exactly like `workbench.foo` and `host.foo`, not just an exact-case match;
+- `id`'s provider segment case-insensitively equals the reserved `workbench` or `host` namespace (Workbench's own built-ins, and `host` held in reserve for a future L1-style host access route — see the note above) — `Workbench.foo` and `HOST.foo` are rejected exactly like `workbench.foo` and `host.foo`, not just an exact-case match;
 - `label` or `run` is not a function;
 - `isEnabled` is present but not a function;
 - `allowWhileTyping` is present but not a boolean;
@@ -61,7 +63,7 @@ No default chord is ever assigned. A newly registered action starts unbound; onl
 
 - Must contain at least one dot; no leading, trailing, or duplicate/adjacent dots anywhere in `id` (`myplugin.doThing` is valid; `myplugin.`, `.doThing`, `doThing`, and `my..plugin.doThing` are all rejected).
 - The provider segment (everything before the first dot) must match `/^[a-z0-9][a-z0-9-]*$/i` — start with a letter or digit, then only letters, digits, or hyphens. This is a deliberately narrow charset: the provider segment becomes both part of a persisted binding key and a Settings group heading, so whitespace, punctuation, and non-ASCII text are rejected rather than silently accepted and rendered as a confusable-looking group.
-- The provider segment must not case-insensitively equal `workbench` or `host` — those namespaces are reserved for Workbench's own built-ins and the host slash-command bridge, regardless of casing.
+- The provider segment must not case-insensitively equal `workbench` or `host` — `workbench` is Workbench's own built-ins, and `host` is held in reserve for a possible future L1-style host access route (see the removal note above) — regardless of casing.
 - `provider` defaults to the id's own first segment (`myplugin.doThing` → `myplugin`) and, if you pass it explicitly, must equal that segment exactly (same case). This keeps Settings grouping honest: one provider label per plugin id-prefix, so a plugin cannot make its actions appear to come from a different plugin's namespace.
 - **Keep ids stable across your plugin's versions.** A user's chord binding is persisted keyed by `id`, independent of your plugin's own lifetime (design principle 3 in design.md §2: "绑定属于用户，不属于插件的生命周期" — a binding belongs to the user, not to a plugin's lifetime). Renaming an id is indistinguishable, from Workbench's point of view, from removing one action and adding an unrelated one: the user's existing binding becomes an orphaned entry in Settings (still visible, deletable, but no longer attached to any live action) and the "new" id starts unbound.
 
@@ -74,7 +76,7 @@ No default chord is ever assigned. A newly registered action starts unbound; onl
 
 ## Binding and persistence
 
-- The user binds a chord to your action from Settings → Shortcuts, exactly like a Workbench built-in or a host command. Your action is grouped under its own `provider` (label falls back to the raw provider string — Workbench does not currently offer a translated group header for third-party providers; see [No `providerLabel` in v1](#no-providerlabel-in-v1)).
+- The user binds a chord to your action from Settings → Shortcuts, exactly like a Workbench built-in. Your action is grouped under its own `provider` (label falls back to the raw provider string — Workbench does not currently offer a translated group header for third-party providers; see [No `providerLabel` in v1](#no-providerlabel-in-v1)).
 - Bindings are persisted keyed by `id` in Workbench's own shortcut-persistence store (host settings when durable, `localStorage` fallback otherwise). Your plugin never reads or writes this storage directly.
 - If your action is not currently registered (your plugin is not loaded, or has not called `register()` yet this session) but the user previously bound a chord to its id, Settings shows that binding as an orphaned entry — grayed out, with only a "remove" control — rather than dropping it silently. It reappears fully functional the moment you register that same id again.
 
@@ -91,7 +93,7 @@ Use this for "no-op instead of a confusing action" cases — for example, an act
 
 By default, a bound chord does not fire while the keydown target is editable — an `<input>`, a `<textarea>`, a `contentEditable` element, or (most commonly) the conversation composer. This protects normal typing: without it, every character the user types could accidentally trigger a bound action instead of being typed.
 
-Set `allowWhileTyping: true` when your action's entire purpose is an explicit chord gesture the user fires *from inside* an editable element — the canonical example is Workbench's own host slash-command bridge (`host.*`), whose default behavior is to insert `/name ` into the composer and focus it, so the chord firing only while the composer is unfocused would defeat the action's own purpose. Leave it absent (or `false`) for anything that should stay silent while the user is mid-sentence — this is the right default for almost every action, which is why it does not default to `true`.
+Set `allowWhileTyping: true` when your action's entire purpose is an explicit chord gesture the user fires *from inside* an editable element — the canonical example is Workbench's own `workbench.session.new` (default `Primary+N`), whose whole point is starting a new session from wherever you currently are, composer included, so the chord firing only while the composer is unfocused would defeat the action's own purpose. Leave it absent (or `false`) for anything that should stay silent while the user is mid-sentence — this is the right default for almost every action, which is why it does not default to `true`.
 
 This is independent of `isEnabled`: `allowWhileTyping` only controls whether an editable-target keydown is eligible to resolve to your action at all. It never bypasses `isEnabled` — a `false`/throwing `isEnabled` still resolves the chord to nothing, editable target or not, exactly as it does for any other keydown.
 
@@ -111,7 +113,6 @@ Workbench closes most of this gap for you: it subscribes to the Harness's `local
 
 What is **not** covered:
 
-- **Host command descriptions** (`host.*` action labels): these are host-authored, untranslated English text with no client-side locale hook at all — this is a data limitation of the host bridge, not something a rebuild can fix, and is out of scope for this API.
 - **A switch that happens between your `register()` call and Workbench's first rebuild**, or any window where Workbench itself has not yet loaded/subscribed: your label reflects whatever language was active when it was last evaluated, same as always.
 - **Workbench rebuilding is the only signal your label refreshes on.** If your plugin also needs to react to a language switch for reasons of its own (not just this label), subscribe to the Harness's own locale change notification directly rather than relying on Workbench's internal rebuild as a proxy for it — Workbench's rebuild is not a public API you can depend on staying wired exactly this way.
 
@@ -121,7 +122,7 @@ The base contract intentionally does not include a `providerLabel` field. An unr
 
 ## Absent service
 
-Workbench is one plugin among many; do not assume it is always loaded. If your plugin should work standalone, do not list `workbenchActions` in your plugin's top-level `inject` (that would make your whole plugin wait for — and fail to load without — Workbench). Instead, request it through a nested `ctx.inject(['workbenchActions'], (workbenchCtx) => { ... })` call inside `apply()`, exactly as shown in [Minimal example](#minimal-example): that inner scope simply does not run while the service is absent, the same way Workbench's own host-command bridge treats an absent host service as "zero actions, fail closed" rather than an error.
+Workbench is one plugin among many; do not assume it is always loaded. If your plugin should work standalone, do not list `workbenchActions` in your plugin's top-level `inject` (that would make your whole plugin wait for — and fail to load without — Workbench). Instead, request it through a nested `ctx.inject(['workbenchActions'], (workbenchCtx) => { ... })` call inside `apply()`, exactly as shown in [Minimal example](#minimal-example): that inner scope simply does not run while the service is absent, the same "capability absent → nothing registers, no error" fail-soft discipline Workbench applies to its own built-in actions whose backing seam is missing (design.md's GA-023 pattern).
 
 ## Minimal example
 

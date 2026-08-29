@@ -20,21 +20,6 @@ export interface SessionScope {
   get(name: 'conversation'): ConversationFace | undefined
 }
 
-/**
- * W2.2: the session face reached through `ISessions.binding(id).session` —
- * narrowed to the single verb the host-command direct-execute path calls.
- * Mirrors `SessionFace.command` — verified against the pinned 0.1.1-rc.2
- * store: `@deepseek-ai/dsh-client-runtime/lib/types/client/contract/
- * session.d.ts:81-89` (`ISession.command(line): Promise<RemoteResult<{
- * matched: boolean }>>`, JSDoc: "pure admission semantics" — equivalent to
- * typing the line in the composer and pressing Enter).
- */
-export interface SessionBindingFace {
-  readonly session: {
-    command(line: string): Promise<RemoteResult<{ matched: boolean }>>
-  }
-}
-
 export interface SessionsService {
   scope(sessionId: string): SessionScope | undefined
   presentation?: {
@@ -54,82 +39,113 @@ export interface SessionsService {
     close(id: string): void
   }
   /**
-   * W2.2: resolve the stable session binding (direct-execute path). Mirrors
-   * `ISessions.binding(id): SessionBinding | undefined` — verified at
-   * `.../dsh-client-runtime/lib/types/client/contract/sessions.d.ts:126`,
-   * `SessionBinding.session: SessionFace` at `.../sessions/service.d.ts:
-   * 109-114`. Optional (unlike `scope`, which every existing L0 action
-   * already depends on): a `sessions` double that predates W2 — including
-   * every existing test fixture in this package — legitimately lacks it,
-   * and that must degrade the host direct-execute path locally rather than
-   * be treated as a broken `sessions` service.
+   * native-actions-pivot (workbench.session.new): mirrors the always-public
+   * `ISessions.clear(): void` — "Clear the current selection into the
+   * no-session view state" — verified at the pinned 0.1.1-rc.2 store:
+   * `@deepseek-ai/dsh-client-runtime/lib/types/client/contract/
+   * sessions.d.ts:67-68`. This is the SAME fallback the fork's own
+   * `WorkspaceRuntime.startSession()` verb reaches for when it has no
+   * Workspace context to create into — NIT 6 (Opus review, round 2)
+   * corrected citation: `packages/client/runtime/src/client/workspaces/
+   * service.ts:172-183` (fork source): "...with no Workspace at all, clear
+   * the selection into the New Session view state" — `ISessions.create(...)`
+   * itself is NOT on the public `ISessions` interface (only on the concrete
+   * `SessionRuntime` class), so `clear()` is the narrowest honest path to
+   * "start a new session" reachable through a plugin's own `ctx.sessions`.
+   *
+   * NIT 5 (Opus review, round 2): why not call `startSession()` itself (the
+   * sidebar 新会话 button's exact verb, per that method's own doc comment —
+   * service.ts:168, "the shared New Session action behind the shell entry
+   * points") instead of reimplementing its no-workspace fallback branch?
+   * Because it lives on `WorkspaceRuntime` (`ctx.workspaces` — provided via
+   * `ctx.reflect.provide('workspaces', ...)`, service.ts:74), and this
+   * package's `dsh.client.inject` list (`package.json`) does not declare the
+   * fork's workspace-providing plugin — only `dsh-client-runtime`,
+   * `dsh-client-ui-slots`, `dsh-client-locale`, `dsh-client-ui-layout`,
+   * `dsh-client-ui-settings`, `dsh-client-ui-conversation`. `ctx.workspaces`
+   * is simply not a seam this plugin can reach.
+   * User-visible consequence: Ctrl+N always lands on the plain New-Session
+   * (no-Workspace) home, exactly like `startSession()`'s own no-workspace
+   * branch — it never resolves or connects a Workspace the way the sidebar
+   * button's full `startSession()` call additionally does when one is
+   * available (explicit -> current session's -> most-recent Workspace).
+   * Optional: a `sessions` double predating this action (every existing test
+   * fixture) legitimately lacks it.
    */
-  binding?(id: string): SessionBindingFace | undefined
+  clear?(): void
+  /**
+   * native-actions-pivot (workbench.session.previous): mirrors the
+   * always-public `ISessions.open(id): void` — "Select a session as
+   * current" — verified at the pinned 0.1.1-rc.2 store: `.../contract/
+   * sessions.d.ts:31-35`. Unlike the fork-only `presentation.open`, this
+   * verb requires no split-pane presentation face at all: `SessionRuntime.
+   * open()` itself is implemented as `openPresentation(id,
+   * 'replace-focused')`, so calling the plain public `open(id)` produces
+   * the exact same session switch on a compatible Harness, and is the ONLY
+   * switch verb a stock Harness needs to expose. Optional for the same
+   * pre-existing-fixture reason as `clear` above.
+   */
+  open?(id: string): void
+  /**
+   * MEDIUM 1 (Opus review, round 2 of native-actions-pivot): the tracker
+   * feed for workbench.session.previous. Mirrors the always-public
+   * `ISessions.list: ObservableSnapshot<SessionListState>` — verified at the
+   * pinned 0.1.1-rc.2 store: `.../contract/sessions.d.ts:22` declares it
+   * unconditionally (no split-pane compatibility required, unlike
+   * `presentation` above); `SessionListState.current: SessionId | undefined`
+   * sits at `.../sessions/service.d.ts:67-85` (line 72). The original
+   * implementation fed the tracker from `presentation.state` instead — a
+   * FORK-ONLY face genuinely absent from this pinned `ISessions` (it has no
+   * `presentation` member at all) — so on a real stock Harness the action
+   * registered (its OTHER gate, `open`, is stock-public) but the tracker was
+   * never fed anything, making Alt+Q permanently inert. `list` is the
+   * correct single feed instead: traced against the fork source
+   * (`packages/client/runtime/src/client/sessions/service.ts`), `list.current`
+   * and `presentation.focused` never diverge — every mutation that changes
+   * `focused` (`openPresentation`/`focusPresentation`, backing
+   * `presentation.open`/`.focus`) ALSO calls `this.manager.select(id)` in
+   * the same step (service.ts's own `openPresentation`/`focusPresentation`
+   * methods), and `projectList()` — the one place `list.current` is
+   * written — re-derives `presentation.focused` FROM `current` right after
+   * (`current !== undefined -> focus/open transition onto current`). They
+   * are eventually-consistent projections of the SAME underlying selection,
+   * not two independent facts, so this one feed is correct on both the fork
+   * (split-pane) and a stock Harness (no `presentation` at all) — no
+   * fork-preferred/list-fallback duality needed. Optional for the same
+   * pre-existing-fixture reason as `clear`/`open` above.
+   */
+  list?: { getSnapshot(): { current?: string }; subscribe?(fn: () => void): () => void }
 }
 
+/**
+ * The cross-plugin panel-action face (`ctx.layout`) — narrowed to the seams
+ * this plugin actually consumes. Mirrors `ILayout`, verified at the pinned
+ * 0.1.1-rc.2 store: `@deepseek-ai/dsh-client-ui-layout/lib/types/client/
+ * service.d.ts` declares exactly `toggleSidebar()` / `openDetails()` /
+ * `closeDetails()` — no verb exists there (or anywhere else this package
+ * depends on) to open the Settings surface.
+ */
 export interface LayoutService {
   toggleSidebar(): void
-}
-
-/**
- * W2.1: one command's discovery metadata, as returned by the Host's
- * `commands` registry. Hand-rolled rather than imported from
- * `@deepseek-ai/dsh-commands` (not a declared dependency of this package —
- * only transitively reachable through the pnpm store via
- * `@deepseek-ai/dsh-api-remotes` — so importing its types here would be an
- * undeclared, unverifiable-at-install-time coupling). Mirrors
- * `CommandDescriptor` verified at the pinned 0.1.1-rc.2 store:
- * `@deepseek-ai/dsh-commands/lib/types/types.d.ts` (the `Handler-free
- * immutable command view returned to UI adapters` interface).
- */
-export interface HostCommandInputDescriptor {
-  readonly hint: string
-  readonly images?: boolean
-}
-
-export interface HostCommandDescriptor {
-  readonly name: string
-  readonly description: string
-  readonly input?: HostCommandInputDescriptor
-}
-
-/**
- * Mirrors `@deepseek-ai/dsh-typert-protocol`'s `RemoteResult<T>` — verified
- * at the pinned 0.1.1-rc.2 store: `lib/types/types.d.ts:51-57`. Every
- * generated Remote method (and `ISession.command`) resolves to this shape;
- * hand-rolled here for the same undeclared-dependency reason as
- * `HostCommandDescriptor` above.
- */
-export type RemoteResult<T> =
-  | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
-
-/**
- * The `remote.commands` mounted sub-service (`ctx.get('remote.commands')`).
- * Verified: `@deepseek-ai/dsh-commands/lib/typert.remote-client.d.ts:1-26`
- * declares `commands/list(agentId: SessionId): Promise<RemoteResult<
- * readonly CommandDescriptor[]>>` on `TypertRemoteNamespace$636f6d6d616e6473`
- * (the `commands` namespace), which `@deepseek-ai/dsh-api-gateway`'s client
- * half mounts as an independent Cordis service keyed `remote.<namespace>`
- * (`lib/types/client/index.js:96-124`, `remoteServiceKey(name)='remote.'+
- * name`) — i.e. `remote.commands`, exactly the key `dsh-client-ui-commands`
- * (a sibling first-party consumer) lists in its own `inject` array.
- */
-export interface RemoteCommandsFace {
-  list(agentId: string): Promise<RemoteResult<readonly HostCommandDescriptor[]>>
-}
-
-/**
- * The top-level `remote` service (`ctx.get('remote')`) — narrowed to the
- * one member W2.1 needs: subscribing to the `commands/change` forwarded
- * event. Verified: `commands/change` is in `API_REMOTE_FORWARDED_EVENTS`
- * (`@deepseek-ai/dsh-api-remotes/lib/types/remote-events.d.ts:16`), and
- * `$on<Event extends TypertRemoteEvent>(event, listener): () => void` is
- * declared on `TypertClientRemote`
- * (`@deepseek-ai/dsh-typert-protocol/lib/types/types.d.ts:202`).
- */
-export interface RemoteFace {
-  $on(event: 'commands/change', listener: () => void): () => void
+  /**
+   * native-actions-pivot (workbench.settings.open): speculative — NO public
+   * seam exists today. Investigated and ruled out: `ILayout` (above) has no
+   * settings verb; the Settings shell (`sidebar.settings` occupant,
+   * `@deepseek-ai/dsh-client-ui-settings-general`, not a declared dependency
+   * of this package) renders its own modal open/close as component-local
+   * React `useState` with zero external control (verified at both the fork
+   * source — `SettingsRoot.tsx`'s own doc comment: "No store is registered —
+   * modal open state ... is component-local viewing state" — and the pinned
+   * `dsh-client-ui-settings-general` `SettingsRoot.d.ts`, which exposes no
+   * prop for it). `openSettings` names the verb such a future seam would
+   * most naturally take (mirroring `openDetails`/`closeDetails`'s own
+   * naming), so the action activates the day one ships, with zero further
+   * plugin changes — see `settingsOpenOn` in shortcuts.tsx for the
+   * registration gate this backs. Until then this is always `undefined` in
+   * production (fail-soft, same outward behavior as `favoriteAgent`), but
+   * a test double may supply it to exercise the registration path.
+   */
+  openSettings?(): void
 }
 
 /** Aggregate of the injected services the plugin uses. */
@@ -140,11 +156,11 @@ export interface HarnessServices {
 
 /**
  * Resolve a session id to the focused pane, or `undefined` when nothing is
- * focused / the presentation face is absent or malformed. Shared by
- * shortcuts.tsx (L0 actions) and host-commands.ts (W2 host-command actions)
- * so both read the exact same defensive path instead of two copies that
- * could drift — see the doc comment this carried at its original site
- * (shortcuts.tsx) for the full fail-closed rationale: `presentation` is a
+ * focused / the presentation face is absent or malformed. Shared by every
+ * L0 action in shortcuts.tsx so each reads the exact same defensive path
+ * instead of separate copies that could drift — see the doc comment this
+ * carried at its original site (shortcuts.tsx) for the full fail-closed
+ * rationale: `presentation` is a
  * host-provided, RC-only face whose `state`/`getSnapshot` shape is asserted
  * by `HarnessServices` but not guaranteed at runtime, so this accessor must
  * degrade to "no focused session" on a malformed or throwing
@@ -165,22 +181,27 @@ export function focusedSessionId(services: HarnessServices): string | undefined 
 }
 
 /**
- * Subscribe to the focused-session store, if `presentation.state` actually
+ * Subscribe to the focused-PANE store, if `presentation.state` actually
  * exposes a `subscribe` method (see the `subscribe` doc comment on
  * `SessionsService.presentation.state` above for the verified
- * `ObservableSnapshot` contract this is asserted to satisfy). Fixes W2's
- * cold-start gap: without this, the only way to learn "a session is now
- * focused" was polling `focusedSessionId()` at a fixed enumeration moment,
- * which reads `undefined` before the session list settles and never
- * refires on its own.
+ * `ObservableSnapshot` contract this is asserted to satisfy). Fork-only (no
+ * `presentation` face on a stock Harness — see `SessionsService.list`'s own
+ * doc comment) — currently unused by any L0 action (workbench.session.
+ * previous's tracker moved to `subscribeCurrentSessionId`/`list` at MEDIUM 1,
+ * Opus review round 2, precisely because a stock Harness needs that action
+ * to actually work). Kept as the paired subscribe-side of `focusedSessionId`
+ * for the same fork-only-DOM-pane-scoping reason that function is kept: a
+ * future feature that needs to react to PANE focus changes specifically
+ * (not just "which session is current" — the two differ only in a
+ * split-pane fork, per `SessionsService.list`'s divergence trace) has this
+ * seam ready without re-deriving it.
  *
  * Same defensive-narrowing shape as `focusedSessionId`: a missing or
  * non-function `subscribe`, or a `subscribe` call that itself throws,
  * degrades to "no subscription available" (a no-op unsubscribe) rather
  * than throwing — a caller that never receives a real subscription simply
- * keeps working exactly as it did before this function existed (driven
- * only by whatever other resync triggers it already has, e.g.
- * `commands/change`).
+ * gets no tracking (a stock Harness without the split-pane presentation
+ * face, for instance), not a crash.
  * @param services - the harness services bundle.
  * @param listener - invoked (with no arguments, per the store's own
  *   `subscribe(fn: () => void)` contract) on every store notification; the
@@ -196,6 +217,66 @@ export function subscribeFocusedSessionId(services: HarnessServices, listener: (
   if (typeof subscribe !== 'function') return () => {}
   try {
     const unsubscribe: unknown = subscribe.call(state, listener)
+    return typeof unsubscribe === 'function' ? (unsubscribe as () => void) : () => {}
+  } catch {
+    return () => {}
+  }
+}
+
+/**
+ * MEDIUM 1 (Opus review, round 2 of native-actions-pivot): resolve the
+ * current session id from the stock-public `SessionsService.list` snapshot
+ * (`SessionListState.current` — see that field's doc comment above for the
+ * full divergence trace against the fork source, and why this single feed
+ * is correct on both stock and fork Harnesses). Deliberately a SEPARATE
+ * function from `focusedSessionId` above, not a shared implementation:
+ * `focusedSessionId`/`focusedPaneScope` back DOM pane-scoping (composer
+ * focus, jump-latest, session-stop, navigator toggle), where "no
+ * `presentation` face" correctly means "fall back to document scope" — a
+ * different, already-correct degradation this function must not disturb.
+ * Same defensive-narrowing shape as `focusedSessionId`: a missing/malformed
+ * `list`, or a `getSnapshot` that itself throws, degrades to "no current
+ * session known" rather than throwing inside a keydown handler or a store
+ * subscription callback.
+ */
+export function currentSessionId(services: HarnessServices): string | undefined {
+  const list: unknown = services.sessions?.list
+  if (typeof list !== 'object' || list === null) return undefined
+  const getSnapshot = (list as { getSnapshot?: unknown }).getSnapshot
+  if (typeof getSnapshot !== 'function') return undefined
+  let snapshot: unknown
+  try {
+    snapshot = getSnapshot.call(list)
+  } catch {
+    return undefined
+  }
+  return typeof snapshot === 'object' && snapshot !== null ? (snapshot as { current?: string }).current : undefined
+}
+
+/**
+ * Subscribe to the session-list store, if `list` actually exposes a
+ * `subscribe` method — the `list`-feed counterpart of
+ * `subscribeFocusedSessionId` above, backing the SAME most-recent-two
+ * session tracker (workbench.session.previous) that function used to feed
+ * before MEDIUM 1. Same fail-soft contract: a missing/non-function
+ * `subscribe`, or one that itself throws, degrades to a no-op unsubscribe
+ * rather than throwing — a caller that never receives a real subscription
+ * simply gets no tracking, not a crash.
+ * @param services - the harness services bundle.
+ * @param listener - invoked (with no arguments, per the store's own
+ *   `subscribe(fn: () => void)` contract) on every store notification; the
+ *   caller re-reads `currentSessionId(services)` itself to learn the new
+ *   value — this function does not diff or debounce.
+ * @returns an unsubscribe function; always safe to call, even when no real
+ *   subscription was established.
+ */
+export function subscribeCurrentSessionId(services: HarnessServices, listener: () => void): () => void {
+  const list: unknown = services.sessions?.list
+  if (typeof list !== 'object' || list === null) return () => {}
+  const subscribe = (list as { subscribe?: unknown }).subscribe
+  if (typeof subscribe !== 'function') return () => {}
+  try {
+    const unsubscribe: unknown = subscribe.call(list, listener)
     return typeof unsubscribe === 'function' ? (unsubscribe as () => void) : () => {}
   } catch {
     return () => {}
@@ -234,7 +315,7 @@ export interface SlotService {
  * (via resolveHarnessServices or a local cast) rather than trusting `any`.
  */
 export interface HarnessContext {
-  get(name: 'layout' | 'sessions' | 'remote' | 'remote.commands'): unknown
+  get(name: 'layout' | 'sessions'): unknown
   locale: LocaleService
   slots: SlotService
   settingsScope: { bind(options: { namespace: string }): SettingsScopeFace }
@@ -254,8 +335,7 @@ export interface HarnessContext {
    * broader "something about locale state changed" one. The real cordis
    * `on()` calls the listener with a `LocaleSnapshot` argument; the listener
    * type here omits it (unused by any consumer) — a function with fewer
-   * parameters is a valid implementation of one declared with more, the same
-   * narrowing `RemoteFace.$on` already applies to `commands/change` above.
+   * parameters is a valid implementation of one declared with more.
    * Return type is `(() => void) | undefined`, not a bare `() => void`: the
    * real cordis `on()` always returns a disposer, but a test double built
    * from a plain `vi.fn()` (no explicit return) resolves to `undefined` at
@@ -277,34 +357,5 @@ export function resolveHarnessServices(ctx: HarnessContext): HarnessServices {
   return {
     layout: ctx.get('layout') as LayoutService | undefined,
     sessions: ctx.get('sessions') as SessionsService | undefined,
-  }
-}
-
-/** Runtime shape guards for the two `remote` seams — a value that resolves
- * (ctx.get() returned something) but does not actually look like the face we
- * need is treated the same as absent (W2.1 fail-soft: "absent or malformed"
- * both mean zero host actions, never a throw). */
-function isRemoteFace(value: unknown): value is RemoteFace {
-  return typeof value === 'object' && value !== null && typeof (value as { $on?: unknown }).$on === 'function'
-}
-function isRemoteCommandsFace(value: unknown): value is RemoteCommandsFace {
-  return typeof value === 'object' && value !== null && typeof (value as { list?: unknown }).list === 'function'
-}
-
-/**
- * W2.1: narrow `ctx.get('remote')` / `ctx.get('remote.commands')` into the
- * typed bundle host-commands.ts consumes — the same narrow, single-
- * narrowing-point pattern as {@link resolveHarnessServices}, kept as its own
- * function (rather than folded into that one) so a host without the remote
- * command bridge mounted at all pays no extra `ctx.get()` calls through the
- * L0 path, and so `resolveHarnessServices`'s existing "reads exactly the
- * seams it uses" test stays meaningful for its own two seams.
- */
-export function resolveRemoteServices(ctx: HarnessContext): { remote?: RemoteFace; remoteCommands?: RemoteCommandsFace } {
-  const remote = ctx.get('remote')
-  const remoteCommands = ctx.get('remote.commands')
-  return {
-    remote: isRemoteFace(remote) ? remote : undefined,
-    remoteCommands: isRemoteCommandsFace(remoteCommands) ? remoteCommands : undefined,
   }
 }

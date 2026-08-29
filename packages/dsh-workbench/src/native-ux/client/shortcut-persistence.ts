@@ -7,40 +7,16 @@ export interface ShortcutPersistedStateV1 {
   schemaVersion: 1
   bindings: BindingOverrides
   disabled: string[]
-  /**
-   * W2.2: `host.command.<name>` action ids the user opted into direct-
-   * execute for (default mapping for every host command is composer-insert
-   * — see host-commands.ts). Required (always populated, defaulting to
-   * `[]`) at this schema layer for the same reason `disabled` is: every
-   * reader/writer here (Local/Host/Fallback) treats the full state as one
-   * generic JSON envelope, never destructuring individual fields, so a
-   * required field costs nothing at this layer and keeps the shape
-   * self-describing. (The controller-/UI-facing shape in shortcuts.tsx
-   * keeps this field OPTIONAL instead — see ShortcutSettingsController —
-   * to avoid forcing every pre-W2 call site and test double to know about
-   * it; this file's own required field is the single point that always
-   * fills the gap.)
-   *
-   * Round-trips generically: an id here that no live registry action
-   * matches (a foreign key, or a stale W2 entry from before a command was
-   * unregistered) is preserved byte-for-byte exactly like an orphaned
-   * `bindings`/`disabled` entry — nothing in this file interprets *which*
-   * ids are valid, matching parseBindingOverrides' and the `disabled`
-   * list's own "structural validation only" contract. No id-namespacing
-   * migration applies: `host.command.*` never had a pre-W1.2 bare form.
-   */
-  hostDirectExecute: string[]
 }
 
 export const EMPTY_SHORTCUT_STATE: ShortcutPersistedStateV1 = {
   schemaVersion: 1,
   bindings: {},
   disabled: [],
-  hostDirectExecute: [],
 }
 
 function isEmptyState(state: ShortcutPersistedStateV1): boolean {
-  return Object.keys(state.bindings).length === 0 && state.disabled.length === 0 && state.hostDirectExecute.length === 0
+  return Object.keys(state.bindings).length === 0 && state.disabled.length === 0
 }
 
 // W1.2 — id namespacing migration -------------------------------------
@@ -158,7 +134,15 @@ export const LOCAL_STORAGE_KEY = 'dsh-native-ux.shortcuts.v1'
  * which reads through both before ever writing). */
 export function parsePersistedState(value: unknown): ShortcutPersistedStateV1 {
   if (typeof value !== 'object' || value === null) return EMPTY_SHORTCUT_STATE
-  const raw = value as { schemaVersion?: unknown; bindings?: unknown; disabled?: unknown; hostDirectExecute?: unknown }
+  // `hostDirectExecute` is deliberately NOT in this narrowing (or in
+  // ShortcutPersistedStateV1 any more, post W2-bridge-removal): an old
+  // persisted document that still carries it from before the removal is
+  // simply an object with an extra, unread key — this function's existing
+  // "narrow only the fields we know" shape tolerates that silently, the
+  // same unknown-key tolerance every other extra field on this object
+  // already gets. See shortcut-persistence.test.ts's dedicated regression
+  // pinning that this degrades silently rather than throwing.
+  const raw = value as { schemaVersion?: unknown; bindings?: unknown; disabled?: unknown }
   if (raw.schemaVersion !== 1) return EMPTY_SHORTCUT_STATE
   const bindings = migrateLegacyActionIds(parseBindingOverrides(raw.bindings))
   const disabled = migrateLegacyDisabledIds(
@@ -166,14 +150,7 @@ export function parsePersistedState(value: unknown): ShortcutPersistedStateV1 {
       ? raw.disabled.filter((id: unknown): id is string => typeof id === 'string')
       : [],
   )
-  // W2.2: same structural-only tolerance as `disabled` above — an unknown
-  // field shape (missing, not an array, non-string entries) degrades to
-  // `[]` rather than throwing; no id-namespace migration applies (see the
-  // field's doc comment on ShortcutPersistedStateV1).
-  const hostDirectExecute = Array.isArray(raw.hostDirectExecute)
-    ? raw.hostDirectExecute.filter((id: unknown): id is string => typeof id === 'string')
-    : []
-  return { schemaVersion: 1, bindings, disabled, hostDirectExecute }
+  return { schemaVersion: 1, bindings, disabled }
 }
 
 /** localStorage provider: JSON under LOCAL_STORAGE_KEY, never throws. */
