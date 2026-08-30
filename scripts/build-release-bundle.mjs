@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto'
-import { readFileSync, readdirSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { copyFileSync, readFileSync, readdirSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { basename, join, relative, resolve, sep } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
@@ -108,6 +108,18 @@ if (artifacts.length !== packages.length) {
   throw new Error(`expected ${packages.length} TGZ artifacts, found ${artifacts.length}`)
 }
 
+// The installers are Release assets in their own right, and the one-line
+// install commands in README/docs fetch SHA256SUMS and refuse to run a
+// script whose digest is not listed there. Staging them into the bundle
+// keeps `dist/` the exact set of files a Release carries, so the checksum
+// list covers everything a user is told to verify.
+const installers = ['dsh-workbench-bootstrap.ps1', 'dsh-workbench-bootstrap.sh'].map((name) => {
+  copyFileSync(join(root, 'scripts', 'bootstrap', name), join(output, name))
+  const data = readFileSync(join(output, name))
+  return { file: name, bytes: data.byteLength, sha256: createHash('sha256').update(data).digest('hex'), notices: [] }
+})
+const checksummed = [...artifacts, ...installers]
+
 const manifest = {
   schemaVersion: 2,
   sourceCommit: sourceRevision.stdout.trim(),
@@ -115,11 +127,21 @@ const manifest = {
   releaseStatus: contract.releaseStatus,
   harness: contract.harness,
   panelCompatibility: contract.panelCompatibility,
-  artifacts,
+  artifacts: checksummed,
 }
 writeFileSync(join(output, 'release-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)
 writeFileSync(
   join(output, 'SHA256SUMS'),
-  `${artifacts.map(artifact => `${artifact.sha256}  ${artifact.file}`).join('\n')}\n`,
+  `${checksummed.map(artifact => `${artifact.sha256}  ${artifact.file}`).join('\n')}\n`,
 )
+// Every file this bundle publishes must be listed in SHA256SUMS: the
+// documented one-line installs abort when the digest of what they just
+// downloaded is not there, so an asset added without a checksum entry
+// breaks the install rather than merely going unverified.
+const unlisted = readdirSync(output)
+  .filter(name => name !== 'SHA256SUMS' && name !== 'release-manifest.json')
+  .filter(name => !checksummed.some(artifact => artifact.file === name))
+if (unlisted.length > 0) {
+  throw new Error(`release assets missing from SHA256SUMS: ${unlisted.join(', ')}`)
+}
 console.log(`Release bundle written to ${output}`)
