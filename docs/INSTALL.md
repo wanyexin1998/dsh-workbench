@@ -35,11 +35,15 @@ byte themselves.
 Two independent paths, matching what your Harness supports. Both start from
 an immutable, hash-verified GitHub Release artifact rather than source.
 
-> **Availability:** this path ships with the `v0.2.0-rc.2` GitHub Release,
-> which has not been published yet — `release-contract.json` still reports
-> `0.2.0-rc.2` / `source-preview` today (no signed Release, no TGZ asset).
-> Until `v0.2.0-rc.2` ships, use [Advanced: source build](#advanced-source-build)
-> below, which works today.
+> **Availability:** the `v0.2.0-rc.2` GitHub Release is published, with both
+> TGZ assets, both bootstrap scripts, `SHA256SUMS`, and `release-manifest.json`
+> attached — both paths below work today. Artifacts are SHA256-verified, not
+> GPG-signed (`release-contract.json`'s `sourceVerification.signedReleaseAvailable`
+> is still `false`). `release-contract.json` still reports `0.2.0-rc.2` /
+> `source-preview`: that reflects the distribution model (source plus local
+> TGZ, no npm), not an unavailable install path.
+> [Advanced: source build](#advanced-source-build) below remains available
+> for anyone who wants to audit the source directly.
 
 ### (a) General plugin — stock Harness
 
@@ -270,10 +274,10 @@ Requirements:
 - PowerShell 7+ (`pwsh`) on Windows; macOS runs the script directly under
   its Terminal `bash`.
 
-Honest note on the hashes: the real SHA256 values in `SHA256SUMS` are
-written when `v0.2.0-rc.2` is attached to a GitHub Release. Until then, this
-command template is final and will not change, but there is no published
-artifact yet for the download/verify step to check against.
+Honest note on the hashes: `v0.2.0-rc.2` is now attached to a GitHub
+Release, so the real SHA256 values in `SHA256SUMS` are published and the
+download/verify step above checks against them. The Release is
+SHA256-verified, not GPG-signed.
 
 ## Advanced: source build
 

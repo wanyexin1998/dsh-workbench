@@ -28,7 +28,7 @@
 > 请安装 DSH Workbench。先检查当前 Harness：兼容双 Pane 就直接安装；不兼容时保留通用插件功能，并告诉我如何并行安装不覆盖官方 Harness 的自装补丁路径（bootstrap）。若沙箱不能写入 DSH_HOME，只给我一条最终终端命令。
 > ```
 >
-> 完整判定规则与命令见 [`docs/INSTALL.md`](docs/INSTALL.md)。该路径随 `v0.2.0-rc.2` Release 一起发布，目前仍是 `0.2.0-rc.2` 源码预览（见 [`release-contract.json`](release-contract.json)）；在此之前用下方「高级：从源码构建」。
+> 完整判定规则与命令见 [`docs/INSTALL.md`](docs/INSTALL.md)。`v0.2.0-rc.2` GitHub Release 已发布，通用插件与分屏 bootstrap 两条路径均可直接使用；当前状态仍是 `0.2.0-rc.2` 源码预览（见 [`release-contract.json`](release-contract.json)），不是 npm 正式版。想自己审计源码可用下方「高级：从源码构建」。
 
 ## 它解决什么问题
 
@@ -39,7 +39,7 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 | 双 Pane | 同时查看和操作两个 Session；切换聚焦不会重新挂载另一侧 |
 | Pane 独立状态 | 草稿、滚动位置、Navigator 和可选面板分别保留 |
 | Navigator | 按真实输入条目显示导航横线，悬浮预览并快速定位消息 |
-| 全局快捷键 | 简体中文 / English 名称随 Harness 全局语言切换，可修改和持久化 |
+| 全局快捷键 | 简体中文 / English 名称随 Harness 全局语言切换，可修改和持久化；新建会话、打开设置、切换上一个会话、跳到最新消息等动作见下方「默认快捷键」 |
 | 随手问 | 快捷打开零工具聊天，并把已完成消息的选区加入原会话或 fork 到侧聊 |
 | Pane-local 面板 | 安装兼容包后，每个 Pane 可独立展开右侧、底部面板 |
 | 安全降级 | Presentation protocol 不兼容时不启用双 Pane 容量 |
@@ -78,7 +78,7 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 ## 快速开始
 
 > [!NOTE]
-> 本页默认命令随 `v0.2.0-rc.2` GitHub Release 一起发布，该 Release 尚未发布——`release-contract.json` 目前仍是 `0.2.0-rc.2` / `source-preview`（无签名 Release、无 TGZ 资产）。下面两条路径要等 `v0.2.0-rc.2` 发布后才能真正跑通；在此之前请使用下方折叠区「高级：从源码构建（审计路径）」（即 [`docs/INSTALL.md` § Advanced: source build](docs/INSTALL.md#advanced-source-build)），这条路径今天就能用。
+> `v0.2.0-rc.2` GitHub Release 已发布，附带两个 TGZ、两个分屏 bootstrap 脚本、`SHA256SUMS` 与 `release-manifest.json`；下面两条路径今天就能照抄执行。Release 产物经 SHA256 校验，不是 GPG 签名产物（`release-contract.json` 的 `sourceVerification.signedReleaseAvailable` 仍为 `false`）。`release-contract.json` 状态本身仍是 `0.2.0-rc.2` / `source-preview`——这是既定的分发模型（只发源码与本地 TGZ，不发 npm），不代表安装路径不可用。想自己从源码逐字审计，仍可用下方折叠区「高级：从源码构建（审计路径）」（即 [`docs/INSTALL.md` § Advanced: source build](docs/INSTALL.md#advanced-source-build)）。
 
 ### 通用插件（stock Harness，默认）
 
@@ -86,7 +86,7 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 
 ### 分屏（bootstrap，一条命令）
 
-`v0.2.0-rc.2` 发布后，想用分屏就按你的平台复制运行下面这一条命令（与官方 Harness 并存，零改动官方安装；要求 Node.js `^22.19`/`>=24`、`pnpm@11`、`git`，Windows 需 PowerShell 7+）：
+想用分屏，按你的平台复制运行下面这一条命令（与官方 Harness 并存，零改动官方安装；要求 Node.js `^22.19`/`>=24`、`pnpm@11`、`git`，Windows 需 PowerShell 7+）：
 
 Windows（PowerShell 7+ / `pwsh`）：
 
@@ -169,6 +169,23 @@ pnpm release:check
 - 聚焦变化：只改变交互路由，不打开、关闭或重挂载面板。
 - 两个 Session 使用同一工作区时：显示非阻断提醒；插件不提供文件写入隔离。
 - 刷新页面：恢复一个 Pane；多 Pane 成员关系当前为进程内状态。
+
+## 默认快捷键
+
+`Primary` = macOS 上的 `⌘`，Windows / Linux 上的 `Ctrl`。所有动作均可在设置页重新绑定、清除或禁用；下表为出厂默认值，与 `packages/dsh-workbench/src/native-ux/client/shortcuts.tsx` 逐一核对。
+
+| 动作 | 默认快捷键 | 说明 |
+| --- | --- | --- |
+| 切换 Navigator | `Primary+Shift+O` | |
+| 聚焦输入框 | `Primary+/` | |
+| 切换侧边栏 | `Primary+B` | 与浏览器书签快捷键冲突，设置页会提示 |
+| 停止当前会话 | `Primary+Shift+X` | |
+| 关闭聚焦 Pane | `Primary+\` | 仅 Presentation protocol 2 可用（需分屏 bootstrap 路径） |
+| 随手问（Workbench Ask） | `Primary+Shift+C` | 与浏览器 DevTools「检查元素」冲突，设置页会提示；默认键位未更换 |
+| 新建会话 | `Primary+N` | 浏览器普通标签页会保留为「新建窗口」，设置页会提示；桌面壳环境下可正常触发 |
+| 打开设置 | `Primary+Space` | 需要 Harness 提供 `ctx.layout.openSettings()`，目前只有本项目固定的 Harness fork 提供，stock Harness 上不会注册该动作 |
+| 切换到上一个会话 | `Alt+Q` | 跨平台从 `event.code` 派生按键，macOS 上不受 Option 字符合成影响 |
+| 跳到最新消息 | `Primary+Shift+L` | |
 
 ## 可选：Pane 独立面板
 

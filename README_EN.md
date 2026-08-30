@@ -28,7 +28,7 @@
 > Install DSH Workbench. First check the current Harness: if it is compatible with Split Pane, install directly; if not, keep the general-plugin functionality and tell me how to install, in parallel, the self-installed patch path (bootstrap) that does not overwrite the official Harness. If the sandbox cannot write to DSH_HOME, give me only one final terminal command.
 > ```
 >
-> Full decision rules and commands live in [`docs/INSTALL.md`](docs/INSTALL.md). This path ships with the `v0.2.0-rc.2` Release; today's status is still `0.2.0-rc.2` source preview (see [`release-contract.json`](release-contract.json)). Until then, use "Advanced: build from source" below.
+> Full decision rules and commands live in [`docs/INSTALL.md`](docs/INSTALL.md). The `v0.2.0-rc.2` GitHub Release is published — both the general-plugin and Split Pane bootstrap paths work today. Status still reads `0.2.0-rc.2` source preview (see [`release-contract.json`](release-contract.json)); that is not an npm release. To audit the source yourself, use "Advanced: build from source" below.
 
 ## What it solves
 
@@ -39,7 +39,7 @@ DeepSeek Harness normally drives the interface from one current Session. DSH Wor
 | Two Panes | View and operate two Sessions at once without remounting the other Pane on focus changes |
 | Pane-local state | Drafts, scroll position, Navigator, and optional panels remain independent |
 | Navigator | One marker per real human input, with hover preview and precise message reveal |
-| Application shortcuts | Configurable Simplified Chinese / English labels following the Harness global locale |
+| Application shortcuts | Configurable Simplified Chinese / English labels following the Harness global locale; New Session, Open Settings, Previous Session, and Jump to Latest are listed under "Default shortcuts" below |
 | Workbench Ask | Open a zero-tool chat quickly, or route completed-message selections back to their source or into a forked side chat |
 | Pane-local panels | Optional compatibility package gives each Pane independent right and bottom panels |
 | Safe degradation | Split Pane capacity is not enabled when Presentation protocol is incompatible |
@@ -78,7 +78,7 @@ Workbench Split Pane, Navigator, and shortcuts work without Better Sidebar. When
 ## Quick start
 
 > [!NOTE]
-> The default commands on this page ship with the `v0.2.0-rc.2` GitHub Release, which has not been published yet — `release-contract.json` still reports `0.2.0-rc.2` / `source-preview` today (no signed Release, no TGZ asset). Both paths below will actually work once `v0.2.0-rc.2` ships; until then, use the collapsed "Advanced: build from source (audit path)" section below (i.e. [`docs/INSTALL.md` § Advanced: source build](docs/INSTALL.md#advanced-source-build)), which works today.
+> The `v0.2.0-rc.2` GitHub Release is published, with both TGZs, both Split Pane bootstrap scripts, `SHA256SUMS`, and `release-manifest.json` attached — both paths below work today, copy-paste ready. Release artifacts are SHA256-verified, not GPG-signed (`release-contract.json`'s `sourceVerification.signedReleaseAvailable` is still `false`). `release-contract.json` itself still reports `0.2.0-rc.2` / `source-preview` — that reflects the distribution model (source plus local TGZ, no npm), not an unavailable install path. To audit the source yourself line by line, the collapsed "Advanced: build from source (audit path)" section below (i.e. [`docs/INSTALL.md` § Advanced: source build](docs/INSTALL.md#advanced-source-build)) remains available.
 
 ### General plugin (stock Harness, default)
 
@@ -86,7 +86,7 @@ Download the immutable Workbench TGZ from the GitHub Release, verify its SHA256,
 
 ### Split pane (bootstrap, one command)
 
-Once `v0.2.0-rc.2` ships, copy and run the single command for your platform below to get Split Pane (coexists with the official Harness, zero changes to the official install; requires Node.js `^22.19`/`>=24`, `pnpm@11`, `git`, and PowerShell 7+ on Windows):
+Copy and run the single command for your platform below to get Split Pane (coexists with the official Harness, zero changes to the official install; requires Node.js `^22.19`/`>=24`, `pnpm@11`, `git`, and PowerShell 7+ on Windows):
 
 Windows (PowerShell 7+ / `pwsh`):
 
@@ -173,6 +173,23 @@ Successful verification writes these files under `dist/`:
 - Focus change: reroute interaction only; never open, close, or remount a panel.
 - Shared workspace: show a non-blocking warning; Workbench does not provide file-write isolation.
 - Refresh: restore one Pane; multi-Pane membership is currently process-local.
+
+## Default shortcuts
+
+`Primary` = `⌘` on macOS, `Ctrl` on Windows/Linux. Every action can be rebound, cleared, or disabled from Settings; the table below lists shipped defaults, cross-checked against `packages/dsh-workbench/src/native-ux/client/shortcuts.tsx`.
+
+| Action | Default chord | Notes |
+| --- | --- | --- |
+| Toggle Navigator | `Primary+Shift+O` | |
+| Focus composer | `Primary+/` | |
+| Toggle sidebar | `Primary+B` | Conflicts with the browser bookmark shortcut; Settings surfaces a warning |
+| Stop current Session | `Primary+Shift+X` | |
+| Close focused Pane | `Primary+\` | Requires Presentation protocol 2 (Split Pane bootstrap path only) |
+| Workbench Ask | `Primary+Shift+C` | Conflicts with the browser DevTools "Inspect element" shortcut; Settings surfaces a warning; the default chord is unchanged |
+| New Session | `Primary+N` | A normal browser tab reserves this for "New window"; Settings surfaces a warning. Works as bound in a desktop shell environment |
+| Open Settings | `Primary+Space` | Requires the Harness to expose `ctx.layout.openSettings()`; today only this project's pinned Harness fork ships it, so the action is not registered on stock Harness |
+| Switch to previous Session | `Alt+Q` | Derived from `event.code` across platforms, so macOS Option-key character composition does not break it |
+| Jump to latest message | `Primary+Shift+L` | |
 
 ## Optional Pane-local panels
 

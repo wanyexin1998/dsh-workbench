@@ -16,15 +16,15 @@ Neither downstream fork is republished under the upstream npm namespace.
 
 | Path | Status |
 | --- | --- |
-| Stock-Harness general plugin (`file:` TGZ + `dsh plugin add`) | Installer commands documented; ships as a downloadable GitHub Release asset starting with `v0.2.0-rc.2`, not yet published. Today (`0.2.0-rc.2`, `source-preview`) there is no signed Release TGZ — use the source-build path in [`docs/INSTALL.md`](INSTALL.md). |
-| Split-pane bootstrap installer (`.ps1` / `.sh`) | Scripts exist on this branch at `scripts/bootstrap/dsh-workbench-bootstrap.ps1` and `.sh`, with their own node:test suite (`scripts/bootstrap/bootstrap.test.mjs`); they ship as immutable GitHub Release assets (hashes recorded in `SHA256SUMS`) starting with `v0.2.0-rc.2`, not yet published. |
+| Stock-Harness general plugin (`file:` TGZ + `dsh plugin add`) | Ships as a downloadable, SHA256-verified GitHub Release asset as of `v0.2.0-rc.2` (not GPG-signed). See [`docs/INSTALL.md`](INSTALL.md) § Quick Install. The source-build path in the same document remains available as an audit alternative. |
+| Split-pane bootstrap installer (`.ps1` / `.sh`) | Ships as an immutable, SHA256-verified GitHub Release asset as of `v0.2.0-rc.2` (hashes recorded in `SHA256SUMS`). Source lives at `scripts/bootstrap/dsh-workbench-bootstrap.ps1` and `.sh`, with its own node:test suite (`scripts/bootstrap/bootstrap.test.mjs`). |
 | npm / GitHub Packages | None. Not published, not planned for `rc.2`. |
 
 ## Platform support
 
 | Platform | Status |
 | --- | --- |
-| Windows | Targeted for `v0.2.0-rc.2` isolated end-to-end verification (stock plugin install, read-only-home degradation, bootstrap end-to-end). Not yet run. |
+| Windows | Split-pane bootstrap: isolated end-to-end verification complete for `v0.2.0-rc.2`. The unmodified `dsh-workbench-bootstrap.ps1`, run against a clean target with a deliberately space-containing path and no `-TgzSha256` argument, reported `state: installed` / exit 0; detached HEAD at the pinned Harness commit, profile-dependency/bundle registration, the materialized package, the installer's own load probe, a working self-relative launcher, and an untouched real `~/.dsh` profile were all independently confirmed afterward. That run's `git clone` was pointed at a local bare mirror of the same repository (via `url.<base>.insteadOf`, scoped to one process) after two attempts failed on GitHub transport resets; the installer still verified the checkout against its embedded 40-character commit hash, so content authenticity is proven, but GitHub reachability from that machine at that time is not evidenced. Stock general-plugin install and read-only-`$DSH_HOME` degradation remain targeted for `v0.2.0-rc.2` verification and have not yet run. |
 | macOS | Targeted for `v0.2.0-rc.2` isolated end-to-end verification, exercised through a real user channel. Not yet run. |
 | Linux | Unverified. No Workbench end-to-end evidence exists on Linux; support is not claimed until it is. |
 
