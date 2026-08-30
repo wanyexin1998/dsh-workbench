@@ -213,31 +213,29 @@ export interface SessionsService {
 
 /**
  * The cross-plugin panel-action face (`ctx.layout`) — narrowed to the seams
- * this plugin actually consumes. Mirrors `ILayout`, verified at the pinned
- * 0.1.1-rc.2 store: `@deepseek-ai/dsh-client-ui-layout/lib/types/client/
- * service.d.ts` declares exactly `toggleSidebar()` / `openDetails()` /
- * `closeDetails()` — no verb exists there (or anywhere else this package
- * depends on) to open the Settings surface.
+ * this plugin actually consumes. Mirrors `ILayout`, whose surface differs by
+ * baseline: stock 0.1.1-rc.2 declares exactly `toggleSidebar()` /
+ * `openDetails()` / `closeDetails()` (verified at the pinned store,
+ * `@deepseek-ai/dsh-client-ui-layout/lib/types/client/service.d.ts`), while
+ * the pinned fork adds `openSettings()` — see that member's own doc comment.
+ * Every member this plugin does not require unconditionally is optional, so
+ * a baseline missing it degrades to "capability absent", never to a crash.
  */
 export interface LayoutService {
   toggleSidebar(): void
   /**
-   * native-actions-pivot (workbench.settings.open): speculative — NO public
-   * seam exists today. Investigated and ruled out: `ILayout` (above) has no
-   * settings verb; the Settings shell (`sidebar.settings` occupant,
-   * `@deepseek-ai/dsh-client-ui-settings-general`, not a declared dependency
-   * of this package) renders its own modal open/close as component-local
-   * React `useState` with zero external control (verified at both the fork
-   * source — `SettingsRoot.tsx`'s own doc comment: "No store is registered —
-   * modal open state ... is component-local viewing state" — and the pinned
-   * `dsh-client-ui-settings-general` `SettingsRoot.d.ts`, which exposes no
-   * prop for it). `openSettings` names the verb such a future seam would
-   * most naturally take (mirroring `openDetails`/`closeDetails`'s own
-   * naming), so the action activates the day one ships, with zero further
-   * plugin changes — see `settingsOpenOn` in shortcuts.tsx for the
-   * registration gate this backs. Until then this is always `undefined` in
-   * production (fail-soft, same outward behavior as `favoriteAgent`), but
-   * a test double may supply it to exercise the registration path.
+   * native-actions-pivot (workbench.settings.open): the pinned Harness fork
+   * ships this verb — `ILayout.openSettings()` on
+   * `@deepseek-ai/dsh-client-ui-layout`, wired by the Settings shell through
+   * `LayoutController.attachSettingsOpener` when the `sidebar.settings`
+   * occupant mounts (fork commit `1a8cf5ba`, and its parent `be23380a` which
+   * introduced the verb). It is fail-soft by construction: before the shell
+   * mounts, or under a replacement layout provider that implements only the
+   * documented `ILayout`, calling it is a no-op rather than a throw.
+   * Stock Harness `0.1.1-rc.2` has no such verb — its `ILayout` declares
+   * exactly `toggleSidebar()` / `openDetails()` / `closeDetails()` — so this
+   * stays `undefined` there and the action is never registered (fail-closed;
+   * see `settingsOpenOn` in shortcuts.tsx for the gate this backs).
    */
   openSettings?(): void
 }

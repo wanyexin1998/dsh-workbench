@@ -66,7 +66,7 @@ Shortcut labels follow the Harness global language. Conflicts, browser-reserved 
 
 | Component | Required | Supported baseline | Notes |
 | --- | --- | --- | --- |
-| DeepSeek Harness | Yes | fork `codex/presentation-v2`, commit `53015a6…` | Provides Session Presentation `protocol 2` |
+| DeepSeek Harness | Yes | fork `fix/plugin-spec-quoting`, commit `1a8cf5b…` | Provides Session Presentation `protocol 2` |
 | DSH Workbench | Yes | `0.2.0-rc.1` | Maximum two visible Panes |
 | Better Sidebar | Optional | fork `0.16.1`, commit `1685770…` | Provides Pane capability `protocol 1`, plus panel shortcut actions (`actionsProtocol 1`) |
 | Panel Compatibility | Optional | `0.1.0-rc.1` | Connects only explicit compatible providers |
@@ -82,7 +82,7 @@ Workbench Split Pane, Navigator, and shortcuts work without Better Sidebar. When
 
 ### General plugin (stock Harness, default)
 
-Download the immutable Workbench TGZ from the GitHub Release, verify its SHA256, install with `dsh plugin --profile web add file:<path>`. Split Pane stays inactive on stock Harness — the official interface is not merged yet (see [discussion #4718](https://github.com/deepseek-ai/deepseek-harness/discussions/4718)); everything else is unaffected. Full command blocks live in [`docs/INSTALL.md` § Quick Install](docs/INSTALL.md#quick-install-default).
+Download the immutable Workbench TGZ from the GitHub Release, verify its SHA256, install with `dsh plugin --profile web add file:<path>` (on Windows, keep the install path space-free or you'll hit an `ENOENT` — see the link below for details). Split Pane stays inactive on stock Harness — the official interface is not merged yet (see [discussion #4718](https://github.com/deepseek-ai/deepseek-harness/discussions/4718)); everything else is unaffected. Full command blocks live in [`docs/INSTALL.md` § Quick Install](docs/INSTALL.md#quick-install-default).
 
 ### Split pane (bootstrap, one command)
 

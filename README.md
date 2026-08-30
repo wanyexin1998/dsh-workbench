@@ -66,7 +66,7 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 
 | 组件 | 是否必需 | 当前支持 | 说明 |
 | --- | --- | --- | --- |
-| DeepSeek Harness | 必需 | fork `codex/presentation-v2`，固定提交 `53015a6…` | 提供 Session Presentation `protocol 2` |
+| DeepSeek Harness | 必需 | fork `fix/plugin-spec-quoting`，固定提交 `1a8cf5b…` | 提供 Session Presentation `protocol 2` |
 | DSH Workbench | 必需 | `0.2.0-rc.1` | 最多两个可见 Pane |
 | Better Sidebar | 可选 | fork `0.16.1`，固定提交 `1685770…` | 提供 Pane capability `protocol 1`；含面板快捷键 actions（`actionsProtocol 1`） |
 | Panel Compatibility | 可选 | `0.1.0-rc.1` | 只连接显式兼容的面板提供方 |
@@ -82,7 +82,7 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 
 ### 通用插件（stock Harness，默认）
 
-从 GitHub Release 下载不可变的 Workbench TGZ、核对 SHA256、用 `dsh plugin --profile web add file:<path>` 安装。分屏（双 Pane）在 stock Harness 上不会激活——官方接口尚未合并（见 [discussion #4718](https://github.com/deepseek-ai/deepseek-harness/discussions/4718)）；其余功能不受影响。完整命令块见 [`docs/INSTALL.md` § Quick Install](docs/INSTALL.md#quick-install-default)。
+从 GitHub Release 下载不可变的 Workbench TGZ、核对 SHA256、用 `dsh plugin --profile web add file:<path>` 安装（Windows 上安装路径不要含空格，否则会遇到 `ENOENT`，详见下方链接）。分屏（双 Pane）在 stock Harness 上不会激活——官方接口尚未合并（见 [discussion #4718](https://github.com/deepseek-ai/deepseek-harness/discussions/4718)）；其余功能不受影响。完整命令块见 [`docs/INSTALL.md` § Quick Install](docs/INSTALL.md#quick-install-default)。
 
 ### 分屏（bootstrap，一条命令）
 

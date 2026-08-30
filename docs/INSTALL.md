@@ -57,6 +57,18 @@ absolute path is used rather than a package name because Workbench is not
 published to npm (see `plans/260827-workbench-v2/reports/T0.3-dsh-plugin-add.md`
 for why `file:` is the right spec shape here).
 
+> **Windows: keep the path space-free.** On Windows, stock Harness's
+> `dsh plugin --profile <name> <args...>` forwarder passes its arguments to
+> `pnpm` through `cmd.exe` without quoting them, so a `file:` path containing
+> a space is split at the first space and the install fails with an `ENOENT`
+> against a truncated, nonexistent path. Before running the command below,
+> put the downloaded TGZ (and the directory you run the command from) on a
+> path with **no spaces** — e.g. `C:\dsh-workbench\`, not
+> `C:\Users\Jane Doe\Downloads\dsh workbench\`. This is a stock-Harness CLI
+> limitation, not something this document's command can work around; if you
+> hit the `ENOENT`, move the TGZ to a space-free path and re-run the same
+> command.
+
 **Windows (PowerShell 7+ / `pwsh`):**
 
 ```
@@ -302,7 +314,7 @@ if ($WorktreeState) { throw 'Workbench worktree is not clean' }
 The following commit is part of the verified Workbench release contract. Do not switch to its mutable branch before building.
 
 ```powershell
-$HarnessCommit = '53015a6f39710dac52ed08f05aca0c6bad7444ac'
+$HarnessCommit = '1a8cf5ba416246f22d9526a917af5fb233170c58'
 if ($HarnessCommit -notmatch '^[0-9a-f]{40}$') { throw 'Harness commit must be a full 40-character hexadecimal value' }
 if (Test-Path -LiteralPath 'deepseek-harness') { throw 'Target directory deepseek-harness already exists; retry from an empty directory' }
 git clone --no-checkout https://github.com/wanyexin1998/deepseek-harness.git deepseek-harness

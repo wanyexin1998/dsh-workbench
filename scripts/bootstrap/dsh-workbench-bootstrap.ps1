@@ -100,8 +100,8 @@ $PSNativeCommandUseErrorActionPreference = $false
 $HarnessRepoUrl = 'https://github.com/wanyexin1998/deepseek-harness.git'
 # Informational only — see the TRUST MODEL note above. Never used to select
 # what gets checked out; only the pinned commit below is.
-$HarnessForkBranch = 'codex/presentation-v2'
-$HarnessCommit = '53015a6f39710dac52ed08f05aca0c6bad7444ac'
+$HarnessForkBranch = 'fix/plugin-spec-quoting'
+$HarnessCommit = '1a8cf5ba416246f22d9526a917af5fb233170c58'
 # The upstream DeepSeek Harness commit the fork branch is based on
 # (release-contract.json harness.upstreamCommit). Recorded here only for
 # the self-consistency check and diagnostic output; never checked out.
@@ -281,9 +281,9 @@ these: no network access, no writes):
        $HarnessCheckoutDir
   3. Run 'pnpm install --frozen-lockfile' then 'pnpm build' inside that checkout.
   4. Install the verified TGZ, with DSH_HOME scoped to that one child process only:
-       DSH_HOME=$DshHomeDir  pnpm exec dsh plugin --profile web add file:<verified-tgz-path>
+       DSH_HOME=$DshHomeDir  pnpm dsh plugin --profile web add file:<verified-tgz-path>
   5. Post-install load verification (no boot), same DSH_HOME scoping:
-       DSH_HOME=$DshHomeDir  pnpm exec dsh --profile web --dump-config
+       DSH_HOME=$DshHomeDir  pnpm dsh --profile web --dump-config
      and confirm the Workbench package name appears in its output before
      declaring success.
   6. Write an isolated launcher at:
@@ -389,7 +389,7 @@ function Invoke-Phase3InstallTgz {
         # matter what, so this script never leaves DSH_HOME set for anything
         # after this call, including itself if further phases ran.
         $env:DSH_HOME = $DshHomeDir
-        & pnpm exec dsh plugin --profile web add "file:$AbsTgzPath"
+        & pnpm dsh plugin --profile web add "file:$AbsTgzPath"
         $installExitCode = $LASTEXITCODE
     } finally {
         $env:DSH_HOME = $previousDshHome
@@ -416,7 +416,7 @@ function Invoke-Phase3bVerifyLoad {
     $previousDshHome = $env:DSH_HOME
     try {
         $env:DSH_HOME = $DshHomeDir
-        $verifyOutput = (& pnpm exec dsh --profile web --dump-config 2>&1 | Out-String)
+        $verifyOutput = (& pnpm dsh --profile web --dump-config 2>&1 | Out-String)
         $verifyExitCode = $LASTEXITCODE
     } finally {
         $env:DSH_HOME = $previousDshHome
@@ -451,7 +451,7 @@ rem Never touches the official dsh install, PATH, or the registry.
 setlocal
 set "DSH_HOME=%~dp0home"
 pushd "%~dp0deepseek-harness"
-call pnpm exec dsh web %*
+call pnpm dsh web %*
 set "DSH_WORKBENCH_EXITCODE=%ERRORLEVEL%"
 popd
 endlocal & exit /b %DSH_WORKBENCH_EXITCODE%

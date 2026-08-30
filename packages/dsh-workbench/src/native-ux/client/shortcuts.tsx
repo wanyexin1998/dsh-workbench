@@ -199,17 +199,15 @@ export function buildShortcutRegistry(options: ShortcutActionOptions = {}): Acti
   //                       Session view" fallback startSession() itself uses
   //                       when it has nothing else to go on (create() is NOT
   //                       on the public ISessions contract).
-  //   settingsOpenOn:    NO public seam exists today (verified against both
-  //                       the fork source and the pinned dsh-client-ui-layout/
-  //                       dsh-client-ui-settings-general d.ts: the Settings
-  //                       modal's open state is component-local React state
-  //                       with zero external control). `openSettings` names
-  //                       the verb such a seam would most naturally take
-  //                       (mirrors openDetails/closeDetails) so the action
-  //                       activates the day one ships; until then this is
-  //                       always false in production, exactly like
-  //                       favoriteOn, but shaped as a seam check (not a
-  //                       hardcoded cap) so a test double can exercise it.
+  //   settingsOpenOn:    baseline-dependent seam. The pinned fork ships
+  //                       ILayout.openSettings(), wired by the Settings
+  //                       shell via LayoutController.attachSettingsOpener
+  //                       (fork be23380a, carried on the current pin), so
+  //                       this is true there. Stock 0.1.1-rc.2 has no such
+  //                       verb, so it stays false and the action is never
+  //                       registered. This is a real seam check against
+  //                       services.layout, not a hardcoded cap: the same
+  //                       probe is what a test double exercises.
   //   sessionPreviousOn: TWO public seams, both required (MEDIUM 1, Opus
   //                       review round 2): ISessions.open(id) to actually
   //                       switch (public, unconditional — sessions.d.ts),

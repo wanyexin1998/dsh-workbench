@@ -76,6 +76,19 @@ function resolveBash() {
 }
 const bashExe = resolveBash()
 
+// Child-process budget for a single installer-script run. Every assertion
+// below targets a pre-network abort, so these runs are fail-fast by design --
+// but each one still spawns node, pnpm, and git once for its precondition
+// checks, and on Windows those three spawns alone measured 5.5s / 9.9s / 3.3s
+// under Git Bash (process creation there is dominated by on-access scanning,
+// not by anything the scripts do; the same script fails in milliseconds on
+// macOS/Linux). At 45s the bash lane failed deterministically under gate
+// contention -- B5.2 died at 45.2s with empty stdout, which surfaces as
+// `"undefined" is not valid JSON` rather than as a timeout. This budget
+// absorbs that platform cost while still tripping on a genuine hang.
+const SCRIPT_TIMEOUT_MS = 180_000
+
+
 // The exit code contract both scripts document in their own header comments
 // (not part of result.mjs itself -- these scripts' own addition for
 // shell/CI use).
@@ -209,7 +222,7 @@ test('dsh-workbench-bootstrap.sh --check-only performs no network access or writ
 
 // --- (c) static sweep: pinned commit appears exactly once, no personal paths ---
 
-const HARNESS_COMMIT = '53015a6f39710dac52ed08f05aca0c6bad7444ac'
+const HARNESS_COMMIT = '1a8cf5ba416246f22d9526a917af5fb233170c58'
 
 // S2's post-install load verification is only reachable in a real networked
 // run, so pin its presence statically: both engines must carry the
@@ -310,6 +323,40 @@ test('the dsh-workbench-bootstrap.ps1 launcher template is self-relative and con
   assert.match(launcherBody, /%~dp0/u, 'launcher body must derive its own directory at run time (via %~dp0)')
 })
 
+// --- Regression: bootstrap scripts must invoke `pnpm dsh`, never `pnpm exec dsh` ---
+// `dsh` is provided by the workspace package apps/cli (name=@deepseek-ai/dsh,
+// bin={"dsh":"lib/bin.js"}), but that package is not a dependency of the
+// Harness repo's ROOT package.json -- so pnpm never links a `dsh` bin into
+// root node_modules/.bin. `pnpm exec dsh ...` therefore fails with
+// ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL ("Command \"dsh\" not found"), confirmed
+// against a real `pnpm install --frozen-lockfile && pnpm build` checkout.
+// The repo's root package.json instead exposes a `dsh` SCRIPT
+// ("dsh": "node --import tsx/esm apps/cli/src/bin.ts"), which `pnpm dsh ...`
+// (a script invocation, not a bin lookup) runs correctly. This test locks
+// that contract so a future edit cannot silently revert to the broken
+// `pnpm exec dsh` form.
+
+test('both bootstrap scripts invoke `pnpm dsh` (never `pnpm exec dsh`, which fails because `dsh` is not linked into node_modules/.bin)', () => {
+  for (const [name, source] of [['dsh-workbench-bootstrap.ps1', ps1Source], ['dsh-workbench-bootstrap.sh', shSource]]) {
+    assert.match(source, /pnpm dsh\b/u, `${name} must invoke the Harness CLI via the \`pnpm dsh\` root package.json script`)
+    assert.ok(!source.includes('pnpm exec dsh'), `${name} must not contain \`pnpm exec dsh\` -- that bin is never linked into node_modules/.bin, so this form fails with ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL`)
+  }
+})
+
+test('the generated launcher body invokes `pnpm dsh` (never `pnpm exec dsh`) in both bootstrap scripts', () => {
+  const shMatch = /<<'LAUNCHER'\r?\n([\s\S]*?)\r?\nLAUNCHER\r?\n/u.exec(shSource)
+  assert.ok(shMatch, 'test setup: could not locate the launcher heredoc block in dsh-workbench-bootstrap.sh')
+  const shLauncherBody = shMatch[1]
+  assert.match(shLauncherBody, /pnpm dsh\b/u, 'dsh-workbench-bootstrap.sh launcher body must invoke `pnpm dsh`')
+  assert.ok(!shLauncherBody.includes('pnpm exec dsh'), 'dsh-workbench-bootstrap.sh launcher body must not invoke `pnpm exec dsh`')
+
+  const ps1Match = /\$launcherContent = @'\r?\n([\s\S]*?)\r?\n'@/u.exec(ps1Source)
+  assert.ok(ps1Match, 'test setup: could not locate the launcher here-string block in dsh-workbench-bootstrap.ps1')
+  const ps1LauncherBody = ps1Match[1]
+  assert.match(ps1LauncherBody, /pnpm dsh\b/u, 'dsh-workbench-bootstrap.ps1 launcher body must invoke `pnpm dsh`')
+  assert.ok(!ps1LauncherBody.includes('pnpm exec dsh'), 'dsh-workbench-bootstrap.ps1 launcher body must not invoke `pnpm exec dsh`')
+})
+
 // --- B5: security-invariant tests (no network needed -- the hash gate      ---
 // --- precedes Phase 1, and Phase 1 refuses a pre-existing checkout dir)     ---
 //
@@ -337,7 +384,7 @@ function ps1SkipReason() {
 
 test('dsh-workbench-bootstrap.sh: --tgz with no --tgz-sha256 fails while the embedded hash placeholder is unstamped (B5.1)', { skip: shSkipReason() }, () => {
   const target = join(tmpRoot, 'b5-1-sh-target')
-  const result = spawnSync(bashExe, [shPath, '--target', target, '--tgz', fakeTgzPath], { encoding: 'utf8', timeout: 45000 })
+  const result = spawnSync(bashExe, [shPath, '--target', target, '--tgz', fakeTgzPath], { encoding: 'utf8', timeout: SCRIPT_TIMEOUT_MS })
   const parsed = parseLastJsonLine(result.stdout)
   assertRoundTripsThroughMakeResult(parsed)
   assert.equal(parsed.state, 'failed')
@@ -346,7 +393,7 @@ test('dsh-workbench-bootstrap.sh: --tgz with no --tgz-sha256 fails while the emb
 
 test('dsh-workbench-bootstrap.ps1: -Tgz with no -TgzSha256 fails while the embedded hash placeholder is unstamped (B5.1)', { skip: ps1SkipReason() }, () => {
   const target = join(tmpRoot, 'b5-1-ps1-target')
-  const result = spawnSync(powerShellExe, ['-NoProfile', '-File', ps1Path, '-Target', target, '-Tgz', fakeTgzPath], { encoding: 'utf8', timeout: 45000 })
+  const result = spawnSync(powerShellExe, ['-NoProfile', '-File', ps1Path, '-Target', target, '-Tgz', fakeTgzPath], { encoding: 'utf8', timeout: SCRIPT_TIMEOUT_MS })
   const parsed = parseLastJsonLine(result.stdout)
   assertRoundTripsThroughMakeResult(parsed)
   assert.equal(parsed.state, 'failed')
@@ -357,7 +404,7 @@ test('dsh-workbench-bootstrap.ps1: -Tgz with no -TgzSha256 fails while the embed
 
 test('dsh-workbench-bootstrap.sh: --tgz-sha256 with a wrong (but well-formed) hash fails with a mismatch (B5.2)', { skip: shSkipReason() }, () => {
   const target = join(tmpRoot, 'b5-2-sh-target')
-  const result = spawnSync(bashExe, [shPath, '--target', target, '--tgz', fakeTgzPath, '--tgz-sha256', wrongHash], { encoding: 'utf8', timeout: 45000 })
+  const result = spawnSync(bashExe, [shPath, '--target', target, '--tgz', fakeTgzPath, '--tgz-sha256', wrongHash], { encoding: 'utf8', timeout: SCRIPT_TIMEOUT_MS })
   const parsed = parseLastJsonLine(result.stdout)
   assertRoundTripsThroughMakeResult(parsed)
   assert.equal(parsed.state, 'failed')
@@ -366,7 +413,7 @@ test('dsh-workbench-bootstrap.sh: --tgz-sha256 with a wrong (but well-formed) ha
 
 test('dsh-workbench-bootstrap.ps1: -TgzSha256 with a wrong (but well-formed) hash fails with a mismatch (B5.2)', { skip: ps1SkipReason() }, () => {
   const target = join(tmpRoot, 'b5-2-ps1-target')
-  const result = spawnSync(powerShellExe, ['-NoProfile', '-File', ps1Path, '-Target', target, '-Tgz', fakeTgzPath, '-TgzSha256', wrongHash], { encoding: 'utf8', timeout: 45000 })
+  const result = spawnSync(powerShellExe, ['-NoProfile', '-File', ps1Path, '-Target', target, '-Tgz', fakeTgzPath, '-TgzSha256', wrongHash], { encoding: 'utf8', timeout: SCRIPT_TIMEOUT_MS })
   const parsed = parseLastJsonLine(result.stdout)
   assertRoundTripsThroughMakeResult(parsed)
   assert.equal(parsed.state, 'failed')
@@ -381,7 +428,7 @@ test('dsh-workbench-bootstrap.ps1: -TgzSha256 with a wrong (but well-formed) has
 test('dsh-workbench-bootstrap.sh: correct --tgz-sha256 with a pre-existing deepseek-harness dir fails at "already exists", proving verification passed and the run stopped pre-network (B5.3)', { skip: shSkipReason() }, () => {
   const target = join(tmpRoot, 'b5-3-sh-target')
   mkdirSync(join(target, 'deepseek-harness'), { recursive: true })
-  const result = spawnSync(bashExe, [shPath, '--target', target, '--tgz', fakeTgzPath, '--tgz-sha256', fakeTgzRealHash], { encoding: 'utf8', timeout: 45000 })
+  const result = spawnSync(bashExe, [shPath, '--target', target, '--tgz', fakeTgzPath, '--tgz-sha256', fakeTgzRealHash], { encoding: 'utf8', timeout: SCRIPT_TIMEOUT_MS })
   const parsed = parseLastJsonLine(result.stdout)
   assertRoundTripsThroughMakeResult(parsed)
   assert.equal(parsed.state, 'failed')
@@ -391,7 +438,7 @@ test('dsh-workbench-bootstrap.sh: correct --tgz-sha256 with a pre-existing deeps
 test('dsh-workbench-bootstrap.ps1: correct -TgzSha256 with a pre-existing deepseek-harness dir fails at "already exists", proving verification passed and the run stopped pre-network (B5.3)', { skip: ps1SkipReason() }, () => {
   const target = join(tmpRoot, 'b5-3-ps1-target')
   mkdirSync(join(target, 'deepseek-harness'), { recursive: true })
-  const result = spawnSync(powerShellExe, ['-NoProfile', '-File', ps1Path, '-Target', target, '-Tgz', fakeTgzPath, '-TgzSha256', fakeTgzRealHash], { encoding: 'utf8', timeout: 45000 })
+  const result = spawnSync(powerShellExe, ['-NoProfile', '-File', ps1Path, '-Target', target, '-Tgz', fakeTgzPath, '-TgzSha256', fakeTgzRealHash], { encoding: 'utf8', timeout: SCRIPT_TIMEOUT_MS })
   const parsed = parseLastJsonLine(result.stdout)
   assertRoundTripsThroughMakeResult(parsed)
   assert.equal(parsed.state, 'failed')
@@ -402,7 +449,7 @@ test('dsh-workbench-bootstrap.ps1: correct -TgzSha256 with a pre-existing deepse
 
 test('dsh-workbench-bootstrap.sh: a non-hex --tgz-sha256 is rejected (B5.4)', { skip: shSkipReason() }, () => {
   const target = join(tmpRoot, 'b5-4-sh-target')
-  const result = spawnSync(bashExe, [shPath, '--target', target, '--tgz', fakeTgzPath, '--tgz-sha256', nonHexHash], { encoding: 'utf8', timeout: 45000 })
+  const result = spawnSync(bashExe, [shPath, '--target', target, '--tgz', fakeTgzPath, '--tgz-sha256', nonHexHash], { encoding: 'utf8', timeout: SCRIPT_TIMEOUT_MS })
   const parsed = parseLastJsonLine(result.stdout)
   assertRoundTripsThroughMakeResult(parsed)
   assert.equal(parsed.state, 'failed')
@@ -411,7 +458,7 @@ test('dsh-workbench-bootstrap.sh: a non-hex --tgz-sha256 is rejected (B5.4)', { 
 
 test('dsh-workbench-bootstrap.ps1: a non-hex -TgzSha256 is rejected (B5.4)', { skip: ps1SkipReason() }, () => {
   const target = join(tmpRoot, 'b5-4-ps1-target')
-  const result = spawnSync(powerShellExe, ['-NoProfile', '-File', ps1Path, '-Target', target, '-Tgz', fakeTgzPath, '-TgzSha256', nonHexHash], { encoding: 'utf8', timeout: 45000 })
+  const result = spawnSync(powerShellExe, ['-NoProfile', '-File', ps1Path, '-Target', target, '-Tgz', fakeTgzPath, '-TgzSha256', nonHexHash], { encoding: 'utf8', timeout: SCRIPT_TIMEOUT_MS })
   const parsed = parseLastJsonLine(result.stdout)
   assertRoundTripsThroughMakeResult(parsed)
   assert.equal(parsed.state, 'failed')
@@ -421,7 +468,7 @@ test('dsh-workbench-bootstrap.ps1: a non-hex -TgzSha256 is rejected (B5.4)', { s
 // --- B4 regression: a trailing valueless flag must never hang -----------------
 
 test('dsh-workbench-bootstrap.sh: a trailing valueless --tgz-sha256 flag exits promptly with a failed JSON, never hangs (B4 regression)', { skip: shSkipReason() }, () => {
-  const result = spawnSync(bashExe, [shPath, '--tgz-sha256'], { encoding: 'utf8', timeout: 45000 })
+  const result = spawnSync(bashExe, [shPath, '--tgz-sha256'], { encoding: 'utf8', timeout: SCRIPT_TIMEOUT_MS })
   assert.notEqual(result.signal, 'SIGTERM', 'the process must exit on its own well within the timeout, not be killed by it (i.e. must not hang)')
   const parsed = parseLastJsonLine(result.stdout)
   assertRoundTripsThroughMakeResult(parsed)
@@ -438,7 +485,7 @@ test('dsh-workbench-bootstrap.sh: a trailing valueless --tgz-sha256 flag exits p
 // This test pins that documented, intentional difference rather than the
 // sh script's JSON-based behavior.
 test('dsh-workbench-bootstrap.ps1: a trailing valueless -TgzSha256 flag exits promptly and loudly (not via the JSON contract -- documented B4 parity difference), never hangs', { skip: ps1SkipReason() }, () => {
-  const result = spawnSync(powerShellExe, ['-NoProfile', '-File', ps1Path, '-TgzSha256'], { encoding: 'utf8', timeout: 45000 })
+  const result = spawnSync(powerShellExe, ['-NoProfile', '-File', ps1Path, '-TgzSha256'], { encoding: 'utf8', timeout: SCRIPT_TIMEOUT_MS })
   assert.notEqual(result.signal, 'SIGTERM', 'the process must exit on its own well within the timeout, not be killed by it (i.e. must not hang)')
   assert.notEqual(result.status, 0, 'must exit with a nonzero status')
   assert.match(result.stderr, /TgzSha256/iu)
@@ -457,7 +504,7 @@ test('dsh-workbench-bootstrap.sh: pin self-consistency rejects an embedded WORKB
   const mutatedSource = shSource.replace(placeholderAssignment, `WORKBENCH_TGZ_SHA256='${badHash}'`)
   const scratchScript = join(tmpRoot, 's4-bad-middle-hex.sh')
   writeFileSync(scratchScript, mutatedSource, 'utf8')
-  const result = spawnSync(bashExe, [scratchScript, '--check-only'], { encoding: 'utf8', timeout: 45000 })
+  const result = spawnSync(bashExe, [scratchScript, '--check-only'], { encoding: 'utf8', timeout: SCRIPT_TIMEOUT_MS })
   const parsed = parseLastJsonLine(result.stdout)
   assert.equal(parsed.state, 'failed')
   assert.match(parsed.reason, /pin self-consistency/iu)
@@ -475,7 +522,7 @@ test('dsh-workbench-bootstrap.sh: an unexpected mid-run death (forced unbound va
   const mutatedSource = shSource.slice(0, insertAt) + injectedLine + shSource.slice(insertAt)
   const scratchScript = join(tmpRoot, 's6-forced-unbound.sh')
   writeFileSync(scratchScript, mutatedSource, 'utf8')
-  const result = spawnSync(bashExe, [scratchScript, '--check-only'], { encoding: 'utf8', timeout: 45000 })
+  const result = spawnSync(bashExe, [scratchScript, '--check-only'], { encoding: 'utf8', timeout: SCRIPT_TIMEOUT_MS })
   assert.notEqual(result.signal, 'SIGTERM', 'must not hang')
   const parsed = parseLastJsonLine(result.stdout)
   assertRoundTripsThroughMakeResult(parsed)

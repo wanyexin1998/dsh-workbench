@@ -9,7 +9,7 @@ fixtures live.
 | Directory | Harness baseline | Verifies |
 | --- | --- | --- |
 | `stock/` | upstream `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e` | seeding + roster discovery, selection toolbar (Add only), `Ctrl+Shift+C` in-place downgrade with a one-time notice, zero-tool chat session, blank reuse |
-| `edition/` | fork `codex/presentation-v2` @ `53015a6f39710dac52ed08f05aca0c6bad7444ac` | beside-open second Pane, pane-scoped Add routing, More Details / Ask fork semantics, source-pane preservation, parent-log purity |
+| `edition/` | fork `fix/plugin-spec-quoting` @ `1a8cf5ba416246f22d9526a917af5fb233170c58` | beside-open second Pane, pane-scoped Add routing, More Details / Ask fork semantics, source-pane preservation, parent-log purity |
 
 To run one:
 

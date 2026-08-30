@@ -82,8 +82,8 @@ RESULT_EMITTED=0
 HARNESS_REPO_URL='https://github.com/wanyexin1998/deepseek-harness.git'
 # Informational only -- see the TRUST MODEL note above. Never used to select
 # what gets checked out; only the pinned commit below is.
-HARNESS_FORK_BRANCH='codex/presentation-v2'
-HARNESS_COMMIT='53015a6f39710dac52ed08f05aca0c6bad7444ac'
+HARNESS_FORK_BRANCH='fix/plugin-spec-quoting'
+HARNESS_COMMIT='1a8cf5ba416246f22d9526a917af5fb233170c58'
 # The upstream DeepSeek Harness commit the fork branch is based on
 # (release-contract.json harness.upstreamCommit). Recorded here only for
 # the self-consistency check and diagnostic output; never checked out.
@@ -391,9 +391,9 @@ these: no network access, no writes):
        ${HARNESS_CHECKOUT_DIR}
   3. Run 'pnpm install --frozen-lockfile' then 'pnpm build' inside that checkout.
   4. Install the verified TGZ, with DSH_HOME scoped to that one child process only:
-       DSH_HOME=${DSH_HOME_DIR}  pnpm exec dsh plugin --profile web add file:<verified-tgz-path>
+       DSH_HOME=${DSH_HOME_DIR}  pnpm dsh plugin --profile web add file:<verified-tgz-path>
   5. Post-install load verification (no boot), same DSH_HOME scoping:
-       DSH_HOME=${DSH_HOME_DIR}  pnpm exec dsh --profile web --dump-config
+       DSH_HOME=${DSH_HOME_DIR}  pnpm dsh --profile web --dump-config
      and confirm the Workbench package name appears in its output before
      declaring success.
   6. Write an isolated launcher at:
@@ -494,7 +494,7 @@ phase3_install_tgz() {
     # DSH_HOME is set only in the environment of this one subshell's child
     # process -- it is never exported into the parent shell that invoked
     # this script.
-    ( cd "$HARNESS_CHECKOUT_DIR" && DSH_HOME="$DSH_HOME_DIR" pnpm exec dsh plugin --profile web add "file:${abs_tgz_path}" )
+    ( cd "$HARNESS_CHECKOUT_DIR" && DSH_HOME="$DSH_HOME_DIR" pnpm dsh plugin --profile web add "file:${abs_tgz_path}" )
     if [ $? -ne 0 ]; then
         emit_result_and_exit failed 'dsh plugin --profile web add failed while installing the Workbench TGZ into the isolated profile.' \
             "Re-run this script, or run it manually with DSH_HOME=${DSH_HOME_DIR} inside ${HARNESS_CHECKOUT_DIR} to see the underlying error." ""
@@ -510,7 +510,7 @@ phase3b_verify_load() {
     # resolved config for the same isolated profile, and confirm the
     # Workbench package name shows up in it, before this script is allowed
     # to declare `installed`.
-    verify_output="$( cd "$HARNESS_CHECKOUT_DIR" && DSH_HOME="$DSH_HOME_DIR" pnpm exec dsh --profile web --dump-config 2>&1 )"
+    verify_output="$( cd "$HARNESS_CHECKOUT_DIR" && DSH_HOME="$DSH_HOME_DIR" pnpm dsh --profile web --dump-config 2>&1 )"
     verify_status=$?
     if [ "$verify_status" -ne 0 ]; then
         emit_result_and_exit failed 'Post-install load verification failed: `dsh --profile web --dump-config` exited non-zero.' \
@@ -548,7 +548,7 @@ phase4_write_launcher() {
 # Never touches the official dsh install, PATH, or shell profiles.
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 cd "$SCRIPT_DIR/deepseek-harness" || exit 1
-DSH_HOME="$SCRIPT_DIR/home" exec pnpm exec dsh web "$@"
+DSH_HOME="$SCRIPT_DIR/home" exec pnpm dsh web "$@"
 LAUNCHER
     if [ $? -ne 0 ]; then
         emit_result_and_exit failed "Failed to write the launcher script at ${LAUNCHER_PATH}." \
