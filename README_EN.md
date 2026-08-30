@@ -12,14 +12,14 @@
 
 <p align="center">
   <img alt="Status: source preview" src="https://img.shields.io/badge/status-source%20preview-5865F2">
-  <img alt="Version: 0.2.0-rc.1" src="https://img.shields.io/badge/version-0.2.0--rc.1-2563EB">
+  <img alt="Version: 0.2.0-rc.2" src="https://img.shields.io/badge/version-0.2.0--rc.2-2563EB">
   <img alt="Session Presentation: protocol 2" src="https://img.shields.io/badge/Session%20Presentation-protocol%202-0891B2">
   <img alt="Visible Panes: 2" src="https://img.shields.io/badge/visible%20Panes-2-0F766E">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-334155"></a>
 </p>
 
 > [!IMPORTANT]
-> Version `0.2.0-rc.1` is a source preview, not a one-command npm release. Split Pane requires the pinned Harness fork. Better Sidebar and Panel Compatibility are entirely optional. This project never installs, updates, or modifies a third-party plugin automatically.
+> Version `0.2.0-rc.2` is a source preview, not a one-command npm release. Split Pane requires the pinned Harness fork. Better Sidebar and Panel Compatibility are entirely optional. This project never installs, updates, or modifies a third-party plugin automatically.
 
 > [!TIP]
 > **One-line install prompt: send the complete sentence below to DeepSeek Harness**
@@ -28,7 +28,7 @@
 > Install DSH Workbench. First check the current Harness: if it is compatible with Split Pane, install directly; if not, keep the general-plugin functionality and tell me how to install, in parallel, the self-installed patch path (bootstrap) that does not overwrite the official Harness. If the sandbox cannot write to DSH_HOME, give me only one final terminal command.
 > ```
 >
-> Full decision rules and commands live in [`docs/INSTALL.md`](docs/INSTALL.md). This path ships with the `v0.2.0-rc.2` Release; today's status is still `0.2.0-rc.1` source preview (see [`release-contract.json`](release-contract.json)). Until then, use "Advanced: build from source" below.
+> Full decision rules and commands live in [`docs/INSTALL.md`](docs/INSTALL.md). This path ships with the `v0.2.0-rc.2` Release; today's status is still `0.2.0-rc.2` source preview (see [`release-contract.json`](release-contract.json)). Until then, use "Advanced: build from source" below.
 
 ## What it solves
 
@@ -67,7 +67,7 @@ Shortcut labels follow the Harness global language. Conflicts, browser-reserved 
 | Component | Required | Supported baseline | Notes |
 | --- | --- | --- | --- |
 | DeepSeek Harness | Yes | fork `fix/plugin-spec-quoting`, commit `1a8cf5b…` | Provides Session Presentation `protocol 2` |
-| DSH Workbench | Yes | `0.2.0-rc.1` | Maximum two visible Panes |
+| DSH Workbench | Yes | `0.2.0-rc.2` | Maximum two visible Panes |
 | Better Sidebar | Optional | fork `0.16.1`, commit `1685770…` | Provides Pane capability `protocol 1`, plus panel shortcut actions (`actionsProtocol 1`) |
 | Panel Compatibility | Optional | `0.1.0-rc.1` | Connects only explicit compatible providers |
 
@@ -78,7 +78,7 @@ Workbench Split Pane, Navigator, and shortcuts work without Better Sidebar. When
 ## Quick start
 
 > [!NOTE]
-> The default commands on this page ship with the `v0.2.0-rc.2` GitHub Release, which has not been published yet — `release-contract.json` still reports `0.2.0-rc.1` / `source-preview` today (no signed Release, no TGZ asset). Both paths below will actually work once `v0.2.0-rc.2` ships; until then, use the collapsed "Advanced: build from source (audit path)" section below (i.e. [`docs/INSTALL.md` § Advanced: source build](docs/INSTALL.md#advanced-source-build)), which works today.
+> The default commands on this page ship with the `v0.2.0-rc.2` GitHub Release, which has not been published yet — `release-contract.json` still reports `0.2.0-rc.2` / `source-preview` today (no signed Release, no TGZ asset). Both paths below will actually work once `v0.2.0-rc.2` ships; until then, use the collapsed "Advanced: build from source (audit path)" section below (i.e. [`docs/INSTALL.md` § Advanced: source build](docs/INSTALL.md#advanced-source-build)), which works today.
 
 ### General plugin (stock Harness, default)
 
@@ -154,7 +154,7 @@ pnpm release:check
 
 Successful verification writes these files under `dist/`:
 
-- `wanyexin1998-dsh-workbench-0.2.0-rc.1.tgz`
+- `wanyexin1998-dsh-workbench-0.2.0-rc.2.tgz`
 - `wanyexin1998-dsh-workbench-panel-compat-0.1.0-rc.1.tgz`
 - `release-manifest.json`
 - `SHA256SUMS`
@@ -258,7 +258,7 @@ No. Better Sidebar and Panel Compatibility only provide optional Pane-local righ
 <details>
 <summary><strong>Can Workbench open five Panes?</strong></summary>
 
-The current public contract allows at most two visible Panes. Five Panes require new layout, capacity, and performance acceptance work and are outside `0.2.0-rc.1`.
+The current public contract allows at most two visible Panes. Five Panes require new layout, capacity, and performance acceptance work and are outside `0.2.0-rc.2`.
 </details>
 
 <details>

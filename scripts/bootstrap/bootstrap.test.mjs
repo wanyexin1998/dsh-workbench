@@ -286,7 +286,7 @@ test('both bootstrap scripts embed the same Harness branch as release-contract.j
   assert.ok(ps1Source.includes(`'${branch}'`), `dsh-workbench-bootstrap.ps1 must embed the same Harness branch as release-contract.json (${branch})`)
   assert.ok(shSource.includes(`'${branch}'`), `dsh-workbench-bootstrap.sh must embed the same Harness branch as release-contract.json (${branch})`)
   // TODO-A6: workbenchVersion is deliberately NOT asserted here yet.
-  // release-contract.json's workbenchVersion (currently 0.2.0-rc.1) still
+  // release-contract.json's workbenchVersion (currently 0.2.0-rc.2) still
   // lags these scripts' embedded WORKBENCH_VERSION (0.2.0-rc.2) -- a
   // declared, tracked debt item for A6, not a drift bug (see
   // plans/260827-workbench-v2/tasks.md §3 A6 and §8's decision record).

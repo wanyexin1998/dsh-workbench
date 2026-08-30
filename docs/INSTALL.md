@@ -37,7 +37,7 @@ an immutable, hash-verified GitHub Release artifact rather than source.
 
 > **Availability:** this path ships with the `v0.2.0-rc.2` GitHub Release,
 > which has not been published yet — `release-contract.json` still reports
-> `0.2.0-rc.1` / `source-preview` today (no signed Release, no TGZ asset).
+> `0.2.0-rc.2` / `source-preview` today (no signed Release, no TGZ asset).
 > Until `v0.2.0-rc.2` ships, use [Advanced: source build](#advanced-source-build)
 > below, which works today.
 
@@ -367,7 +367,7 @@ The bundle step requires a committed clean worktree, rebuilds both packages, sca
 Install the Workbench TGZ into the Web profile:
 
 ```powershell
-dsh plugin --profile web add file:C:\absolute\path\to\dsh-workbench\dist\wanyexin1998-dsh-workbench-0.2.0-rc.1.tgz
+dsh plugin --profile web add file:C:\absolute\path\to\dsh-workbench\dist\wanyexin1998-dsh-workbench-0.2.0-rc.2.tgz
 ```
 
 The Split Pane module fails closed unless Harness exposes `sessions.presentation` with `protocol === 2` *and* passes a structural probe of the actual interface shape it needs — a `requestCapacity` function and a `state.getSnapshot()` that returns `{ visible: Array, capacity: number }` without throwing. A matching protocol number alone is not accepted as proof (see `packages/dsh-workbench/src/client/guard.ts`).

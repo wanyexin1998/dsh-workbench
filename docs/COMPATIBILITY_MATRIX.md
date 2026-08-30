@@ -2,8 +2,8 @@
 
 | Component | Required source | Capability | Status |
 | --- | --- | --- | --- |
-| Workbench `0.2.0-rc.1` | Harness fork `1a8cf5ba` | Session Presentation protocol 2 | Supported source preview |
-| Workbench `0.2.0-rc.1` | Stock Harness `0.1.1-rc.2` | protocol 2 absent | Split Pane fails closed |
+| Workbench `0.2.0-rc.2` | Harness fork `1a8cf5ba` | Session Presentation protocol 2 | Supported source preview |
+| Workbench `0.2.0-rc.2` | Stock Harness `0.1.1-rc.2` | protocol 2 absent | Split Pane fails closed |
 | Panel Compatibility `0.1.0-rc.1` | Better Sidebar fork `1685770` | Pane protocol 1 + actions protocol 1 | Supported optional adapter |
 | Panel Compatibility absent | Any panel provider | n/a | Core Workbench remains functional |
 | Panel Compatibility + stock Better Sidebar 0.16.1 | Pane protocol absent | no attachment | Better Sidebar retains its global behavior |
@@ -16,7 +16,7 @@ Neither downstream fork is republished under the upstream npm namespace.
 
 | Path | Status |
 | --- | --- |
-| Stock-Harness general plugin (`file:` TGZ + `dsh plugin add`) | Installer commands documented; ships as a downloadable GitHub Release asset starting with `v0.2.0-rc.2`, not yet published. Today (`0.2.0-rc.1`, `source-preview`) there is no signed Release TGZ — use the source-build path in [`docs/INSTALL.md`](INSTALL.md). |
+| Stock-Harness general plugin (`file:` TGZ + `dsh plugin add`) | Installer commands documented; ships as a downloadable GitHub Release asset starting with `v0.2.0-rc.2`, not yet published. Today (`0.2.0-rc.2`, `source-preview`) there is no signed Release TGZ — use the source-build path in [`docs/INSTALL.md`](INSTALL.md). |
 | Split-pane bootstrap installer (`.ps1` / `.sh`) | Scripts exist on this branch at `scripts/bootstrap/dsh-workbench-bootstrap.ps1` and `.sh`, with their own node:test suite (`scripts/bootstrap/bootstrap.test.mjs`); they ship as immutable GitHub Release assets (hashes recorded in `SHA256SUMS`) starting with `v0.2.0-rc.2`, not yet published. |
 | npm / GitHub Packages | None. Not published, not planned for `rc.2`. |
 

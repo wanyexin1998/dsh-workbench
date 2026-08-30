@@ -12,14 +12,14 @@
 
 <p align="center">
   <img alt="状态：源码预览" src="https://img.shields.io/badge/status-source%20preview-5865F2">
-  <img alt="版本：0.2.0-rc.1" src="https://img.shields.io/badge/version-0.2.0--rc.1-2563EB">
+  <img alt="版本：0.2.0-rc.2" src="https://img.shields.io/badge/version-0.2.0--rc.2-2563EB">
   <img alt="Session Presentation：protocol 2" src="https://img.shields.io/badge/Session%20Presentation-protocol%202-0891B2">
   <img alt="可见 Pane：2" src="https://img.shields.io/badge/visible%20Panes-2-0F766E">
   <a href="LICENSE"><img alt="许可证：MIT" src="https://img.shields.io/badge/license-MIT-334155"></a>
 </p>
 
 > [!IMPORTANT]
-> 当前版本是 `0.2.0-rc.1` 源码预览，不是即装即用的 npm 正式版。分屏能力依赖固定版本的 Harness fork；Better Sidebar 及其兼容包完全可选。本项目不会自动安装、更新或修改任何第三方插件。
+> 当前版本是 `0.2.0-rc.2` 源码预览，不是即装即用的 npm 正式版。分屏能力依赖固定版本的 Harness fork；Better Sidebar 及其兼容包完全可选。本项目不会自动安装、更新或修改任何第三方插件。
 
 > [!TIP]
 > **一句话安装（Release-first）：复制下面整句发给 DeepSeek Harness Agent**
@@ -28,7 +28,7 @@
 > 请安装 DSH Workbench。先检查当前 Harness：兼容双 Pane 就直接安装；不兼容时保留通用插件功能，并告诉我如何并行安装不覆盖官方 Harness 的自装补丁路径（bootstrap）。若沙箱不能写入 DSH_HOME，只给我一条最终终端命令。
 > ```
 >
-> 完整判定规则与命令见 [`docs/INSTALL.md`](docs/INSTALL.md)。该路径随 `v0.2.0-rc.2` Release 一起发布，目前仍是 `0.2.0-rc.1` 源码预览（见 [`release-contract.json`](release-contract.json)）；在此之前用下方「高级：从源码构建」。
+> 完整判定规则与命令见 [`docs/INSTALL.md`](docs/INSTALL.md)。该路径随 `v0.2.0-rc.2` Release 一起发布，目前仍是 `0.2.0-rc.2` 源码预览（见 [`release-contract.json`](release-contract.json)）；在此之前用下方「高级：从源码构建」。
 
 ## 它解决什么问题
 
@@ -67,7 +67,7 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 | 组件 | 是否必需 | 当前支持 | 说明 |
 | --- | --- | --- | --- |
 | DeepSeek Harness | 必需 | fork `fix/plugin-spec-quoting`，固定提交 `1a8cf5b…` | 提供 Session Presentation `protocol 2` |
-| DSH Workbench | 必需 | `0.2.0-rc.1` | 最多两个可见 Pane |
+| DSH Workbench | 必需 | `0.2.0-rc.2` | 最多两个可见 Pane |
 | Better Sidebar | 可选 | fork `0.16.1`，固定提交 `1685770…` | 提供 Pane capability `protocol 1`；含面板快捷键 actions（`actionsProtocol 1`） |
 | Panel Compatibility | 可选 | `0.1.0-rc.1` | 只连接显式兼容的面板提供方 |
 
@@ -78,7 +78,7 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 ## 快速开始
 
 > [!NOTE]
-> 本页默认命令随 `v0.2.0-rc.2` GitHub Release 一起发布，该 Release 尚未发布——`release-contract.json` 目前仍是 `0.2.0-rc.1` / `source-preview`（无签名 Release、无 TGZ 资产）。下面两条路径要等 `v0.2.0-rc.2` 发布后才能真正跑通；在此之前请使用下方折叠区「高级：从源码构建（审计路径）」（即 [`docs/INSTALL.md` § Advanced: source build](docs/INSTALL.md#advanced-source-build)），这条路径今天就能用。
+> 本页默认命令随 `v0.2.0-rc.2` GitHub Release 一起发布，该 Release 尚未发布——`release-contract.json` 目前仍是 `0.2.0-rc.2` / `source-preview`（无签名 Release、无 TGZ 资产）。下面两条路径要等 `v0.2.0-rc.2` 发布后才能真正跑通；在此之前请使用下方折叠区「高级：从源码构建（审计路径）」（即 [`docs/INSTALL.md` § Advanced: source build](docs/INSTALL.md#advanced-source-build)），这条路径今天就能用。
 
 ### 通用插件（stock Harness，默认）
 
@@ -150,7 +150,7 @@ pnpm release:check
 
 成功后，`dist/` 中会生成：
 
-- `wanyexin1998-dsh-workbench-0.2.0-rc.1.tgz`
+- `wanyexin1998-dsh-workbench-0.2.0-rc.2.tgz`
 - `wanyexin1998-dsh-workbench-panel-compat-0.1.0-rc.1.tgz`
 - `release-manifest.json`
 - `SHA256SUMS`
@@ -254,7 +254,7 @@ docs/
 <details>
 <summary><strong>可以同时打开 5 个 Pane 吗？</strong></summary>
 
-当前公开契约最多为两个可见 Pane。扩展到 5 个需要重新设计布局、容量与性能验收，不属于 `0.2.0-rc.1`。
+当前公开契约最多为两个可见 Pane。扩展到 5 个需要重新设计布局、容量与性能验收，不属于 `0.2.0-rc.2`。
 </details>
 
 <details>
