@@ -5,7 +5,16 @@ import { basename, join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
 const root = resolve(import.meta.dirname, '..')
-const output = join(root, 'dist')
+// Kept as a bare name, not an absolute path, because it is also passed to
+// pnpm as an argument below. When this script runs outside a pnpm script
+// (no npm_execpath -- e.g. `node scripts/release-check.mjs`), the spawn
+// falls back to the pnpm.cmd shim and must set shell:true, and Node then
+// joins argv into one cmd.exe command line without quoting. An absolute
+// destination under a path containing a space is word-split there, pnpm
+// writes the tarballs somewhere else, and the artifact count check below
+// fails with a misleading `found 0`.
+const outputDirName = 'dist'
+const output = join(root, outputDirName)
 const pnpmEntry = process.env.npm_execpath
 const pnpmCommand = pnpmEntry === undefined ? (process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm') : process.execPath
 const pnpmArgs = args => pnpmEntry === undefined ? args : [pnpmEntry, ...args]
@@ -52,7 +61,7 @@ mkdirSync(output, { recursive: true })
 
 const packedMetadata = new Map()
 for (const packageSpec of packages) {
-  const args = ['--dir', packageSpec.path, 'pack', '--pack-destination', output, '--json']
+  const args = ['--dir', packageSpec.path, 'pack', '--pack-destination', outputDirName, '--json']
   const result = spawnSync(pnpmCommand, pnpmArgs(args), {
     cwd: root,
     encoding: 'utf8',
