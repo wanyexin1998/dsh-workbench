@@ -262,11 +262,29 @@ test('both bootstrap scripts derive their default target from an environment var
   assert.match(shSource, /\$HOME/u)
 })
 
-// --- WORKBENCH_TGZ_SHA256 placeholder is present and clearly marked --------
+// --- WORKBENCH_TGZ_SHA256: placeholder before a release, real hash after ---
+//
+// Both states are legitimate and the suite keeps its meaning on either side
+// of the stamping step: unstamped, the scripts must refuse to install an
+// artifact nobody vouched for; stamped, they must enforce the hash they
+// carry without needing an explicit override. What is never legitimate is
+// the two scripts disagreeing, or carrying something that is neither the
+// marker nor a well-formed digest.
 
-test('both bootstrap scripts embed the WORKBENCH_TGZ_SHA256 placeholder marked STAMPED-AT-RELEASE', () => {
-  assert.match(ps1Source, /WorkbenchTgzSha256\s*=\s*'STAMPED-AT-RELEASE'/u)
-  assert.match(shSource, /WORKBENCH_TGZ_SHA256='STAMPED-AT-RELEASE'/u)
+const PLACEHOLDER_HASH = 'STAMPED-AT-RELEASE'
+const embeddedHashPs1 = /\$WorkbenchTgzSha256\s*=\s*'([^']*)'/u.exec(ps1Source)?.[1]
+const embeddedHashSh = /WORKBENCH_TGZ_SHA256='([^']*)'/u.exec(shSource)?.[1]
+const releaseIsStamped = embeddedHashSh !== PLACEHOLDER_HASH
+
+test('both bootstrap scripts embed the same WORKBENCH_TGZ_SHA256, either the release marker or a well-formed digest', () => {
+  assert.ok(embeddedHashPs1 !== undefined, 'dsh-workbench-bootstrap.ps1 must assign $WorkbenchTgzSha256 a single-quoted literal')
+  assert.ok(embeddedHashSh !== undefined, 'dsh-workbench-bootstrap.sh must assign WORKBENCH_TGZ_SHA256 a single-quoted literal')
+  assert.equal(embeddedHashPs1, embeddedHashSh, 'the two installers must vouch for the same artifact')
+  if (releaseIsStamped) {
+    assert.match(embeddedHashSh, /^[0-9a-f]{64}$/u, 'a stamped hash must be 64 lowercase hex characters')
+  } else {
+    assert.equal(embeddedHashSh, PLACEHOLDER_HASH)
+  }
 })
 
 // --- S5: pin drift gate -- embedded Harness pin must match release-contract.json ---
@@ -382,22 +400,26 @@ function ps1SkipReason() {
 
 // B5.1 -- --tgz with no --tgz-sha256 while the embedded placeholder is unstamped.
 
-test('dsh-workbench-bootstrap.sh: --tgz with no --tgz-sha256 fails while the embedded hash placeholder is unstamped (B5.1)', { skip: shSkipReason() }, () => {
+test('dsh-workbench-bootstrap.sh: --tgz with no --tgz-sha256 is governed by the embedded hash alone (B5.1)', { skip: shSkipReason() }, () => {
   const target = join(tmpRoot, 'b5-1-sh-target')
   const result = spawnSync(bashExe, [shPath, '--target', target, '--tgz', fakeTgzPath], { encoding: 'utf8', timeout: SCRIPT_TIMEOUT_MS })
   const parsed = parseLastJsonLine(result.stdout)
   assertRoundTripsThroughMakeResult(parsed)
   assert.equal(parsed.state, 'failed')
-  assert.match(parsed.reason, /stamped|placeholder/iu)
+  // Unstamped: refuse outright, nobody vouched for the artifact. Stamped:
+  // the embedded digest is enforced on its own, and fakeTgz never matches it.
+  assert.match(parsed.reason, releaseIsStamped ? /mismatch/iu : /stamped|placeholder/iu)
 })
 
-test('dsh-workbench-bootstrap.ps1: -Tgz with no -TgzSha256 fails while the embedded hash placeholder is unstamped (B5.1)', { skip: ps1SkipReason() }, () => {
+test('dsh-workbench-bootstrap.ps1: -Tgz with no -TgzSha256 is governed by the embedded hash alone (B5.1)', { skip: ps1SkipReason() }, () => {
   const target = join(tmpRoot, 'b5-1-ps1-target')
   const result = spawnSync(powerShellExe, ['-NoProfile', '-File', ps1Path, '-Target', target, '-Tgz', fakeTgzPath], { encoding: 'utf8', timeout: SCRIPT_TIMEOUT_MS })
   const parsed = parseLastJsonLine(result.stdout)
   assertRoundTripsThroughMakeResult(parsed)
   assert.equal(parsed.state, 'failed')
-  assert.match(parsed.reason, /stamped|placeholder/iu)
+  // Unstamped: refuse outright, nobody vouched for the artifact. Stamped:
+  // the embedded digest is enforced on its own, and fakeTgz never matches it.
+  assert.match(parsed.reason, releaseIsStamped ? /mismatch/iu : /stamped|placeholder/iu)
 })
 
 // B5.2 -- --tgz-sha256 supplied but wrong -> hash mismatch.
@@ -529,8 +551,8 @@ test('dsh-workbench-bootstrap.ps1: an unusable -Target value still emits a resul
 // --- S4 regression: full-charset hash validation, not just first/last char ---
 
 test('dsh-workbench-bootstrap.sh: pin self-consistency rejects an embedded WORKBENCH_TGZ_SHA256 with valid first/last hex chars but an invalid character in the middle (S4 mutation regression)', { skip: shSkipReason() }, () => {
-  const placeholderAssignment = "WORKBENCH_TGZ_SHA256='STAMPED-AT-RELEASE'"
-  assert.ok(shSource.includes(placeholderAssignment), 'test setup: could not find the WORKBENCH_TGZ_SHA256 placeholder assignment to mutate')
+  const placeholderAssignment = `WORKBENCH_TGZ_SHA256='${embeddedHashSh}'`
+  assert.ok(shSource.includes(placeholderAssignment), 'test setup: could not find the WORKBENCH_TGZ_SHA256 assignment to mutate')
   // 64 characters total, first and last are valid hex, but 'Z' (invalid)
   // fills the middle -- the pre-S4 bug (`[0-9a-f]*[0-9a-f]` glob) only
   // inspected the first/last character and would have accepted this.

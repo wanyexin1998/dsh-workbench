@@ -102,7 +102,7 @@ RELEASE_BASE_URL='https://github.com/wanyexin1998/dsh-workbench/releases/downloa
 # still holds the placeholder, a real run REQUIRES --tgz-sha256 on the
 # command line and refuses to install (or even download) an unverified
 # artifact otherwise.
-WORKBENCH_TGZ_SHA256='STAMPED-AT-RELEASE'
+WORKBENCH_TGZ_SHA256='974716952ac8ac406a3e8fa2af59db722fe1c0c6e20ccc321356d1b0754da6c7'
 RESULT_SCHEMA=1
 
 # --- Argument parsing --------------------------------------------------------
