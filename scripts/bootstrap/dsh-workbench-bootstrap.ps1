@@ -70,6 +70,20 @@
   behavior, not a gap to fix: either way the exit code is nonzero and the
   process returns promptly (never hangs), which is what a caller scripting
   around either tool needs to check regardless of stdout shape.
+
+  A flag that IS given a value, on the other hand, always leaves through
+  the JSON contract here. A -Target value that cannot be normalized into a
+  path at all -- an empty or whitespace-only string, and whatever else the
+  host runtime's GetFullPath rejects -- yields a `failed` result naming the
+  problem, never a raw exception. (What GetFullPath rejects is runtime
+  dependent and deliberately not enumerated here: on .NET 8 neither
+  `C:\bad|path` nor a 400-character path throws, and both simply continue
+  into the run, failing later through the contract like any other bad
+  directory.) The `.sh` sibling differs on the empty value: `--target ''`
+  falls back to its default root ($HOME/dsh-workbench) exactly as if
+  --target had been omitted, whereas this script reports it rather than
+  silently installing into a root the caller did not name. Both stay inside
+  the contract; only the chosen terminal state differs.
 #>
 
 [CmdletBinding()]
@@ -123,13 +137,10 @@ $ReleaseBaseUrl = 'https://github.com/wanyexin1998/dsh-workbench/releases/downlo
 $WorkbenchTgzSha256 = 'STAMPED-AT-RELEASE'
 $ResultSchema = 1
 
-$Target = [System.IO.Path]::GetFullPath($Target)
-
-# --- Isolation invariant: every write path is derived from $Target --------
-$HarnessCheckoutDir = Join-Path $Target 'deepseek-harness'
-$DshHomeDir = Join-Path $Target 'home'
-$LauncherPath = Join-Path $Target 'dsh-workbench.cmd'
-$DownloadsDir = Join-Path $Target 'downloads'
+# NOTE: -Target normalization and the write paths derived from it are NOT
+# done here. They live at the top of the main try block below, after
+# Complete-Result exists, so that a malformed -Target still leaves through
+# the JSON contract instead of killing the process with a raw exception.
 
 $ExitCodeForState = @{
     'installed'               = 0
@@ -492,6 +503,31 @@ function Invoke-TgzDownload {
 # --- Main -------------------------------------------------------------------
 
 try {
+    # -Target is normalized HERE, inside the try and after Complete-Result
+    # is defined, because GetFullPath throws on a value a caller can
+    # plausibly pass -- most concretely `-Target ''`, which the PowerShell
+    # binder accepts happily and hands straight to this call. While this
+    # ran at the top of the script (above every function definition and
+    # outside this try) the throw escaped before any handler existed, so
+    # `-Target '' -CheckOnly` died with a raw
+    # PowerShell exception and NO JSON line at all -- a caller parsing the
+    # last stdout line got a parse error rather than a `failed` terminal
+    # state. Every predictable argument error must leave through the
+    # contract; see the ARGUMENT-PARSING PARITY NOTE in the header.
+    try {
+        $Target = [System.IO.Path]::GetFullPath($Target)
+    } catch {
+        Complete-Result -State 'failed' `
+            -Reason "-Target is not a usable directory path: $($_.Exception.Message)" `
+            -NextStep 'Re-run with -Target set to a valid absolute or relative directory path, or omit -Target entirely to install into the default root under $env:USERPROFILE.'
+    }
+
+    # --- Isolation invariant: every write path is derived from $Target ----
+    $HarnessCheckoutDir = Join-Path $Target 'deepseek-harness'
+    $DshHomeDir = Join-Path $Target 'home'
+    $LauncherPath = Join-Path $Target 'dsh-workbench.cmd'
+    $DownloadsDir = Join-Path $Target 'downloads'
+
     Test-Preconditions
     Test-PinSelfConsistency
 

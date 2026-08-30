@@ -7,6 +7,7 @@ const pnpmArgs = args => pnpmEntry === undefined ? args : [pnpmEntry, ...args]
 const commands = [
   { display: 'node scripts/scan-secrets.mjs', command: 'node', args: ['scripts/scan-secrets.mjs'] },
   { display: 'node scripts/release-contract-check.mjs', command: 'node', args: ['scripts/release-contract-check.mjs'] },
+  { display: 'node --test scripts/scan-secrets.test.mjs', command: 'node', args: ['--test', 'scripts/scan-secrets.test.mjs'] },
   { display: 'node --test scripts/install/result.test.mjs', command: 'node', args: ['--test', 'scripts/install/result.test.mjs'] },
   { display: 'node --test scripts/bootstrap/bootstrap.test.mjs', command: 'node', args: ['--test', 'scripts/bootstrap/bootstrap.test.mjs'] },
   { display: 'pnpm typecheck', command: pnpmCommand, args: pnpmArgs(['typecheck']) },

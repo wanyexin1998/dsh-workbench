@@ -2,7 +2,12 @@ import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/c
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type { IConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { InputTriggerServiceContract } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
-import { runStartupGuard, WORKBENCH_VISIBLE_CAPACITY } from './guard.ts'
+import {
+  presentationBlindContext,
+  presentationBlindSessions,
+  runStartupGuard,
+  WORKBENCH_VISIBLE_CAPACITY,
+} from './guard.ts'
 import { SUPPORTED_HARNESS } from './contract.ts'
 import { makeGuardFailureBanner } from './guard-failure.tsx'
 import { SameWorkspaceWarning, useWorkspacePathIndex, type PaneWorkspace, type WorkspaceFacts } from './same-workspace-warning.tsx'
@@ -119,7 +124,20 @@ export function apply(ctx: ClientContext): void {
   }
   const slots = platform.slots as WorkbenchSlots
   const locale = platform.locale as WorkbenchLocale
-  const nativeContext = ctx as never as HarnessContext
+  // The split-pane verdict is decided here, before a single module is
+  // registered, because it decides what those modules are allowed to see.
+  // A disabled verdict does not merely skip the capacity request and mount a
+  // banner: it withholds `sessions.presentation` from every module below, so
+  // the presentation-gated capabilities (forked side chat, fresh chat's
+  // beside-open, pane-scoped DOM lookups) cannot re-derive an "Edition"
+  // answer the guard just rejected. See presentationBlindSessions().
+  const verdict = runStartupGuard(platform.sessions, SUPPORTED_HARNESS)
+  const guardedSessions = verdict.disabled
+    ? presentationBlindSessions(platform.sessions)
+    : platform.sessions
+  const nativeContext = (verdict.disabled
+    ? presentationBlindContext(ctx as object, guardedSessions)
+    : ctx) as never as HarnessContext
   const harness = resolveHarnessServices(nativeContext)
   // Dictionaries first: the failure surface (below) needs the bound
   // translator to render its localized copy, so the locale is registered
@@ -160,7 +178,7 @@ export function apply(ctx: ClientContext): void {
   }
   try {
     applySelectionActions(ctx, {
-      sessions: platform.sessions as SelectionSessions,
+      sessions: guardedSessions as SelectionSessions,
       conversation: platform.conversation as IConversation,
       inputTriggers: platform.inputTriggers as InputTriggerServiceContract,
       slots: slots as never,
@@ -169,7 +187,6 @@ export function apply(ctx: ClientContext): void {
   } catch (error) {
     warnOnce('selection-actions-apply-failed', 'selection actions failed to register: ' + String(error))
   }
-  const verdict = runStartupGuard(platform.sessions, SUPPORTED_HARNESS)
   if (verdict.disabled) {
     // The role="alert" entry reports why only the split-pane module is
     // disabled. Navigator and non-presentation shortcuts remain registered.

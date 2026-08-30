@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createChatActions,
   focusSessionComposer,
@@ -8,6 +8,7 @@ import {
   waitForSessionListed,
   type TimeoutScheduler,
 } from './chat-actions.js'
+import { en, zh } from './locales.js'
 import type {
   ChatActionServices,
   SessionListSnapshotFace,
@@ -122,6 +123,24 @@ describe('chat workspace and reuse policy', () => {
     expect(resolveChatWorkspace([], undefined)).toBeUndefined()
   })
 
+  it('falls back to the host recent Workspace, and stays fail-closed when it is absent or stale', () => {
+    // Zero-Pane home state (nothing focused, sessions.list.current empty):
+    // the first two tiers are both unreachable, and before this tier the
+    // whole action was inert for anyone whose Workspaces are not named
+    // "chat" — which is every ordinary user.
+    const workspaces = [
+      { workspaceId: 'roadmap', title: 'Product Roadmap', sessionIds: ['s1'] },
+      { workspaceId: 'infra', title: 'Infra', sessionIds: ['s2'] },
+    ]
+    expect(resolveChatWorkspace(workspaces, undefined, 'infra')?.workspaceId).toBe('infra')
+    // Fail-closed: a host that projects no recent id, or one naming a
+    // Workspace that is no longer listed, resolves nothing at all.
+    expect(resolveChatWorkspace(workspaces, undefined)).toBeUndefined()
+    expect(resolveChatWorkspace(workspaces, undefined, 'deleted')).toBeUndefined()
+    // ...and it stays the LAST tier: a captured source still wins.
+    expect(resolveChatWorkspace(workspaces, 's1', 'infra')?.workspaceId).toBe('roadmap')
+  })
+
   it('reuses the newest same-day blank chat session only', () => {
     const workspace = { workspaceId: 'chat', title: 'Chat', sessionIds: ['old', 'new', 'nonblank', 'yesterday'] }
     const sessions: SessionListSnapshotFace = {
@@ -135,6 +154,22 @@ describe('chat workspace and reuse policy', () => {
       },
     }
     expect(reusableChatSessionId(workspace, sessions, NOW)).toBe('new')
+  })
+
+  it('never reuses a same-day blank Session that belongs to another agent preset', () => {
+    // "blank chat session" is two conditions, not one: a blank session left
+    // behind by a coding preset carries that preset's agent and must not be
+    // silently handed to the chat action.
+    const workspace = { workspaceId: 'chat', title: 'Chat', sessionIds: ['coder', 'unset'] }
+    const sessions: SessionListSnapshotFace = {
+      ids: workspace.sessionIds,
+      current: 'source',
+      byId: {
+        coder: session('coder', { agentPreset: 'code', updatedAt: TODAY_LATE }),
+        unset: session('unset', { agentPreset: undefined, updatedAt: TODAY_EARLY }),
+      },
+    }
+    expect(reusableChatSessionId(workspace, sessions, NOW)).toBeUndefined()
   })
 })
 
@@ -258,18 +293,52 @@ describe('createChatActions', () => {
     expect(fixture.create).not.toHaveBeenCalled()
   })
 
-  it('is a safe no-op with a console diagnostic when no Workspace resolves', async () => {
+  it('is a safe no-op with a console diagnostic AND a user-visible notice when no Workspace resolves', async () => {
     const fixture = harness({
       sessionSnapshot: { ids: [], byId: {}, current: 'source' },
       workspaceSnapshot: { items: [] },
     })
     const diagnostic = vi.fn()
+    const surface = ui()
     await expect(createChatActions({
-      services: fixture.services, t, now: () => NOW, ui: ui(), diagnostic,
+      services: fixture.services, t, now: () => NOW, ui: surface, diagnostic,
     }).open()).resolves.toEqual({ kind: 'no-workspace', sourceSessionId: 'source' })
     expect(diagnostic).toHaveBeenCalledWith(expect.stringContaining('no workspace resolved'))
+    // A console line is invisible to the person who pressed the chord: the
+    // shortcut must not be able to do nothing and say nothing. It must
+    // also not misreport the reason: nothing was created down this path,
+    // so the copy names the missing Workspace rather than a failed create.
+    expect(surface.notify).toHaveBeenCalledWith('chat.error.noWorkspace')
     expect(fixture.create).not.toHaveBeenCalled()
     expect(fixture.open).not.toHaveBeenCalled()
+  })
+
+  it('reports the same way when the Workspace/Session snapshot itself is unreadable', async () => {
+    const fixture = harness({
+      sessionSnapshot: { ids: [], byId: {}, current: 'source' },
+      workspaceSnapshot: { items: [] },
+    })
+    const unreadable = {
+      ...fixture.services,
+      workspaces: { list: { getSnapshot: () => { throw new Error('boom') }, subscribe: vi.fn() } },
+    } as unknown as ChatActionServices
+    const surface = ui()
+    await expect(createChatActions({
+      services: unreadable, t, now: () => NOW, ui: surface, diagnostic: vi.fn(),
+    }).open()).resolves.toMatchObject({ kind: 'no-workspace' })
+    expect(surface.notify).toHaveBeenCalledWith('chat.error.noWorkspace')
+  })
+
+  // The two exits above never reach session.create, so they must not
+  // borrow the create failure's copy. Pin that the key they use is a
+  // real, distinct, translated string in both shipped dictionaries —
+  // otherwise `t()` renders the raw key id at the user.
+  it('ships distinct no-Workspace copy in both dictionaries', () => {
+    expect(Object.keys(zh).sort()).toEqual(Object.keys(en).sort())
+    for (const dictionary of [zh, en]) {
+      expect(dictionary['chat.error.noWorkspace']).toBeTruthy()
+      expect(dictionary['chat.error.noWorkspace']).not.toBe(dictionary['chat.error.create'])
+    }
   })
 
   it('reuses the newest same-day blank Session without creating another', async () => {
@@ -392,11 +461,64 @@ describe('createChatActions', () => {
     expect(surface.notify.mock.calls.filter(([message]) => message === 'chat.stockDowngrade')).toHaveLength(1)
   })
 
+  // The composer wait is DOM-conditional, so these two pin it from both
+  // sides against a document whose pane markers are controlled explicitly —
+  // the fixtures earlier in this file leak `[data-session-pane]` elements
+  // into `document.body` and would otherwise decide the outcome.
+  describe('stock-mode composer focus is gated on the host marking Session Panes', () => {
+    let savedBody = ''
+    beforeEach(() => { savedBody = document.body.innerHTML; document.body.innerHTML = '' })
+    afterEach(() => { document.body.innerHTML = savedBody })
+
+    const stockFixture = () => harness({
+      sessionSnapshot: { ids: ['chat'], current: 'source', byId: { chat: session('chat') } },
+      workspaceSnapshot: { items: [{ workspaceId: 'chat-ws', title: 'Chat', sessionIds: ['chat'] }] },
+    })
+
+    // `strictSessionComposer` refuses `focusedPaneScope`'s document fallback
+    // on purpose (it would focus the OLD Pane's composer), so it can only
+    // ever match inside a `[data-session-pane]` element. A host that marks
+    // no panes therefore has nothing the wait could ever succeed against: it
+    // could only end in its own CHAT_COMPOSER_FOCUS_TIMEOUT_MS timeout, one
+    // second of a document-wide MutationObserver and one second of delay on
+    // an already-decided downgrade notice.
+    it('skips the wait entirely when the document carries no [data-session-pane]', async () => {
+      const fixture = stockFixture()
+      const surface = ui()
+      const focusComposer = vi.fn()
+      await expect(createChatActions({
+        services: fixture.services, t, now: () => NOW, ui: surface, focusComposer,
+      }).open()).resolves.toMatchObject({ kind: 'opened', mode: 'stock', sessionId: 'chat' })
+      expect(fixture.open).toHaveBeenCalledWith('chat')
+      expect(focusComposer).not.toHaveBeenCalled()
+      // Skipping the wait must not skip the notice.
+      expect(surface.notify).toHaveBeenCalledWith('chat.stockDowngrade')
+    })
+
+    it('still focuses the composer on a host that does mark Session Panes', async () => {
+      const pane = document.createElement('section')
+      pane.dataset.sessionPane = 'chat'
+      document.body.appendChild(pane)
+      const fixture = stockFixture()
+      const focusComposer = vi.fn()
+      await expect(createChatActions({
+        services: fixture.services, t, now: () => NOW, ui: ui(), focusComposer,
+      }).open()).resolves.toMatchObject({ kind: 'opened', mode: 'stock', sessionId: 'chat' })
+      expect(focusComposer).toHaveBeenCalledWith('chat')
+    })
+  })
+
   it('opens the chat directly on Edition when no source Pane exists (zero-Pane home state)', async () => {
     // Regression pin: Ctrl+N (sessions.clear) or first launch leaves no focused
     // or current session. Fresh chat must open as the only Pane — never fall
     // into the source-not-visible branch reserved for a captured source that
     // vanished (design.md §4 rule 3).
+    //
+    // The Workspace here is deliberately named after the user's work, not
+    // "Chat": with a "Chat"-named Workspace the FIRST resolution tier answers
+    // and this branch is reachable for that one lucky naming only. Every
+    // ordinary user arrives here through the recent-Workspace tier, so that
+    // is what this fixture exercises.
     const presentation = {
       protocol: 2,
       state: { getSnapshot: () => ({ visible: [] as string[], focused: undefined, capacity: 2 }) },
@@ -406,18 +528,54 @@ describe('createChatActions', () => {
     }
     const fixture = harness({
       sessionSnapshot: { ids: ['chat'], current: undefined, byId: { chat: session('chat') } },
-      workspaceSnapshot: { items: [{ workspaceId: 'chat-ws', title: 'Chat', sessionIds: ['chat'] }] },
+      workspaceSnapshot: {
+        items: [{ workspaceId: 'roadmap-ws', title: 'Product Roadmap', sessionIds: ['chat'] }],
+        recentWorkspaceId: 'roadmap-ws',
+      },
       presentation: presentation as unknown as ReturnType<typeof editionPresentation>,
     })
     const surface = ui()
     const focusComposer = vi.fn()
     await expect(createChatActions({
       services: fixture.services, t, now: () => NOW, ui: surface, focusComposer,
-    }).open()).resolves.toMatchObject({ kind: 'opened', mode: 'edition', sessionId: 'chat' })
+    }).open()).resolves.toMatchObject({
+      kind: 'opened', mode: 'edition', workspaceId: 'roadmap-ws', sessionId: 'chat',
+    })
     expect(fixture.open).toHaveBeenCalledWith('chat')
     expect(presentation.open).not.toHaveBeenCalled()
     expect(focusComposer).toHaveBeenCalledWith('chat')
     expect(surface.notify).not.toHaveBeenCalled()
+  })
+
+  it('resolves the Workspace from the recent projection when the chord is pressed with nothing open', async () => {
+    // The stock-mode half of the same zero-source state, and the one users
+    // actually hit: no focused Pane, no current Session, no Workspace named
+    // "chat". Before the recent-Workspace tier this returned no-workspace and
+    // the chord looked broken.
+    let fixture: ReturnType<typeof harness>
+    const create = vi.fn(async () => {
+      fixture.sessionList.update({
+        ids: ['created-chat'], current: undefined,
+        byId: { 'created-chat': session('created-chat', { updatedAt: NOW }) },
+      })
+      return { result: { ok: true as const, value: { sessionId: 'created-chat', agentPreset: 'chat' } } }
+    })
+    fixture = harness({
+      sessionSnapshot: { ids: [], current: undefined, byId: {} },
+      workspaceSnapshot: {
+        items: [
+          { workspaceId: 'archive-ws', title: 'Archive', sessionIds: [] },
+          { workspaceId: 'roadmap-ws', title: 'Product Roadmap', sessionIds: [] },
+        ],
+        recentWorkspaceId: 'roadmap-ws',
+      },
+      create,
+    })
+    const result = await createChatActions({
+      services: fixture.services, t, now: () => NOW, ui: ui(), focusComposer: vi.fn(),
+    }).open()
+    expect(fixture.create).toHaveBeenCalledWith({ workspaceId: 'roadmap-ws', agentPreset: 'chat' })
+    expect(result).toMatchObject({ kind: 'opened', workspaceId: 'roadmap-ws', sessionId: 'created-chat' })
   })
 
   it('returns source-not-visible and cancelled as distinct Edition outcomes', async () => {

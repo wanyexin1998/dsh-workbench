@@ -90,11 +90,42 @@ describe('sideChatServices', () => {
   it.each([
     ['stock presentation', { scope: vi.fn(), fork: vi.fn() }],
     ['fork', { scope: vi.fn(), presentation }],
+    ['scope', { fork: vi.fn(), presentation }],
     ['open', { scope: vi.fn(), fork: vi.fn(), presentation: { ...presentation, open: undefined } }],
     ['focus', { scope: vi.fn(), fork: vi.fn(), presentation: { ...presentation, focus: undefined } }],
+    ['state.getSnapshot', { scope: vi.fn(), fork: vi.fn(), presentation: { ...presentation, state: {} } }],
   ])('rejects a bundle missing %s', (_label, sessions) => {
     expect(sideChatServices({ sessions } as never)).toBeUndefined()
   })
+
+  // The protocol number is the fail-closed half of this gate and it was the
+  // one condition no case above could reach: every other rejection fixture
+  // either drops `presentation` wholesale or breaks a member the remaining
+  // conditions already reject on their own, so the comparison could be
+  // widened to a bare presence check and the whole suite stayed green.
+  // A same-numbered-but-different face is exactly what a downstream fork
+  // ships, and forking a child session into a face this release was never
+  // tested against displaces the source Pane — so an off-protocol face must
+  // be rejected even when every member this plugin calls is present and
+  // callable.
+  it.each([
+    ['1 (an older revision)', 1],
+    ['3 (a newer revision)', 3],
+    ['2.5 (a fork revision)', 2.5],
+    ['the string "2"', '2'],
+    ['undefined', undefined],
+    ['null', null],
+  ])(
+    'rejects an otherwise complete face carrying presentation.protocol %s',
+    (_label, protocol) => {
+      const sessions = {
+        scope: vi.fn(),
+        fork: vi.fn(),
+        presentation: { ...presentation, protocol },
+      }
+      expect(sideChatServices({ sessions } as never)).toBeUndefined()
+    },
+  )
 })
 
 // MEDIUM 1 (Opus review, round 2 of native-actions-pivot): `currentSessionId`/

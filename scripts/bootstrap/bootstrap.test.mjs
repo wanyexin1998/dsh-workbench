@@ -491,6 +491,41 @@ test('dsh-workbench-bootstrap.ps1: a trailing valueless -TgzSha256 flag exits pr
   assert.match(result.stderr, /TgzSha256/iu)
 })
 
+// --- F11 regression: a flag that IS given an unusable value must still leave ---
+// --- through the JSON contract, unlike the valueless-flag case above ----------
+//
+// $Target used to be normalized with [System.IO.Path]::GetFullPath at the top
+// of the script -- above every function definition and outside the main try.
+// An empty -Target therefore threw before any handler existed: the process
+// printed one raw PowerShell exception to stderr, wrote NO JSON to stdout at
+// all, and a contract-abiding caller (which parses the last stdout line) got a
+// JSON.parse failure instead of a `failed` terminal state. Unlike the B4 case
+// above, this one is NOT a PowerShell binder rejection -- the binder accepts
+// the empty string happily and the script body runs -- so it must go through
+// Complete-Result like every other predictable argument error.
+//
+// -CheckOnly is passed so that a regression which merely relocated the throw
+// (rather than restoring the contract) still cannot reach a network or write
+// phase, and so that a regression which silently fell back to the DEFAULT
+// target instead of reporting the bad value fails here too (it would reach
+// manual-action-required, not failed).
+test('dsh-workbench-bootstrap.ps1: an unusable -Target value still emits a result.mjs-valid failed JSON as the last stdout line (F11 regression)', { skip: ps1SkipReason() }, () => {
+  const result = spawnSync(powerShellExe, ['-NoProfile', '-File', ps1Path, '-Target', '', '-CheckOnly'], { encoding: 'utf8', timeout: SCRIPT_TIMEOUT_MS })
+  assert.notEqual(result.signal, 'SIGTERM', 'the process must exit on its own well within the timeout, not be killed by it (i.e. must not hang)')
+  let parsed
+  try {
+    parsed = parseLastJsonLine(result.stdout)
+  } catch (parseError) {
+    assert.fail(`last stdout line was not valid JSON: ${parseError.message}\n--- stdout ---\n${result.stdout}\n--- stderr ---\n${result.stderr}`)
+  }
+  assertRoundTripsThroughMakeResult(parsed)
+  assert.equal(parsed.state, 'failed')
+  assert.match(parsed.reason, /-Target/u, 'the reason must name the offending parameter')
+  assert.equal(typeof parsed.nextStep, 'string')
+  assert.notEqual(parsed.nextStep.trim(), '')
+  assert.equal(result.status, EXPECTED_EXIT_CODE_FOR_STATE.failed)
+})
+
 // --- S4 regression: full-charset hash validation, not just first/last char ---
 
 test('dsh-workbench-bootstrap.sh: pin self-consistency rejects an embedded WORKBENCH_TGZ_SHA256 with valid first/last hex chars but an invalid character in the middle (S4 mutation regression)', { skip: shSkipReason() }, () => {
@@ -511,6 +546,60 @@ test('dsh-workbench-bootstrap.sh: pin self-consistency rejects an embedded WORKB
   assert.match(parsed.reason, /lowercase 64-hex/iu)
 })
 
+// --- F10 regression: docs/SECURITY_STATEMENT.md's runtime-boundary claim   ---
+// --- must match the product contract and the seeding code it describes     ---
+//
+// The Host entry performs one create-only filesystem write outside anything
+// Workbench owns (the bundled `chat` agent preset, under the resolved Harness
+// home). docs/PRODUCT_CONTRACT.md carved that exception into invariant 7, but
+// docs/SECURITY_STATEMENT.md kept the unqualified "adds no Host filesystem
+// ... capability" claim, so the two documents contradicted each other about
+// the same invariant and the security statement understated what the code
+// does. These assertions read the CODE's own constants, so they also go red
+// if the seeding paths change and the statement is not updated with them.
+//
+// (This suite is the release gate's node:test lane -- see
+// scripts/release-check.mjs -- which is why the check lives here; a dedicated
+// docs-consistency suite would be a better long-term home.)
+
+const repoRoot = join(here, '..', '..')
+const securityStatement = normalizeNewlines(readFileSync(join(repoRoot, 'docs', 'SECURITY_STATEMENT.md'), 'utf8'))
+const productContract = normalizeNewlines(readFileSync(join(repoRoot, 'docs', 'PRODUCT_CONTRACT.md'), 'utf8'))
+const presetSeedSource = normalizeNewlines(readFileSync(join(repoRoot, 'packages', 'dsh-workbench', 'src', 'preset-seed.ts'), 'utf8'))
+const hostEntrySource = normalizeNewlines(readFileSync(join(repoRoot, 'packages', 'dsh-workbench', 'src', 'index.ts'), 'utf8'))
+
+/** The one bullet in either document that states runtime invariant 7. */
+function invariantSevenClaim(documentSource) {
+  const line = documentSource
+    .split('\n')
+    .find(candidate => /Workbench adds no Host filesystem/u.test(candidate))
+  assert.ok(line, 'test setup: could not find the invariant 7 claim in the document')
+  return line
+}
+
+test('docs/SECURITY_STATEMENT.md states invariant 7 with the same seeding carve-out as docs/PRODUCT_CONTRACT.md (F10 regression)', () => {
+  const contractClaim = invariantSevenClaim(productContract)
+  assert.match(contractClaim, /except/u, 'test setup: PRODUCT_CONTRACT.md invariant 7 is expected to carry the seeding carve-out')
+
+  const statementClaim = invariantSevenClaim(securityStatement)
+  assert.match(statementClaim, /except/u, 'docs/SECURITY_STATEMENT.md must not claim Workbench adds NO Host filesystem capability while the Host entry seeds the chat preset -- state the same carve-out PRODUCT_CONTRACT.md invariant 7 states')
+  assert.match(statementClaim, /chat-preset seeding/iu, 'the carve-out must name what the exception is')
+})
+
+test('docs/SECURITY_STATEMENT.md describes the seeding write with the paths the seeding code actually uses (F10 regression)', () => {
+  const marker = /export const SEED_MARKER = '([^']+)'/u.exec(presetSeedSource)
+  const presetId = /export const CHAT_PRESET_ID = '([^']+)'/u.exec(presetSeedSource)
+  const presetRoot = /const USER_PRESET_ROOT = '([^']+)'/u.exec(hostEntrySource)
+  assert.ok(marker && presetId && presetRoot, 'test setup: could not read the seeding constants out of the source')
+
+  const writtenFiles = [...presetSeedSource.matchAll(/io\.writeFile\(join\(presetDir, '([^']+)'\)/gu)].map(match => match[1])
+  assert.ok(writtenFiles.length > 0, 'test setup: could not read the seeded file names out of the source')
+
+  for (const fact of [presetRoot[1], `${presetId[1]}/`, marker[1], ...writtenFiles]) {
+    assert.ok(securityStatement.includes(fact), `docs/SECURITY_STATEMENT.md must name '${fact}' when describing the chat-preset seeding write -- the code writes it`)
+  }
+  assert.match(securityStatement, /\$DSH_HOME/u, 'the statement must say which root the write is resolved against')
+})
 // --- S6 regression: unexpected mid-run death still emits a valid failed JSON ---
 
 test('dsh-workbench-bootstrap.sh: an unexpected mid-run death (forced unbound variable under `set -u`) still emits a valid failed JSON as the last line, via the EXIT trap safety net (S6 mutation regression)', { skip: shSkipReason() }, () => {

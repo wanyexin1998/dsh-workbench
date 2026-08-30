@@ -177,6 +177,127 @@ describe('SelectionController source identity', () => {
   })
 })
 
+/**
+ * Mutation pins for `#validateActive` — the enforcement point of ADR-0009's
+ * "the selection identity captured at capture time is the only identity an
+ * action may act on". The existing suite only reaches this method through
+ * `validatedNode` rejections (hidden node, replaced Session), so each
+ * revalidation predicate could be deleted without turning anything red. Every
+ * case below keeps the capture otherwise perfectly valid and moves exactly one
+ * dimension of that identity.
+ *
+ * Some of those dimensions are guarded in two redundant places, where
+ * deleting a single guard stays green because the other still rejects the
+ * scenario. Those cases name the mutant(s) they actually kill, so nothing
+ * here reads as a pin it is not.
+ */
+describe('SelectionController capture-time identity revalidation', () => {
+  it('drops the capture when the anchor sequence moves under the same node key', () => {
+    const face = sessionFace('stock', node('node'))
+    const controller = new SelectionController(sessionsFixture({ current: 'stock', faces: { stock: face } }))
+    const captured = controller.captureRange(selectionRange().range)
+    expect(captured).toMatchObject({ nodeKey: 'node', atSeq: 42 })
+
+    // Same key, same kind, still visible — only the frozen anchor moved, so
+    // the captured offsets no longer address the text they were taken from.
+    face.nodes.set('node', node('node', 'user', { anchorSeq: 43 }))
+    expect(controller.revalidate(captured!)).toBeNull()
+    // The stale capture is never silently re-pointed at the new anchor.
+    expect(captured!.atSeq).toBe(42)
+    face.set(face.getSnapshot())
+    expect(controller.getSnapshot().selection).toBeNull()
+    controller.dispose()
+  })
+
+  it('drops the capture when the captured row moves under a different Pane identity', () => {
+    // Kills: the `paneSessionId` term of `sameDomSelection` AND
+    // `#validateActive`'s own pane re-check, but only together — either one
+    // alone rejects this scenario, so deleting just one stays green.
+    // That is a property of the product, not a gap in this case: once
+    // `sameDomSelection` has passed, `nextDom.paneSessionId` equals
+    // `active.dom.paneSessionId`, which for a pane-sourced capture IS
+    // `parentSessionId` and otherwise is `undefined` and skipped — so the
+    // re-check can never be the one that rejects. The case after this one
+    // kills the `sameDomSelection` term on its own.
+    const left = sessionFace('left', node('node'))
+    // Same node key and anchor on both sides: only the Pane identity separates
+    // the frozen routing target from the Session the row now sits in.
+    const right = sessionFace('right', node('node'))
+    const sessions = sessionsFixture({ current: 'right', visible: ['left', 'right'], faces: { left, right } })
+    const controller = new SelectionController(sessions)
+    const { range, root } = selectionRange({ sessionId: 'left' })
+    const captured = controller.captureRange(range)
+    expect(captured).toMatchObject({ parentSessionId: 'left' })
+
+    root.closest<HTMLElement>('[data-session-pane]')!.dataset.sessionPane = 'right'
+    expect(controller.revalidate(captured!)).toBeNull()
+    // Routing stays frozen on 'left' and is withdrawn rather than retargeted.
+    expect(captured!.parentSessionId).toBe('left')
+    left.set(left.getSnapshot())
+    expect(controller.getSnapshot().selection).toBeNull()
+    controller.dispose()
+  })
+
+  it('drops a pane-less capture once its own subtree starts claiming a Pane', () => {
+    // Kills: the `paneSessionId` term of `sameDomSelection`, on its own — the
+    // one mutant the case above cannot reach. Captured under stock rendering
+    // (no `[data-session-pane]` ancestor at all), the host then marks the
+    // Conversation root as the Pane of the very Session this capture is
+    // already routed to. Nothing else about the selection moves, and
+    // `#validateActive`'s own pane re-check is satisfied (the new marker
+    // agrees with `parentSessionId`), so the capture-time DOM comparison is
+    // the only thing left that can reject it — and it must: the frozen
+    // capture is withdrawn, never adopted into a Pane it was not taken in.
+    // The marker is set in place rather than by re-parenting the root, which
+    // would collapse the live Range and make this pass for the wrong reason.
+    const face = sessionFace('stock', node('node'))
+    const controller = new SelectionController(sessionsFixture({ current: 'stock', faces: { stock: face } }))
+    const { range, root } = selectionRange()
+    const captured = controller.captureRange(range)
+    expect(captured).toMatchObject({ parentSessionId: 'stock' })
+
+    root.dataset.sessionPane = 'stock'
+    expect(controller.revalidate(captured!)).toBeNull()
+    face.set(face.getSnapshot())
+    expect(controller.getSnapshot().selection).toBeNull()
+    controller.dispose()
+  })
+
+  it('drops the capture when a row re-render shifts the frozen offsets', () => {
+    const faceStore = sessionFace('stock', node('node'))
+    const controller = new SelectionController(sessionsFixture({ current: 'stock', faces: { stock: faceStore } }))
+    const { range, row } = selectionRange()
+    const captured = controller.captureRange(range)
+    expect(captured).toMatchObject({ text: 'selected text', startOffset: 0, endOffset: 13 })
+
+    // Kills: the offset terms of `sameDomSelection` as a pair — deleting
+    // either `startOffset` or `endOffset` alone stays green, since a shift
+    // moves both.
+    // The row re-renders with content ahead of the selection: the same visible
+    // text is still present, but at row offsets 7..20 rather than 0..13.
+    row.prepend(document.createTextNode('prefix '))
+    expect(controller.revalidate(captured!)).toBeNull()
+    expect(captured!.startOffset).toBe(0)
+    faceStore.set(faceStore.getSnapshot())
+    expect(controller.getSnapshot().selection).toBeNull()
+    controller.dispose()
+  })
+
+  it('drops the capture when the captured row element leaves the document', () => {
+    const faceStore = sessionFace('stock', node('node'))
+    const controller = new SelectionController(sessionsFixture({ current: 'stock', faces: { stock: faceStore } }))
+    const { range, row } = selectionRange()
+    const captured = controller.captureRange(range)
+    expect(captured).not.toBeNull()
+
+    row.remove()
+    expect(controller.revalidate(captured!)).toBeNull()
+    faceStore.set(faceStore.getSnapshot())
+    expect(controller.getSnapshot().selection).toBeNull()
+    controller.dispose()
+  })
+})
+
 describe('SelectionController lifecycle', () => {
   it('clears on Escape, scroll, resize, and dispose', () => {
     const face = sessionFace('s', node('node'))

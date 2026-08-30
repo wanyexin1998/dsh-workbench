@@ -42,7 +42,12 @@ describe('shortcut dispatcher (seam B)', () => {
     return event
   }
 
+  // F8: protocol 2 is the revision the compatibility guard demands
+  // (client/contract.ts). A fixture without it models an INCOMPATIBLE host,
+  // where workbench.pane.close-focused must not register — the registration
+  // gate itself is pinned in settings-section.test.tsx's F8 block.
   const presentation = (focused: string) => ({
+    protocol: 2,
     state: { getSnapshot: () => ({ focused }) },
     close: vi.fn(),
   })
@@ -74,7 +79,7 @@ describe('shortcut dispatcher (seam B)', () => {
     const services = {
       sessions: {
         scope: vi.fn(),
-        presentation: { state: { getSnapshot: () => ({ focused: 's2' }) }, close },
+        presentation: { protocol: 2, state: { getSnapshot: () => ({ focused: 's2' }) }, close },
       },
     }
     const registry = buildShortcutRegistry({ services })
@@ -597,6 +602,30 @@ describe('shortcut dispatcher (seam B)', () => {
       })
       detach = attachDispatcher(registry)
       const event = keydown({ key: 'q', altKey: true })
+      expect(open).toHaveBeenCalledWith('s1')
+      expect(event.defaultPrevented).toBe(true)
+    })
+
+    // F6 (end-to-end): the chord that actually reaches the dispatcher on a
+    // US-layout Mac. Option is a character-COMPOSING modifier, so ⌥Q arrives
+    // as `{ key: 'œ', altKey: true, code: 'KeyQ' }` — reading `key` alone
+    // produced the id 'Alt+œ', which never matched the registered 'Alt+q',
+    // so this default was silently dead on the platform docs/KNOWN_ISSUES.md
+    // lists as a v0.2.0-rc.2 target while Settings still rendered it as ⌥Q.
+    // `code` derivation is platform-independent in chordFromEvent, so this
+    // asserts the fix through the real keydown path under jsdom's own
+    // (non-mac) platform reading.
+    it('F6: the real macOS Option+Q event (key "œ", code "KeyQ") still fires workbench.session.previous', () => {
+      const open = vi.fn()
+      const tracker = createPreviousSessionTracker()
+      tracker.noteFocus('s1')
+      tracker.noteFocus('s2')
+      const registry = buildShortcutRegistry({
+        services: { sessions: { scope: vi.fn(), open, list: stubListSeam() } },
+        previousSessionTracker: tracker,
+      })
+      detach = attachDispatcher(registry)
+      const event = keydown({ key: 'œ', altKey: true, code: 'KeyQ' })
       expect(open).toHaveBeenCalledWith('s1')
       expect(event.defaultPrevented).toBe(true)
     })

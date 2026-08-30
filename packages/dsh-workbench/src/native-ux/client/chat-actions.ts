@@ -1,10 +1,11 @@
 import { openBeside, type BesideOpenResult, type BesidePresentation } from './beside-open.js'
-import { focusedPaneScope, locateComposerInput } from './conversation-dom.js'
+import { focusedPaneScope, locateComposerInput, SESSION_PANE_SELECTOR } from './conversation-dom.js'
 import {
   focusedSessionId,
   type ChatActionServices,
   type ObservableSnapshotFace,
   type SessionListSnapshotFace,
+  type WorkspaceListSnapshotFace,
   type WorkspaceSummaryFace,
 } from './harness-adapter.js'
 
@@ -108,6 +109,12 @@ function strictSessionComposer(sessionId: string): HTMLElement | null {
   // Fresh chat must not accept that fallback or it can focus the old Pane.
   if (!(scope instanceof HTMLElement) || scope.dataset.sessionPane !== sessionId) return null
   return locateComposerInput(scope)
+}
+
+/** True when the host marks Session Panes at all — see the stock branch of
+ * `performOpen` for why an unmarked host must not wait for a composer. */
+function paneMarkersPresent(): boolean {
+  return typeof document !== 'undefined' && document.querySelector(SESSION_PANE_SELECTOR) !== null
 }
 
 function observeDocumentMutations(listener: () => void): () => void {
@@ -217,16 +224,37 @@ function workspaceDisplayName(workspace: WorkspaceSummaryFace): readonly (string
   return [workspace.title, workspace.name]
 }
 
-/** Frozen resolution chain: exact chat title/name first, then source membership. */
+/**
+ * Frozen resolution chain: exact chat title/name first, then source
+ * membership, then the host's own most-recently-active Workspace.
+ *
+ * The third tier exists because the first two are both unreachable from the
+ * zero-Pane home state — nothing is focused and `sessions.list.current` is
+ * empty right after `sessions.clear()` (Workbench's own Primary+N) or on a
+ * fresh launch — which left the whole action silently inert for every user
+ * whose Workspaces are named after their work rather than literally "chat".
+ * `recentWorkspaceId` is a real field of the stock workspace-list snapshot
+ * (see its declaration on `WorkspaceListSnapshotFace` for the pinned-store
+ * citation), so this stays a read of a declared seam, not a guess.
+ *
+ * Still fail-closed at the end: a host that projects no `recentWorkspaceId`,
+ * or one naming a Workspace absent from `items`, resolves to `undefined` and
+ * the caller performs no create and no navigation.
+ */
 export function resolveChatWorkspace(
   workspaces: readonly WorkspaceSummaryFace[],
   sourceSessionId: string | undefined,
+  recentWorkspaceId?: string,
 ): WorkspaceSummaryFace | undefined {
   const named = workspaces.find(workspace =>
     workspaceDisplayName(workspace).some(name => name?.toLocaleLowerCase() === 'chat'))
   if (named !== undefined) return named
-  if (sourceSessionId === undefined) return undefined
-  return workspaces.find(workspace => workspace.sessionIds.includes(sourceSessionId))
+  const owning = sourceSessionId === undefined
+    ? undefined
+    : workspaces.find(workspace => workspace.sessionIds.includes(sourceSessionId))
+  if (owning !== undefined) return owning
+  if (recentWorkspaceId === undefined) return undefined
+  return workspaces.find(workspace => workspace.workspaceId === recentWorkspaceId)
 }
 
 export function isSameLocalCalendarDay(leftMs: number, rightMs: number): boolean {
@@ -305,18 +333,30 @@ export function createChatActions(options: ChatActionOptions): ChatActions {
   const performOpen = async (): Promise<ChatOpenResult> => {
       // Identity must be frozen before session.create and confirmation await.
       const sourceSessionId = captureSourceSessionId(services)
-      let workspaces: readonly WorkspaceSummaryFace[]
+      let workspaceSnapshot: WorkspaceListSnapshotFace
       let sessions: SessionListSnapshotFace
       try {
-        workspaces = services.workspaces.list.getSnapshot().items
+        workspaceSnapshot = services.workspaces.list.getSnapshot()
         sessions = services.sessions.list.getSnapshot()
       } catch (error) {
         diagnostic('[dsh-workbench] workbench.chat.open skipped: workspace/session list unavailable: ' + String(error))
+        // Nothing was created down this path — the Workspace list never
+        // arrived — so the notice names the missing Workspace, not a
+        // creation that was never attempted.
+        notifySafely(ui, t('chat.error.noWorkspace'))
         return { kind: 'no-workspace', sourceSessionId }
       }
-      const workspace = resolveChatWorkspace(workspaces, sourceSessionId)
+      const workspace = resolveChatWorkspace(
+        workspaceSnapshot.items,
+        sourceSessionId,
+        workspaceSnapshot.recentWorkspaceId,
+      )
       if (workspace === undefined) {
         diagnostic('[dsh-workbench] workbench.chat.open skipped: no workspace resolved')
+        // A console line is invisible to the person who just pressed the
+        // chord: without this notice the shortcut simply looks broken. The
+        // action still performs nothing (fail-closed) — it only says so.
+        notifySafely(ui, t('chat.error.noWorkspace'))
         return { kind: 'no-workspace', sourceSessionId }
       }
 
@@ -362,11 +402,21 @@ export function createChatActions(options: ChatActionOptions): ChatActions {
             created, reason: 'open-failed', error,
           }
         }
-        await focusComposerSafely(focusComposer, sessionId)
+        // The notice reports a decision already made (this host cannot split),
+        // so it must not queue behind the composer wait below — on a host with
+        // no pane markers that wait can only end in its own timeout, which
+        // would delay the notice by a full second after the Session switch.
         if (!stockNoticeShown) {
           stockNoticeShown = true
           notifySafely(ui, t('chat.stockDowngrade'))
         }
+        // `strictSessionComposer` deliberately refuses `focusedPaneScope`'s
+        // document fallback (it would focus the OLD Pane's composer), so it
+        // can only ever match inside a `[data-session-pane]` element. A host
+        // that marks no panes at all therefore has nothing this call could
+        // succeed against: skip it rather than hold a document-wide
+        // MutationObserver open until the focus timeout expires.
+        if (paneMarkersPresent()) await focusComposerSafely(focusComposer, sessionId)
         return { kind: 'opened', mode: 'stock', workspaceId: workspace.workspaceId, sessionId, created }
       }
 

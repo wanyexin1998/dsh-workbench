@@ -44,16 +44,52 @@ export function parseChord(spec: string): Chord | null {
   return { key: key === 'Space' ? ' ' : key.toLowerCase(), shift, alt, primary }
 }
 
+// macOS Option is a character-COMPOSING modifier, not a plain flag: on a US
+// layout ⌥Q delivers `{ key: 'œ', altKey: true, code: 'KeyQ' }` — the browser
+// puts the composed character in `key`. Reading `key` alone therefore yields
+// the chord id 'Alt+œ', which can never equal the registered 'Alt+q', so the
+// action is silently dead while Settings still renders it as bound ('⌥Q').
+// When Alt is held, derive the key from the PHYSICAL `code` instead for the
+// plain letter/digit rows. Windows/Linux report the same `code` for the same
+// physical key ('KeyQ' for Alt+Q), so the derived chord id is identical on
+// every platform — cross-platform chord stability is the point of this path,
+// not just a macOS patch. Any other `code` (punctuation, named keys) or an
+// event carrying no `code` at all falls back to the `key` behaviour.
+const CODE_LETTER = /^Key([A-Z])$/
+const CODE_DIGIT = /^Digit([0-9])$/
+
+function altKeyFromCode(code: string | undefined): string | null {
+  if (code === undefined) return null
+  const letter = CODE_LETTER.exec(code)
+  if (letter !== null) return letter[1].toLowerCase()
+  const digit = CODE_DIGIT.exec(code)
+  if (digit !== null) return digit[1]
+  return null
+}
+
 /**
  * Build a chord from a keyboard event. `primary` follows the platform
  * rule: macOS reads Meta only, Windows/Linux read Ctrl only (PRD §9.1).
+ * `code` is optional: absent (or an unrecognised code) keeps the historic
+ * `event.key` behaviour, so non-Alt chords are untouched by the Alt path.
  */
 export function chordFromEvent(
-  event: { key: string; shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean },
+  event: {
+    key: string
+    shiftKey: boolean
+    altKey: boolean
+    ctrlKey: boolean
+    metaKey: boolean
+    code?: string
+  },
   platform: Platform,
 ): Chord {
+  // The code-derived path runs ONLY while Alt is held: without Alt, `key` is
+  // the character the layout actually produced and must win (a Dvorak user
+  // pressing the physical KeyB types "x", and "x" is the chord they mean).
+  const fromCode = event.altKey ? altKeyFromCode(event.code) : null
   return {
-    key: event.key.toLowerCase(),
+    key: fromCode ?? event.key.toLowerCase(),
     shift: event.shiftKey,
     alt: event.altKey,
     primary: platform === 'mac' ? event.metaKey : event.ctrlKey,

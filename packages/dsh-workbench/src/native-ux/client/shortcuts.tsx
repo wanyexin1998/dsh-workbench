@@ -268,7 +268,20 @@ export function buildShortcutRegistry(options: ShortcutActionOptions = {}): Acti
       run: () => stopSession(services),
     }, unbind(overrides['workbench.session.stop']), disabled.has('workbench.session.stop'))
   }
-  if (services.sessions?.presentation !== undefined) {
+  // F8: the presentation face is protocol-versioned. `presentation !== undefined`
+  // alone let this action register on a host the compatibility guard (guard.ts)
+  // has already judged INCOMPATIBLE — applyShortcuts runs before that verdict is
+  // acted on, so a protocol-1 (or protocol-less) host still got the row in
+  // Settings and still had close(focused) fired at a face nothing else in the
+  // Workbench is allowed to touch. Gate on the same protocol the guard demands
+  // (contract.ts SUPPORTED_HARNESS.protocol === 2) plus a callable `close`, so
+  // an incompatible host degrades to "not registered" instead of "registered and
+  // firing into a face we already rejected" — fail-closed, and the keydown can no
+  // longer throw on a face that has no `close` at all.
+  const paneCloseOn =
+    services.sessions?.presentation?.protocol === 2 &&
+    typeof services.sessions.presentation.close === 'function'
+  if (paneCloseOn) {
     registry.register({
       id: 'workbench.pane.close-focused',
       label: 'shortcuts.action.pane.closeFocused',
@@ -924,7 +937,19 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
                 type="button"
                 role="menuitem"
                 data-dsh-nux-unbind={action.id}
-                disabled={overrides[action.id] === undefined || overrides[action.id] === ''}
+                // F9: "Clear" (unbind) used to require an existing override,
+                // which made UNBOUND_SENTINEL unreachable on a fresh install:
+                // an action still on its shipped default (e.g. sidebar.toggle's
+                // browser-reserved Primary+B) had BOTH Clear and Reset greyed
+                // out, so the only way to unbind was to record some throwaway
+                // chord first and come back. Unbinding is meaningful whenever
+                // the row currently HAS a chord; it is pointless only when the
+                // row is already explicitly Unbound, or has no chord to lose
+                // (no override and no default).
+                disabled={
+                  overrides[action.id] === UNBOUND_SENTINEL ||
+                  (overrides[action.id] === undefined && action.defaultChord === null)
+                }
                 onClick={() => { void unbindAction(action.id); setOverflowId(null) }}
                 style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 8px', fontSize: 12, border: 'none', background: 'transparent', cursor: 'pointer' }}
               >

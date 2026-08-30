@@ -1,10 +1,22 @@
 import { describe, expect, it, vi } from 'vitest'
 import { openBeside, preflightBesideOpen, type BesidePresentation } from './beside-open.js'
 
+/**
+ * Host responses that each break exactly one post-open verification predicate:
+ * `evict-source` drops the source Pane, `no-membership` reports focus for a
+ * target that never joined `visible`, `no-focus` lists the target but leaves
+ * focus where it was.
+ */
+type OpenEffect = 'evict-source' | 'no-membership' | 'no-focus'
+
 function presentationFixture(
   visible: string[],
   focused: string,
-  options: { readonly focusNoop?: boolean; readonly openError?: Error } = {},
+  options: {
+    readonly focusNoop?: boolean
+    readonly openError?: Error
+    readonly openEffect?: OpenEffect
+  } = {},
 ) {
   const state = { visible: [...visible], focused }
   const calls: string[] = []
@@ -17,6 +29,15 @@ function presentationFixture(
     open: vi.fn((id: string, request: { disposition: 'beside' | 'replace-focused' }) => {
       calls.push('open:' + request.disposition + ':' + id)
       if (options.openError !== undefined) throw options.openError
+      if (options.openEffect === 'evict-source') {
+        state.visible = [id]
+        state.focused = id
+        return
+      }
+      if (options.openEffect === 'no-membership') {
+        state.focused = id
+        return
+      }
       if (request.disposition === 'beside') {
         const at = state.visible.indexOf(state.focused)
         state.visible.splice(at + 1, 0, id)
@@ -24,7 +45,7 @@ function presentationFixture(
         const at = state.visible.indexOf(state.focused)
         state.visible[at] = id
       }
-      state.focused = id
+      if (options.openEffect !== 'no-focus') state.focused = id
     }),
   }
   return { presentation, state, calls }
@@ -192,5 +213,133 @@ describe('openBeside', () => {
       kind: 'open-failed', sourceSessionId: 'source', targetSessionId: 'chat-created',
       phase: 'open', error: failure,
     })
+  })
+})
+
+const VERIFY_MESSAGE =
+  'beside-open verification failed: target is not focused and visible while source remains visible'
+
+/**
+ * Mutation pins for the post-open verification block. Deleting it leaves every
+ * other test green because the happy paths already end focused and visible;
+ * these three cases are the only ones that separate "the host did what we
+ * asked" from "we reported success on trust". Each failure is what
+ * side-chat-actions turns into `child-open-partial` (stage `open`), so a
+ * silently-dropped check would report a fork as fully opened.
+ */
+describe('openBeside post-open verification', () => {
+  it('fails verification when the host evicts the source Pane while opening the target', async () => {
+    const { presentation, state, calls } = presentationFixture(['source'], 'source', {
+      openEffect: 'evict-source',
+    })
+    const result = await openBeside({
+      presentation,
+      sourceSessionId: 'source',
+      targetSessionId: 'chat',
+      confirmReplace: vi.fn(),
+    })
+
+    expect(result).toMatchObject({
+      kind: 'open-failed', sourceSessionId: 'source', targetSessionId: 'chat', phase: 'verify',
+    })
+    expect((result as { error: Error }).error.message).toBe(VERIFY_MESSAGE)
+    expect(calls).toEqual(['open:beside:chat', 'focus:chat'])
+    // Reported as a failure even though the target itself is focused and visible.
+    expect(state).toEqual({ visible: ['chat'], focused: 'chat' })
+  })
+
+  it('fails verification when the target never joins visible membership', async () => {
+    const { presentation, state, calls } = presentationFixture(['source'], 'source', {
+      openEffect: 'no-membership',
+    })
+    const result = await openBeside({
+      presentation,
+      sourceSessionId: 'source',
+      targetSessionId: 'chat',
+      confirmReplace: vi.fn(),
+    })
+
+    expect(result).toMatchObject({
+      kind: 'open-failed', sourceSessionId: 'source', targetSessionId: 'chat', phase: 'verify',
+    })
+    expect((result as { error: Error }).error.message).toBe(VERIFY_MESSAGE)
+    expect(calls).toEqual(['open:beside:chat', 'focus:chat'])
+    expect(state).toEqual({ visible: ['source'], focused: 'chat' })
+  })
+
+  it('fails verification when the target is visible but focus never lands on it', async () => {
+    const { presentation, state, calls } = presentationFixture(['source'], 'source', {
+      openEffect: 'no-focus', focusNoop: true,
+    })
+    const result = await openBeside({
+      presentation,
+      sourceSessionId: 'source',
+      targetSessionId: 'chat',
+      confirmReplace: vi.fn(),
+    })
+
+    expect(result).toMatchObject({
+      kind: 'open-failed', sourceSessionId: 'source', targetSessionId: 'chat', phase: 'verify',
+    })
+    expect((result as { error: Error }).error.message).toBe(VERIFY_MESSAGE)
+    expect(calls).toEqual(['open:beside:chat', 'focus:chat'])
+    expect(state).toEqual({ visible: ['source', 'chat'], focused: 'source' })
+  })
+
+  it('never reports verified on the replace-focused path when the source is evicted', async () => {
+    const { presentation, calls } = presentationFixture(['source', 'other'], 'source', {
+      openEffect: 'evict-source',
+    })
+    const result = await openBeside({
+      presentation,
+      sourceSessionId: 'source',
+      targetSessionId: 'chat',
+      confirmReplace: () => true,
+    })
+
+    expect(result).toMatchObject({
+      kind: 'open-failed', sourceSessionId: 'source', targetSessionId: 'chat', phase: 'verify',
+    })
+    expect((result as { error: Error }).error.message).toBe(VERIFY_MESSAGE)
+    expect(calls).toEqual(['focus:other', 'open:replace-focused:chat', 'focus:chat'])
+  })
+})
+
+describe('openBeside already-visible fast path', () => {
+  it('focuses an already-visible target without re-confirming capacity or re-opening', async () => {
+    const { presentation, state, calls } = presentationFixture(['source', 'chat'], 'source')
+    const confirmReplace = vi.fn(() => true)
+    const result = await openBeside({
+      presentation,
+      sourceSessionId: 'source',
+      targetSessionId: 'chat',
+      confirmReplace,
+    })
+
+    expect(result).toEqual({
+      kind: 'opened', targetSessionId: 'chat', disposition: 'already-visible', verified: true,
+    })
+    // Without the fast path the layout reads as full and 'chat' becomes the
+    // replacement candidate for its own re-open.
+    expect(confirmReplace).not.toHaveBeenCalled()
+    expect(calls).toEqual(['focus:chat'])
+    expect(state).toEqual({ visible: ['source', 'chat'], focused: 'chat' })
+  })
+
+  it('still verifies the fast path instead of trusting existing membership', async () => {
+    const { presentation, calls } = presentationFixture(['source', 'chat'], 'source', {
+      focusNoop: true,
+    })
+    const result = await openBeside({
+      presentation,
+      sourceSessionId: 'source',
+      targetSessionId: 'chat',
+      confirmReplace: vi.fn(),
+    })
+
+    expect(result).toMatchObject({
+      kind: 'open-failed', sourceSessionId: 'source', targetSessionId: 'chat', phase: 'verify',
+    })
+    expect(calls).toEqual(['focus:chat'])
   })
 })

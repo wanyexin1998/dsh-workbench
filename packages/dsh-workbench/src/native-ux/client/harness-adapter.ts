@@ -75,6 +75,24 @@ export interface WorkspaceSummaryFace {
 
 export interface WorkspaceListSnapshotFace {
   readonly items: readonly WorkspaceSummaryFace[]
+  /**
+   * Most recently active Workspace — the last resort of the fresh-chat
+   * workspace resolution chain (`resolveChatWorkspace`), used when no source
+   * Session was captured at all (zero-Pane home state: nothing focused and
+   * `sessions.list.current` empty, e.g. right after `sessions.clear()`).
+   * Verified as a real, always-projected field of the stock snapshot at the
+   * pinned 0.1.1-rc.2 store: `@deepseek-ai/dsh-client-runtime/lib/types/
+   * client/workspaces/service.d.ts:24-25` declares `WorkspaceListState.
+   * recentWorkspaceId: WorkspaceId | undefined` ("Most recently active
+   * Workspace, derived without changing `items` order"), reached through the
+   * `IWorkspaces.list` read face this plugin already injects.
+   * Optional here for the same reason every other host-provided member on
+   * this boundary is: the field is declared but its VALUE is legitimately
+   * `undefined` before any Workspace has been active, and a host that does
+   * not project it at all must degrade to "no workspace resolved"
+   * (fail-closed), never to an arbitrary pick.
+   */
+  readonly recentWorkspaceId?: string
 }
 
 export interface WorkspacesService {
@@ -144,22 +162,33 @@ export interface SessionsService {
    * `SessionRuntime` class), so `clear()` is the narrowest honest path to
    * "start a new session" reachable through a plugin's own `ctx.sessions`.
    *
-   * NIT 5 (Opus review, round 2): why not call `startSession()` itself (the
-   * sidebar 新会话 button's exact verb, per that method's own doc comment —
-   * service.ts:168, "the shared New Session action behind the shell entry
-   * points") instead of reimplementing its no-workspace fallback branch?
-   * Because it lives on `WorkspaceRuntime` (`ctx.workspaces` — provided via
-   * `ctx.reflect.provide('workspaces', ...)`, service.ts:74), and this
-   * package's `dsh.client.inject` list (`package.json`) does not declare the
-   * fork's workspace-providing plugin — only `dsh-client-runtime`,
-   * `dsh-client-ui-slots`, `dsh-client-locale`, `dsh-client-ui-layout`,
-   * `dsh-client-ui-settings`, `dsh-client-ui-conversation`. `ctx.workspaces`
-   * is simply not a seam this plugin can reach.
-   * User-visible consequence: Ctrl+N always lands on the plain New-Session
-   * (no-Workspace) home, exactly like `startSession()`'s own no-workspace
-   * branch — it never resolves or connects a Workspace the way the sidebar
-   * button's full `startSession()` call additionally does when one is
-   * available (explicit -> current session's -> most-recent Workspace).
+   * Why not call `startSession()` itself (the sidebar 新会话 button's exact
+   * verb — "The New Session flow: connect the explicit, current-Session, or
+   * recent Workspace and open the resulting session") instead of landing on
+   * its no-Workspace fallback branch?
+   * NOT because that verb is out of reach. It IS reachable: `startSession`
+   * is declared on the public `IWorkspaces` face at the pinned 0.1.1-rc.2
+   * store — `@deepseek-ai/dsh-client-runtime/lib/types/client/contract/
+   * workspaces.d.ts:29` — and this plugin already injects and consumes
+   * `ctx.workspaces` (src/client/index.tsx's `inject` list; the
+   * `WorkspacesService` seam below, which fresh chat reads through
+   * `ChatActionServices`). An earlier revision of this comment asserted the
+   * opposite ("`ctx.workspaces` is simply not a seam this plugin can
+   * reach"); that claim was already false when it was written and is left
+   * recorded here only so the correction is not silently re-litigated.
+   * The real reason is a product one: this action is a keyboard chord whose
+   * whole contract is "put me on the New Session home". `clear()` does
+   * exactly that and nothing else, while `startSession()` additionally
+   * connects a Workspace the user did not choose and creates or reuses a
+   * Session inside it (`IWorkspaces.connectWorkspace`) as a side effect of
+   * pressing the chord.
+   * Switching to `startSession()` is therefore an open product decision, not
+   * a blocked one — it needs the `WorkspacesService` seam below widened past
+   * its current read-only `list`, a change in `shortcuts.tsx`'s
+   * `workbench.session.new` action, and its own test.
+   * User-visible consequence as shipped: Ctrl+N always lands on the plain
+   * New-Session (no-Workspace) home, exactly like `startSession()`'s own
+   * no-workspace branch.
    * Optional: a `sessions` double predating this action (every existing test
    * fixture) legitimately lacks it.
    */

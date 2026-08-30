@@ -24,6 +24,13 @@ export const BROWSER_RESERVED: readonly ReservedEntry[] = [
   { chord: 'Primary+S', note: 'reserved.note.savePage' },
   { chord: 'Primary+T', note: 'reserved.note.newTab' },
   { chord: 'Primary+W', note: 'reserved.note.closeTab' },
+  // F4: Chrome / Edge / Firefox all bind this to DevTools "Inspect element".
+  // It is workbench.chat.open's shipped default chord, kept as a product
+  // decision (rebinding it would break documentation and existing muscle
+  // memory) — the same treatment workbench.session.new's Primary+N gets:
+  // the chord stays, and the Settings row surfaces the collision so the user
+  // can see why the browser may win and rebind if they want to.
+  { chord: 'Primary+Shift+C', note: 'reserved.note.devtoolsInspect' },
   { chord: 'Primary+Shift+N', note: 'reserved.note.incognito' },
   { chord: 'Primary+Shift+P', note: 'reserved.note.printPreview' },
   { chord: 'Primary+Shift+T', note: 'reserved.note.reopenTab' },

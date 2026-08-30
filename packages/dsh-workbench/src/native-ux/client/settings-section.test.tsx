@@ -7,15 +7,21 @@ import { SettingsSection, type ShortcutCapabilities, type ShortcutSettingsContro
 import { en, zh } from './locales.js'
 import { parsePersistedState } from './shortcut-persistence.js'
 import { createThirdPartyActionsHandle, type ThirdPartyActionsHandle } from './actions-api.js'
+import { UNBOUND_SENTINEL } from '../core/shortcut-settings.js'
+import { parseChord } from '../core/chord.js'
 
 /** Host where both services exist (the realistic case): service-backed
  * actions (sidebar / session.stop) register. GA-043 fail-soft gates them on
- * service presence, so UI tests default to a fully-serviced host. */
+ * service presence, so UI tests default to a fully-serviced host.
+ * F8: `presentation.protocol: 2` is what a COMPATIBLE fork host actually
+ * reports (client/contract.ts SUPPORTED_HARNESS.protocol) — without it the
+ * host is one the compatibility guard rejects, and workbench.pane.close-focused
+ * must not register at all. */
 const HOST_SERVICES = {
   layout: { toggleSidebar: () => {} },
   sessions: {
     scope: () => ({ get: () => ({ cancel: () => {} }) }),
-    presentation: { close: () => {}, state: { getSnapshot: () => ({}) } },
+    presentation: { protocol: 2, close: () => {}, state: { getSnapshot: () => ({}) } },
   },
 }
 
@@ -553,6 +559,170 @@ describe('SettingsSection (T8)', () => {
     expect((untrustedRow.querySelector('[data-dsh-nux-chord-button]') as HTMLButtonElement).disabled).toBe(true)
     const trustedRow = document.querySelector('[data-dsh-nux-shortcut-row="myplugin.doThing"]')!
     expect((trustedRow.querySelector('[data-dsh-nux-chord-button]') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  // -------------------------------------------------------------------
+  // F7 — saveRecording's second loop (the registry sweep). Recording a
+  // chord that is another action's shipped DEFAULT (not an override) must
+  // still displace that action into an explicit UNBOUND sentinel. Without
+  // the sweep the first loop — which only walks `overrides` — never sees the
+  // default owner, two actions end up on one chord, and ActionRegistry.
+  // resolve() returns null for `length !== 1`: BOTH actions go dead while
+  // Settings shows the new binding as saved. That is exactly the "silent
+  // dead-lock with the default" saveRecording's own comment promises to avoid.
+  // -------------------------------------------------------------------
+
+  it('F7: recording another action DEFAULT chord unbinds that action explicitly (no two-owner dead-lock)', async () => {
+    // Primary+B is workbench.layout.sidebar.toggle's shipped default AND a
+    // browser-reserved bookmarks chord, so a user has every reason to move it
+    // onto something else — here workbench.session.stop, which carries NO
+    // override, so only the registry sweep can notice the collision.
+    const controller = makeController()
+    renderSection(controller)
+
+    const stopButton = document.querySelector('[data-dsh-nux-chord="workbench.session.stop"]') as HTMLButtonElement
+    fireEvent.click(stopButton)
+    fireEvent.keyDown(window, { key: 'b', ctrlKey: true })
+    fireEvent.click(screen.getByText('shortcuts.save'))
+    await act(async () => {})
+
+    const persisted = (controller.persist as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0] as {
+      bindings: Record<string, string>
+    }
+    // (1) the displaced DEFAULT owner is written out as an explicit Unbound.
+    expect(persisted.bindings['workbench.session.stop']).toBe('Primary+B')
+    expect(persisted.bindings['workbench.layout.sidebar.toggle']).toBe(UNBOUND_SENTINEL)
+
+    // (2) reload from exactly those bindings: one owner, no conflict, and the
+    // chord dispatches to the action the user just bound it to.
+    const reloaded = buildShortcutRegistry({ overrides: persisted.bindings, services: HOST_SERVICES })
+    expect(reloaded.conflicts()).toEqual([])
+    expect(reloaded.resolve(parseChord('Primary+B')!)?.id).toBe('workbench.session.stop')
+    expect(reloaded.bindingChord('workbench.layout.sidebar.toggle')).toBeNull()
+  })
+
+  // -------------------------------------------------------------------
+  // F8 — workbench.pane.close-focused is gated on the presentation face's
+  // PROTOCOL, not merely on the face existing.
+  // -------------------------------------------------------------------
+
+  it('F8: a protocol-1 host (guard verdict: incompatible) does not register workbench.pane.close-focused at all', () => {
+    const legacyHost = {
+      ...HOST_SERVICES,
+      sessions: {
+        ...HOST_SERVICES.sessions,
+        presentation: { protocol: 1, close: () => {}, state: { getSnapshot: () => ({}) } },
+      },
+    }
+    const registry = buildShortcutRegistry({ services: legacyHost })
+    expect(registry.all().some((a) => a.id === 'workbench.pane.close-focused')).toBe(false)
+    // ...and the incompatible host's Settings page never offers the row.
+    renderSection(makeController({}, undefined, legacyHost))
+    expect(document.querySelector('[data-dsh-nux-shortcut-row="workbench.pane.close-focused"]')).toBeNull()
+    expect(screen.queryByText('shortcuts.action.pane.closeFocused')).toBeNull()
+  })
+
+  it('F8: a presentation face with no protocol and no close() is treated as absent (no keydown-time throw)', () => {
+    const facelessHost = {
+      ...HOST_SERVICES,
+      sessions: { ...HOST_SERVICES.sessions, presentation: { state: { getSnapshot: () => ({}) } } },
+    } as unknown as typeof HOST_SERVICES
+    const registry = buildShortcutRegistry({ services: facelessHost })
+    expect(registry.all().some((a) => a.id === 'workbench.pane.close-focused')).toBe(false)
+  })
+
+  it('F8: a protocol-2 host whose presentation face has NO close() does not register either', () => {
+    // The half of the gate the protocol check alone cannot cover, and the one
+    // the original crash came from: `presentation` exists and even reports the
+    // supported protocol, but `close` is missing, so the old
+    // `presentation !== undefined` test registered an action whose run() threw
+    // "close is not a function" on the very first Primary+\ keydown. Fail
+    // closed: no callable verb, no capability.
+    const closeless = {
+      ...HOST_SERVICES,
+      sessions: {
+        ...HOST_SERVICES.sessions,
+        presentation: { protocol: 2, state: { getSnapshot: () => ({ focused: 's1' }) } },
+      },
+    } as unknown as typeof HOST_SERVICES
+    const registry = buildShortcutRegistry({ services: closeless })
+    expect(registry.all().some((a) => a.id === 'workbench.pane.close-focused')).toBe(false)
+    // Nothing is left for a keydown to dispatch into, so the throw is
+    // unreachable rather than merely unlikely.
+    expect(registry.resolve(parseChord('Primary+\\')!)).toBeNull()
+  })
+
+  it('F8: the compatible protocol-2 host still registers the row (the gate is not a blanket removal)', () => {
+    const registry = buildShortcutRegistry({ services: HOST_SERVICES })
+    expect(registry.all().some((a) => a.id === 'workbench.pane.close-focused')).toBe(true)
+    renderSection()
+    expect(document.querySelector('[data-dsh-nux-shortcut-row="workbench.pane.close-focused"]')).not.toBeNull()
+  })
+
+  // -------------------------------------------------------------------
+  // F9 — "Clear" (unbind) reachability on a fresh install.
+  // -------------------------------------------------------------------
+
+  it('F9: Clear is enabled for an action still on its shipped default (fresh install, no override)', async () => {
+    const controller = makeController() // no overrides at all
+    renderSection(controller)
+    const row = document.querySelector('[data-dsh-nux-shortcut-row="workbench.layout.sidebar.toggle"]')!
+    fireEvent.click(row.querySelector('[data-dsh-nux-overflow]')!)
+    const unbindButton = row.querySelector('[data-dsh-nux-unbind]') as HTMLButtonElement
+    // Reset stays disabled (nothing to reset TO) — that part is correct and
+    // is precisely why Clear had to be reachable on its own.
+    expect((row.querySelector('[data-dsh-nux-reset]') as HTMLButtonElement).disabled).toBe(true)
+    expect(unbindButton.disabled).toBe(false)
+
+    fireEvent.click(unbindButton)
+    await act(async () => {})
+    expect(controller.scope.set).toHaveBeenCalledWith('workbench.layout.sidebar.toggle', UNBOUND_SENTINEL)
+    const persisted = (controller.persist as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0] as {
+      bindings: Record<string, string>
+    }
+    expect(persisted.bindings['workbench.layout.sidebar.toggle']).toBe(UNBOUND_SENTINEL)
+  })
+
+  it('F9: Clear is disabled once the action is ALREADY unbound (nothing left to clear)', () => {
+    const controller = makeController({ 'workbench.layout.sidebar.toggle': UNBOUND_SENTINEL })
+    renderSection(controller)
+    const row = document.querySelector('[data-dsh-nux-shortcut-row="workbench.layout.sidebar.toggle"]')!
+    fireEvent.click(row.querySelector('[data-dsh-nux-overflow]')!)
+    expect((row.querySelector('[data-dsh-nux-unbind]') as HTMLButtonElement).disabled).toBe(true)
+    // Reset is still available: it restores the shipped default.
+    expect((row.querySelector('[data-dsh-nux-reset]') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('F9: Clear is disabled for an action that ships with no default chord and has no override', () => {
+    const handle = createThirdPartyActionsHandle()
+    handle.service.register({ id: 'myplugin.noChord', label: () => 'No chord', run: () => {} })
+    renderSection(makeController({}, undefined, HOST_SERVICES, handle))
+    const row = document.querySelector('[data-dsh-nux-shortcut-row="myplugin.noChord"]')!
+    fireEvent.click(row.querySelector('[data-dsh-nux-overflow]')!)
+    expect((row.querySelector('[data-dsh-nux-unbind]') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  // -------------------------------------------------------------------
+  // F4 — Primary+Shift+C (workbench.chat.open's default) collides with the
+  // DevTools element inspector in Chrome/Edge/Firefox. The chord is KEPT;
+  // the row must surface the warning, exactly like session.new's Primary+N.
+  // -------------------------------------------------------------------
+
+  it('F4: the workbench.chat.open row shows the DevTools reserved note for its default chord', () => {
+    const chatActions = { open: async () => ({ kind: 'no-workspace' as const, sourceSessionId: undefined }) }
+    const controller = makeController()
+    controller.registry = buildShortcutRegistry({ services: HOST_SERVICES, chatActions })
+    renderSection(controller)
+    const row = document.querySelector('[data-dsh-nux-shortcut-row="workbench.chat.open"]')
+    expect(row).not.toBeNull()
+    expect(row!.textContent).toContain('Ctrl+Shift+C')
+    expect(row!.textContent).toContain('reserved.note.devtoolsInspect')
+  })
+
+  it('F4: both shipped dictionaries carry the new reserved note key', () => {
+    expect(zh['reserved.note.devtoolsInspect']).toBeTruthy()
+    expect(en['reserved.note.devtoolsInspect']).toBeTruthy()
+    expect(zh['reserved.note.devtoolsInspect']).not.toBe(en['reserved.note.devtoolsInspect'])
   })
 
   it('W3.1: disposing a third-party registration removes its row (reload re-renders without it)', async () => {
