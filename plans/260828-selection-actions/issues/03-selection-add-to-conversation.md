@@ -4,13 +4,13 @@
 
 **Blocked by:** 01 — ADR 与接口契约冻结
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] 合法选区出现工具条；非法选区（跨 Pane、跨消息、streaming 中、collapsed、纯控件文本、超 16 KiB）fail closed，不出现或明确禁用
-- [ ] 双 Pane 下左右各自划词，动作分别命中各自 Session；不存在"退化到文档第一个 flow"的路径
-- [ ] 捕获后切换 focus，动作仍命中捕获时的 parentSessionId
-- [ ] 选区进入来源 Pane composer 的聚合 capsule；保留既有草稿；多段收集只产生一个 capsule；删除一项不影响其他项与草稿
-- [ ] 发送成功后日志顺序与模型可见文本可由 Session replay 重建；发送失败时草稿与 reference 保留
-- [ ] codec 缺失或序列化失败时阻止发送，不静默丢弃选区
-- [ ] Escape / scroll / resize / Session 替换 / 插件 dispose 均清理浮层与 listener
-- [ ] stock Harness 上全部行为可用；typecheck 与测试全绿
+- [x] 合法选区出现工具条；非法选区（跨 Pane、跨消息、streaming 中、collapsed、纯控件文本、超 16 KiB）fail closed，不出现或明确禁用
+- [x] 双 Pane 下左右各自划词，动作分别命中各自 Session；不存在"退化到文档第一个 flow"的路径
+- [x] 捕获后切换 focus，动作仍命中捕获时的 parentSessionId
+- [x] 选区进入来源 Pane composer 的聚合 capsule；保留既有草稿；多段收集只产生一个 capsule；删除一项不影响其他项与草稿
+- [x] 发送成功后日志顺序与模型可见文本可由 Session replay 重建；发送失败时草稿与 reference 保留
+- [x] codec 缺失或序列化失败时阻止发送，不静默丢弃选区
+- [x] Escape / scroll / resize / Session 替换 / 插件 dispose 均清理浮层与 listener
+- [x] stock Harness 上全部行为可用；typecheck 与测试全绿

@@ -4,10 +4,10 @@
 
 **Blocked by:** 04 — 更多详情（side chat 基建）
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] 按钮 gate 行为与 04 号一致（仅 Edition 出现）
-- [ ] child 打开后 composer 聚焦，携带选区 reference 与空草稿；父/child 均无模型调用发生
-- [ ] 用户显式发送后，boundary + 选区上下文 + 用户问题按正常输入路径进入 child 日志，可 replay 重建
-- [ ] 用户直接关闭未发送的 child：无模型调用发生过；会话按 PRD D3 保留
-- [ ] typecheck 与测试全绿
+- [x] 按钮 gate 行为与 04 号一致（仅 Edition 出现）
+- [x] child 打开后 composer 聚焦，携带选区 reference 与空草稿；父/child 均无模型调用发生
+- [x] 用户显式发送后，boundary + 选区上下文 + 用户问题按正常输入路径进入 child 日志，可 replay 重建
+- [x] 用户直接关闭未发送的 child：无模型调用发生过；会话按 PRD D3 保留
+- [x] typecheck 与测试全绿

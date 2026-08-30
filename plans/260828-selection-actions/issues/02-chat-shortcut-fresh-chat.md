@@ -4,13 +4,13 @@
 
 **Blocked by:** 01 — ADR 与接口契约冻结
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Edition：按键后 chat 会话在旁边 Pane 打开并聚焦，来源 Pane 的草稿、滚动、Navigator 状态零扰动
-- [ ] stock：切换到新 chat 会话 + 一次性降级提示；不 gate
-- [ ] 归属链正确：有 `chat` 工作区归它，否则归当前工作区；一个工作区都没有时安全 no-op 并在控制台说明
-- [ ] blank 复用：连续触发不产生第二个空会话
-- [ ] 新会话使用 chat preset（Pane 标题栏显示"聊天模式 / Chat mode"标签），per-session 模型选择器照常可用
-- [ ] 动作 `workbench.chat.open` 出现在设置页，可改键 / 禁用 / 恢复默认；capability 缺席时不注册
-- [ ] beside-open 容量决策树为共享模块，容量满确认、来源不可见拒绝、部分成功分别报告均有测试
-- [ ] 中英词条齐全；typecheck 与测试全绿
+- [x] Edition：按键后 chat 会话在旁边 Pane 打开并聚焦，来源 Pane 的草稿、滚动、Navigator 状态零扰动
+- [x] stock：切换到新 chat 会话 + 一次性降级提示；不 gate
+- [x] 归属链正确：有 `chat` 工作区归它，否则归当前工作区；一个工作区都没有时安全 no-op 并在控制台说明
+- [x] blank 复用：连续触发不产生第二个空会话
+- [x] 新会话使用 chat preset（Pane 标题栏显示"聊天模式 / Chat mode"标签），per-session 模型选择器照常可用
+- [x] 动作 `workbench.chat.open` 出现在设置页，可改键 / 禁用 / 恢复默认；capability 缺席时不注册
+- [x] beside-open 容量决策树为共享模块，容量满确认、来源不可见拒绝、部分成功分别报告均有测试
+- [x] 中英词条齐全；typecheck 与测试全绿

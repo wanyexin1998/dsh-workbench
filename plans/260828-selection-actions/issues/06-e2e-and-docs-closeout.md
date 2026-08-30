@@ -4,11 +4,11 @@
 
 **Blocked by:** 02、03、04、05
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] 真实浏览器 E2E：左右 Pane 各自划词命中各自 Session；容量满确认替换；focus 变化不重排不重挂载；stock 降级路径可用
-- [ ] chat 快捷键 E2E：Edition beside 打开与 stock 切换 + 提示各验证一遍；chat Pane 标题栏标签正确；请求维持零工具水平
-- [ ] README 与 README_EN 新增"随手问"章节与三列对比表（极简模式 / 聊天模式 / 侧聊），并更新既有聊天模式章节的快捷键说明
-- [ ] `docs/PRODUCT_CONTRACT.md` 记录随手问行为、side chat 副作用与 stock 降级；与 `release-contract.json` 一致
-- [ ] 移植过 MIT 代码则 `THIRD_PARTY_NOTICES.md` 更新，含固定 SHA
-- [ ] `pnpm release:check` 全部通过
+- [x] 真实浏览器 E2E：左右 Pane 各自划词命中各自 Session；容量满确认替换；focus 变化不重排不重挂载；stock 降级路径可用
+- [x] chat 快捷键 E2E：Edition beside 打开与 stock 切换 + 提示各验证一遍；chat Pane 标题栏标签正确；请求维持零工具水平
+- [x] README 与 README_EN 新增"随手问"章节与三列对比表（极简模式 / 聊天模式 / 侧聊），并更新既有聊天模式章节的快捷键说明
+- [x] `docs/PRODUCT_CONTRACT.md` 记录随手问行为、side chat 副作用与 stock 降级；与 `release-contract.json` 一致
+- [x] 移植过 MIT 代码则 `THIRD_PARTY_NOTICES.md` 更新，含固定 SHA — 不适用：未复制任何参考实现代码，固定 SHA 与许可边界记录在 ADR-0009「Reference implementation boundary」
+- [x] `pnpm release:check` 全部通过
