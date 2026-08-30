@@ -18,6 +18,7 @@ import { NS } from './locales.js'
 import { warnOnce } from './capabilities.js'
 import { navigatorBus } from './navigator-bus.js'
 import {
+  chatActionServices,
   currentSessionId,
   focusedSessionId,
   resolveHarnessServices,
@@ -29,6 +30,7 @@ import {
 import { focusedPaneScope, locateComposerInput, locateScrollport } from './conversation-dom.js'
 import { createThirdPartyActionsHandle, type ThirdPartyActionsHandle } from './actions-api.js'
 import { createPreviousSessionTracker, type PreviousSessionTracker } from '../core/previous-session-tracker.js'
+import { createChatActions, type ChatActions } from './chat-actions.js'
 
 /** Coalesce a burst of synchronous calls into exactly one invocation of `fn`,
  * scheduled on the microtask queue. Formerly shared with the W2 host
@@ -159,6 +161,9 @@ export interface ShortcutActionOptions {
    * in tests that do not register that action (its capability gate then
    * simply reads an always-empty tracker). */
   previousSessionTracker?: PreviousSessionTracker
+  /** Fresh-chat action instance. Created once by applyShortcuts so its
+   * stock downgrade notice remains once-per-plugin-instance across reloads. */
+  chatActions?: ChatActions
 }
 
 /** Explicit-unbound sentinel maps to the registry's unbind marker (''). */
@@ -275,6 +280,15 @@ export function buildShortcutRegistry(options: ShortcutActionOptions = {}): Acti
         if (focused !== undefined) services.sessions?.presentation?.close(focused)
       },
     }, unbind(overrides['workbench.pane.close-focused']), disabled.has('workbench.pane.close-focused'))
+  }
+  if (options.chatActions !== undefined) {
+    registry.register({
+      id: 'workbench.chat.open',
+      label: 'shortcuts.action.chat.open',
+      defaultChord: 'Primary+Shift+C',
+      allowWhileTyping: true,
+      run: () => { void options.chatActions?.open() },
+    }, unbind(overrides['workbench.chat.open']), disabled.has('workbench.chat.open'))
   }
   if (sessionNewOn) {
     // MEDIUM 2 (Opus review, round 2): Primary+N sits in the "browser claims
@@ -1110,6 +1124,10 @@ function chordToSpec(chord: Chord): string {
 export function applyShortcuts(ctx: HarnessContext): ThirdPartyActionsHandle {
   const t = ctx.locale.bind(NS)
   const services = resolveHarnessServices(ctx)
+  const availableChatServices = chatActionServices(services)
+  const chatActions = availableChatServices === undefined
+    ? undefined
+    : createChatActions({ services: availableChatServices, t })
   const scope = ctx.settingsScope.bind({ namespace: 'dsh-native-ux-shortcuts' })
   const persistence = new FallbackShortcutPersistence(
     new HostShortcutPersistence(scope),
@@ -1158,7 +1176,7 @@ export function applyShortcuts(ctx: HarnessContext): ThirdPartyActionsHandle {
   const offFocusTracking = subscribeCurrentSessionId(services, () => {
     previousSessionTracker.noteFocus(currentSessionId(services))
   })
-  let registry = buildShortcutRegistry({ services, thirdPartyActionsHandle, previousSessionTracker })
+  let registry = buildShortcutRegistry({ services, thirdPartyActionsHandle, previousSessionTracker, chatActions })
   let detach = attachDispatcher(registry)
   // Last-known full state, threaded through every reload() call so an
   // externally-triggered resync (which does not itself carry
@@ -1176,6 +1194,7 @@ export function applyShortcuts(ctx: HarnessContext): ThirdPartyActionsHandle {
       disabled: currentDisabled,
       thirdPartyActionsHandle,
       previousSessionTracker,
+      chatActions,
     })
     detach = attachDispatcher(registry)
     controller.registry = registry

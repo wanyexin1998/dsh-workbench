@@ -1,5 +1,7 @@
 import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
+import type { IConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { InputTriggerServiceContract } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { runStartupGuard, WORKBENCH_VISIBLE_CAPACITY } from './guard.ts'
 import { SUPPORTED_HARNESS } from './contract.ts'
 import { makeGuardFailureBanner } from './guard-failure.tsx'
@@ -7,9 +9,11 @@ import { SameWorkspaceWarning, useWorkspacePathIndex, type PaneWorkspace, type W
 import { en, zh } from './dictionaries.ts'
 import { applyNavigator } from '../native-ux/client/navigator.js'
 import { applyShortcuts } from '../native-ux/client/shortcuts.js'
-import type { HarnessContext } from '../native-ux/client/harness-adapter.js'
+import { resolveHarnessServices, type HarnessContext } from '../native-ux/client/harness-adapter.js'
 import { warnOnce } from '../native-ux/client/capabilities.js'
 import type { WorkbenchActionsService } from '../native-ux/client/actions-api.js'
+import { applySelectionActions } from '../native-ux/client/selection-actions.js'
+import type { SelectionSessions } from '../native-ux/client/selection-controller.js'
 
 // W3.1 — the public `workbench.actions` service (design.md §3 "L2"): the
 // ecosystem's documented way for a plugin to PROVIDE a service other
@@ -34,7 +38,10 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /** Required services for split presentation and the merged Native UX modules. */
-export const inject = ['sessions', 'slots', 'locale', 'layout', 'settingsScope'] as const
+export const inject = [
+  'connection', 'sessions', 'workspaces', 'slots', 'locale', 'layout',
+  'settingsScope', 'conversation', 'inputTriggers',
+] as const
 
 const NS = 'dsh-workbench'
 
@@ -50,13 +57,20 @@ interface WorkbenchSessions {
 /** The slots share the plugin consumes (list-slot registration, see ui-slots). */
 interface WorkbenchSlots {
   inject(name: string, setup: () => () => void): () => void
-  register(options: { name: string; id: string; label: () => string; locale: string }, component: unknown): () => void
+  register(options: {
+    name: string
+    id: string
+    label?: () => string
+    locale?: string
+    order?: number
+    inject?: (() => Record<string, unknown>) | ((sessionId: string) => Record<string, unknown>)
+  }, component: unknown): () => void
 }
 
 /** The locale share the plugin consumes (dictionary registration + bound translator). */
 interface WorkbenchLocale {
   register(ns: string, dictionaries: { zh: Record<string, string>; en: Record<string, string> }): () => void
-  bind(ns: string): (key: string) => string
+  bind(ns: string): (key: string, vars?: Record<string, string>) => string
 }
 
 /** Facts the banner component reads off the framework-standard useSessions seat. */
@@ -96,9 +110,17 @@ function SameWorkspaceBanner({ useSessions, useWorkspaces, t }: {
 export function apply(ctx: ClientContext): void {
   // The npm Context type declares sessions/slots but not locale; resolve all
   // three through one platform cast (the cordis fiber gates them at runtime).
-  const platform = ctx as never as { sessions?: unknown; slots?: unknown; locale?: unknown }
+  const platform = ctx as never as {
+    sessions?: unknown
+    slots?: unknown
+    locale?: unknown
+    conversation?: unknown
+    inputTriggers?: unknown
+  }
   const slots = platform.slots as WorkbenchSlots
   const locale = platform.locale as WorkbenchLocale
+  const nativeContext = ctx as never as HarnessContext
+  const harness = resolveHarnessServices(nativeContext)
   // Dictionaries first: the failure surface (below) needs the bound
   // translator to render its localized copy, so the locale is registered
   // before the guard verdict is consumed.
@@ -106,7 +128,7 @@ export function apply(ctx: ClientContext): void {
   const t = locale.bind(NS)
   const sessions = platform.sessions as WorkbenchSessions
   try {
-    applyNavigator(ctx as never as HarnessContext)
+    applyNavigator(nativeContext)
   } catch (error) {
     warnOnce('navigator-apply-failed', 'navigator module failed to register: ' + String(error))
   }
@@ -121,7 +143,7 @@ export function apply(ctx: ClientContext): void {
   // black hole.
   let thirdPartyActionsHandle: ReturnType<typeof applyShortcuts> | undefined
   try {
-    thirdPartyActionsHandle = applyShortcuts(ctx as never as HarnessContext)
+    thirdPartyActionsHandle = applyShortcuts(nativeContext)
   } catch (error) {
     warnOnce('shortcuts-apply-failed', 'shortcuts module failed to register: ' + String(error))
   }
@@ -135,6 +157,17 @@ export function apply(ctx: ClientContext): void {
     // `ctx.on('dispose', ...)` handler, which owns `handle` — see this
     // block's comment above.
     ctx.effect(() => ctx.reflect.provide('workbenchActions', handle.service), 'dsh-workbench: actions api service')
+  }
+  try {
+    applySelectionActions(ctx, {
+      sessions: platform.sessions as SelectionSessions,
+      conversation: platform.conversation as IConversation,
+      inputTriggers: platform.inputTriggers as InputTriggerServiceContract,
+      slots: slots as never,
+      harness,
+    }, t, NS)
+  } catch (error) {
+    warnOnce('selection-actions-apply-failed', 'selection actions failed to register: ' + String(error))
   }
   const verdict = runStartupGuard(platform.sessions, SUPPORTED_HARNESS)
   if (verdict.disabled) {

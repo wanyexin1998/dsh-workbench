@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  chatActionServices,
   currentSessionId,
   resolveHarnessServices,
+  sideChatServices,
   subscribeCurrentSessionId,
   type HarnessContext,
   type HarnessServices,
@@ -25,18 +27,73 @@ describe('resolveHarnessServices (GA-040, §9A.1)', () => {
   it('narrows ctx.get() into the typed service bundle', () => {
     const sessions = { scope: vi.fn(() => ({ get: vi.fn(() => ({ cancel: vi.fn() })) })) }
     const layout = { toggleSidebar: vi.fn() }
-    const ctx = makeCtx({ sessions, layout })
+    const connection = { api: { sessions: { create: vi.fn() } } }
+    const workspaces = { list: { getSnapshot: vi.fn(), subscribe: vi.fn() } }
+    const ctx = makeCtx({ connection, sessions, layout, workspaces })
     const services = resolveHarnessServices(ctx)
+    expect(services.connection).toBe(connection)
     expect(services.sessions).toBe(sessions)
     expect(services.layout).toBe(layout)
-    // only the two seams the plugin uses are read
-    expect(ctx.get).toHaveBeenCalledTimes(2)
+    expect(services.workspaces).toBe(workspaces)
+    // only the four business-service seams the plugin uses are read
+    expect(ctx.get).toHaveBeenCalledTimes(4)
   })
 
   it('yields undefined members when a service is not injected', () => {
     const services = resolveHarnessServices(makeCtx())
+    expect(services.connection).toBeUndefined()
     expect(services.layout).toBeUndefined()
     expect(services.sessions).toBeUndefined()
+    expect(services.workspaces).toBeUndefined()
+  })
+})
+
+describe('chatActionServices', () => {
+  const list = {
+    getSnapshot: () => ({ ids: [], byId: {}, items: [] }),
+    subscribe: vi.fn(() => vi.fn()),
+  }
+
+  it('accepts create + workspace list + session list/open without Presentation', () => {
+    const services = {
+      connection: { api: { sessions: { create: vi.fn() } } },
+      sessions: { scope: vi.fn(), list, open: vi.fn() },
+      workspaces: { list },
+    }
+    expect(chatActionServices(services)).toBe(services)
+  })
+
+  it.each([
+    ['connection', { sessions: { scope: vi.fn(), list, open: vi.fn() }, workspaces: { list } }],
+    ['session open', { connection: { api: { sessions: { create: vi.fn() } } }, sessions: { scope: vi.fn(), list }, workspaces: { list } }],
+    ['session list', { connection: { api: { sessions: { create: vi.fn() } } }, sessions: { scope: vi.fn(), open: vi.fn() }, workspaces: { list } }],
+    ['workspace list', { connection: { api: { sessions: { create: vi.fn() } } }, sessions: { scope: vi.fn(), list, open: vi.fn() } }],
+  ])('rejects a bundle missing %s', (_label, services) => {
+    expect(chatActionServices(services)).toBeUndefined()
+  })
+})
+
+describe('sideChatServices', () => {
+  const presentation = {
+    protocol: 2 as const,
+    state: { getSnapshot: () => ({ visible: ['source'], focused: 'source', capacity: 2 }) },
+    open: vi.fn(),
+    focus: vi.fn(),
+    close: vi.fn(),
+  }
+
+  it('accepts the Edition fork/open/focus/scope seams', () => {
+    const sessions = { scope: vi.fn(), fork: vi.fn(), presentation }
+    expect(sideChatServices({ sessions })).toEqual({ sessions })
+  })
+
+  it.each([
+    ['stock presentation', { scope: vi.fn(), fork: vi.fn() }],
+    ['fork', { scope: vi.fn(), presentation }],
+    ['open', { scope: vi.fn(), fork: vi.fn(), presentation: { ...presentation, open: undefined } }],
+    ['focus', { scope: vi.fn(), fork: vi.fn(), presentation: { ...presentation, focus: undefined } }],
+  ])('rejects a bundle missing %s', (_label, sessions) => {
+    expect(sideChatServices({ sessions } as never)).toBeUndefined()
   })
 })
 

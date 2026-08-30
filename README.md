@@ -40,6 +40,7 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 | Pane 独立状态 | 草稿、滚动位置、Navigator 和可选面板分别保留 |
 | Navigator | 按真实输入条目显示导航横线，悬浮预览并快速定位消息 |
 | 全局快捷键 | 简体中文 / English 名称随 Harness 全局语言切换，可修改和持久化 |
+| 随手问 | 快捷打开零工具聊天，并把已完成消息的选区加入原会话或 fork 到侧聊 |
 | Pane-local 面板 | 安装兼容包后，每个 Pane 可独立展开右侧、底部面板 |
 | 安全降级 | Presentation protocol 不兼容时不启用双 Pane 容量 |
 
@@ -178,19 +179,31 @@ pnpm release:check
 
 兼容包只消费版本化 Pane capability 和公开的 `data-session-pane*` host marker，不会修补 Better Sidebar 私有 store，也不会推断未知 DOM。
 
-## 聊天模式（零工具 Agent 预设）
+## 随手问 / Workbench Ask
 
-安装 Workbench 后，Host 启动时会把一个名为 **聊天模式 / Chat mode** 的 Agent 预设写入 `~/.dsh/.agent-presets/chat/`（只创建、绝不覆盖；你删除后不会重建）。它是一个**零工具**预设：模型只对话，不读写文件、不执行命令、不加载项目上下文，请求极小、响应更快（实测示例：首轮输入 181 token）。在新会话页的预设选择器里选择它即可使用；模型与供应商仍按会话自由选择。
+`Ctrl+Shift+C`（macOS 为 `Command+Shift+C`）打开一个使用 **聊天模式 / Chat mode** 预设的全新或当天最近空白会话。在 Workbench Edition 中，它会在来源 Pane 旁边打开并聚焦；已有两个 Pane 时，Workbench 先确认，再只替换非来源 Pane。原版 Harness 不支持双 Pane 时，动作仍可用，但会原位切换到聊天会话并只提示一次降级原因。会话优先归入标题为 `chat` 的 Workspace；没有该 Workspace 时使用来源会话所属 Workspace。没有可解析的 Workspace 时安全停止，不自动创建目录或 Workspace。
 
-与官方内置"极简模式"的边界：**极简模式砍的是脚手架（计划 / Skills / 子代理 / 上下文压缩），保留执行能力；聊天模式砍的是执行能力本身。**
+在一条已完成消息中选择文字后，Workbench 提供三项动作：
 
-| | 极简模式（官方内置） | 聊天模式（Workbench 分发） |
-| --- | --- | --- |
-| 工具 | 2 个：持久 shell + `str_replace_editor` | 0 个 |
-| 能否改动你的系统 | 能——仍会改文件、跑命令 | 不能——架构上没有工具 |
-| 文件系统 | 非沙箱 `fs-local`，编辑器写入绕过访问模式 | 无 |
-| 系统提示词 | software engineer assistant | 纯对话伙伴，并声明自身无工具 |
-| 适用场景 | 轻量编码任务 | 问答、探讨方案、随手提问 |
+- **添加到对话**：把选区作为结构化 reference 加入来源 Pane 的 composer；保留普通草稿，可聚合多段并附加评论，不自动发送。原版 Harness 也可用。
+- **更多详情**：从选区所在会话的已完成 Turn fork child，在第二 Pane 打开，并恰好发送一次带 reference-only boundary 的本地化解释请求。仅 Presentation protocol 2 可用。
+- **在侧边聊天中提问**：同样 fork child，但只放入带 boundary 的选区 reference 和空普通草稿；用户显式输入问题并发送前，不发生模型调用。仅 Presentation protocol 2 可用。
+
+侧聊 child 继承父会话的 cwd、模型、预设、Workspace、工具与 approval 流程。它不是零工具聊天；任何工具副作用都是真实的。关闭 Pane 只关闭呈现，Session 继续保留在侧栏。fork 已成功但 Pane 或输入操作失败时，界面会报告保留的 child id，不会静默删除。
+
+### 三种模式的边界
+
+| | 极简模式（官方内置） | 聊天模式（Workbench 分发） | 侧聊（Workbench fork child） |
+| --- | --- | --- | --- |
+| 会话来源 | 新会话 | 新建或复用当天空白 `chat` 会话 | 从选区所在父会话的已完成 Turn fork |
+| 上下文 | 轻量 Agent 脚手架 | 干净会话，无父会话上下文 | 继承父会话已完成历史，并以 boundary 标明当前任务 |
+| 工具 | 2 个：持久 shell + `str_replace_editor` | 0 个 | 继承父预设的工具 |
+| 能否改动你的系统 | 能——仍会改文件、跑命令 | 不能——架构上没有工具 | 能否修改取决于父预设与 approval；副作用真实存在 |
+| 适用场景 | 轻量编码任务 | 问答、探讨方案、随手提问 | 针对现有会话内容追问、解释或继续工作 |
+
+### 聊天模式预设的安装与删除
+
+安装 Workbench 后，Host 启动时会把 **聊天模式 / Chat mode** 预设写入 `~/.dsh/.agent-presets/chat/`（只创建、绝不覆盖；你删除后不会重建）。它是零工具预设：模型只对话，不读写文件、不执行命令、不加载项目上下文；模型与供应商仍按会话自由选择。实测示例的首轮输入为 181 token。
 
 不想要它时，删除 `~/.dsh/.agent-presets/chat/` 目录即可；Workbench 记录你的删除意图，不会重新写入。
 

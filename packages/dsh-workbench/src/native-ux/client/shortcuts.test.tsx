@@ -761,6 +761,54 @@ describe('applyShortcuts — Finding 2 (locale/change public surface)', () => {
   })
 })
 
+describe('workbench.chat.open shortcut registration', () => {
+  it('appears in the Settings registry with the default chord and typing opt-in', () => {
+    const open = vi.fn(async () => ({ kind: 'no-workspace' as const, sourceSessionId: undefined }))
+    const registry = buildShortcutRegistry({ chatActions: { open } })
+    const action = registry.all().find(candidate => candidate.id === 'workbench.chat.open')
+
+    expect(action).toMatchObject({
+      label: 'shortcuts.action.chat.open',
+      defaultChord: 'Primary+Shift+C',
+      allowWhileTyping: true,
+    })
+    expect(registry.bindingChord('workbench.chat.open')).toBe('Primary+Shift+c')
+    action?.run()
+    expect(open).toHaveBeenCalledOnce()
+  })
+
+  it('is absent without the capability-backed instance and honors override/disable state', () => {
+    expect(buildShortcutRegistry().all().some(action => action.id === 'workbench.chat.open')).toBe(false)
+    const chatActions = { open: vi.fn(async () => ({ kind: 'no-workspace' as const, sourceSessionId: undefined })) }
+    const overridden = buildShortcutRegistry({
+      chatActions,
+      overrides: { 'workbench.chat.open': 'Primary+J' },
+    })
+    expect(overridden.bindingChord('workbench.chat.open')).toBe('Primary+j')
+
+    const disabled = buildShortcutRegistry({
+      chatActions,
+      disabled: new Set(['workbench.chat.open']),
+    })
+    expect(disabled.all().some(action => action.id === 'workbench.chat.open')).toBe(true)
+    expect(disabled.bindingChord('workbench.chat.open')).toBeNull()
+  })
+
+  it('dispatches from inside the composer because allowWhileTyping is explicit', () => {
+    const open = vi.fn(async () => ({ kind: 'no-workspace' as const, sourceSessionId: undefined }))
+    const registry = buildShortcutRegistry({ chatActions: { open } })
+    const detach = attachProductionDispatcher(registry, { allowSyntheticEventsForTesting: true })
+    const input = document.createElement('textarea')
+    document.body.appendChild(input)
+    input.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'C', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true,
+    }))
+    expect(open).toHaveBeenCalledOnce()
+    detach()
+    input.remove()
+  })
+})
+
 // ---------------------------------------------------------------------
 // MEDIUM 1 (Opus review, round 2 of native-actions-pivot) — end-to-end,
 // through the REAL applyShortcuts() wiring (not buildShortcutRegistry

@@ -12,6 +12,8 @@
 6. Releasing the last capacity-two request collapses around the focused Session.
 7. Workbench adds no Host filesystem, subprocess, credential, or arbitrary network capability, except the single chat-preset seeding write defined below.
 8. Without Panel Compatibility and an explicit provider adapter, Workbench changes no third-party panel behavior.
+9. Selection actions bind to the capture-time Pane and Session identity. They never re-read global focus/current after an async boundary and never fall back to the document's first conversation.
+10. Fresh chat and forked side chat are different Session substrates. A zero-tool chat Session never substitutes for a forked child, and a forked child retains the parent's tools and approval flow.
 
 ## Pane behavior
 
@@ -19,11 +21,30 @@
 | --- | --- |
 | Ordinary Session click | Replace the focused Pane |
 | Ctrl/Command-click | Open Beside; replace focus when already at two Panes |
+| Workbench Ask at two Panes | Confirm first, then replace only the non-source Pane; reject if the captured source is no longer visible |
 | Pointer interaction inside a Pane | Focus it without reordering |
 | Close Pane | Retire its client scope; retain the durable Session |
 | Divider drag | Persist `dsh.ui.sessionPanes.splitRatio`, clamped to 0.30–0.70 |
 | Narrow viewport | Show only focus while keeping the other Pane mounted |
 | Shared Workspace | Show a non-blocking Same Workspace Warning |
+
+## Workbench Ask
+
+| Action | Session and input contract | Stock Harness | Presentation protocol 2 |
+| --- | --- | --- | --- |
+| `Primary+Shift+C` | Reuse the newest same-local-day blank `chat` Session in the resolved Workspace, otherwise create one with `agentPreset: chat` | Open in place and show one degradation notice | Open beside while preserving the captured source Pane |
+| Add to conversation | Aggregate a capture-time selection reference in the source composer; preserve ordinary draft; send only through the normal input path | Available | Available |
+| More details | Fork at the selected node's `anchorSeq`; send one logged boundary + escaped selected context + localized explanation request in the child | Hidden | Available |
+| Ask in side chat | Fork identically; insert one side-chat reference into an empty ordinary draft; do not submit until the user does | Hidden | Available |
+
+- Workspace resolution prefers a Workspace titled `chat`, then the Workspace containing the captured source Session. Workbench does not create a Workspace automatically.
+- Same-day blank reuse requires `blank === true`, `agentPreset === 'chat'`, membership in the resolved Workspace, and the newest local-calendar-day timestamp.
+- A legal selection is non-empty, at most 16 KiB UTF-8, and contained in one settled, model-visible business row. Cross-message, cross-Pane, streaming, interactive-control, stale, or ambiguous selections fail closed.
+- `parentSessionId`, node identity, `anchorSeq`, normalized visible-text offsets, and selection rectangle are frozen at capture. Mutating actions revalidate the same Session snapshot before proceeding.
+- Add-to-conversation and side-chat draft references are source-owned codecs. Missing owners, stale draft revisions, or serialization failures block submission rather than degrading to untracked plain text.
+- A side child inherits the parent cwd, model target, preset, Workspace, lineage, tools, and approval behavior. Its boundary says inherited history is reference-only and that the current task begins after the boundary.
+- Closing a side Pane retains the Session. If fork/create succeeds and a later Pane/input operation fails, Workbench reports the retained Session id and never deletes it automatically.
+- More Details never steers or interrupts the parent and writes no side-chat question into the parent log. Ask in side chat produces no model call before explicit user submission.
 
 ## Panel compatibility
 

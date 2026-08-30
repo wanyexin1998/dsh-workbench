@@ -16,7 +16,9 @@ const fixtureRaw = readFileSync(fixturePath, 'utf8')
 const fixture = JSON.parse(fixtureRaw)
 
 const tasksMdPath = join(here, '..', '..', 'plans', '260827-workbench-v2', 'tasks.md')
-const tasksMdRaw = readFileSync(tasksMdPath, 'utf8')
+// Normalize the checked-out document before parsing fenced samples. Windows
+// worktrees may use CRLF, while the Markdown contract is line-ending agnostic.
+const tasksMdRaw = readFileSync(tasksMdPath, 'utf8').replace(/\r\n?/g, '\n')
 
 /**
  * Extract the fenced sample text immediately following a given normative

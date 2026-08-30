@@ -6,7 +6,7 @@ import { type HarnessContext } from './harness-adapter.js'
 import { logCapabilityReport, probeCapabilities, warnOnce } from './capabilities.js'
 
 /** Services required by this plugin (cordis fiber inject). */
-export const inject = ['slots', 'locale', 'layout', 'sessions', 'settingsScope']
+export const inject = ['connection', 'slots', 'locale', 'layout', 'sessions', 'workspaces', 'settingsScope']
 
 /**
  * Plugin apply: registers the navigator rail and the shortcuts settings

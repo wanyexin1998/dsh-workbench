@@ -36,8 +36,9 @@ import { makeResult, TERMINAL_STATES } from '../install/result.mjs'
 const here = dirname(fileURLToPath(import.meta.url))
 const ps1Path = join(here, 'dsh-workbench-bootstrap.ps1')
 const shPath = join(here, 'dsh-workbench-bootstrap.sh')
-const ps1Source = readFileSync(ps1Path, 'utf8')
-const shSource = readFileSync(shPath, 'utf8')
+const normalizeNewlines = source => source.replace(/\r\n?/g, '\n')
+const ps1Source = normalizeNewlines(readFileSync(ps1Path, 'utf8'))
+const shSource = normalizeNewlines(readFileSync(shPath, 'utf8'))
 
 // On Windows, a bare `bash` can resolve to the WSL bash in System32, which
 // answers --version but cannot read Windows-form paths like E:\... (exit

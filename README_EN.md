@@ -40,6 +40,7 @@ DeepSeek Harness normally drives the interface from one current Session. DSH Wor
 | Pane-local state | Drafts, scroll position, Navigator, and optional panels remain independent |
 | Navigator | One marker per real human input, with hover preview and precise message reveal |
 | Application shortcuts | Configurable Simplified Chinese / English labels following the Harness global locale |
+| Workbench Ask | Open a zero-tool chat quickly, or route completed-message selections back to their source or into a forked side chat |
 | Pane-local panels | Optional compatibility package gives each Pane independent right and bottom panels |
 | Safe degradation | Split Pane capacity is not enabled when Presentation protocol is incompatible |
 
@@ -182,21 +183,33 @@ To give each Pane its own right or bottom panel, install:
 
 The adapter consumes only a versioned Pane capability and public `data-session-pane*` host markers. It does not patch Better Sidebar private stores or infer unknown DOM.
 
-## Chat mode (a zero-tool agent preset)
+## Workbench Ask
 
-After installing Workbench, the Host entry seeds an agent preset named **聊天模式 / Chat mode** into `~/.dsh/.agent-presets/chat/` (create-only, never overwritten; never re-created after you delete it). It is a **zero-tool** preset: the model only converses — no file reads or writes, no command execution, no project context — so each request is tiny and fast (measured example: 181 input tokens on the first turn). Pick it in the new-session preset selector; model and provider stay freely selectable per session.
+`Ctrl+Shift+C` (`Command+Shift+C` on macOS) opens a new or the most recent same-day blank Session using the **聊天模式 / Chat mode** preset. Workbench Edition opens and focuses it beside the source Pane; at two-Pane capacity, Workbench asks first and replaces only the non-source Pane. On stock Harness the action remains available, switches in place, and shows the degradation notice once. Sessions prefer a Workspace whose title is `chat`, then the source Session's Workspace. With no resolvable Workspace, the action stops safely and never creates a directory or Workspace.
 
-The boundary against the built-in Minimal mode: **Minimal mode cuts the scaffolding (planning / skills / subagents / context compaction) but keeps execution ability; Chat mode cuts execution ability itself.**
+Selecting text in a completed message exposes three actions:
 
-| | Minimal mode (built-in) | Chat mode (seeded by Workbench) |
-| --- | --- | --- |
-| Tools | 2: persistent shell + `str_replace_editor` | 0 |
-| Can touch your system | Yes — still edits files and runs commands | No — there are no tools by construction |
-| Filesystem | Unsandboxed `fs-local`; editor writes bypass the access mode | None |
-| System prompt | software engineer assistant | Conversation partner that declares it has no tools |
-| Best for | Lightweight coding tasks | Q&A, design discussions, quick questions |
+- **Add to conversation** inserts a structured reference into the source Pane composer, preserving ordinary draft text and aggregating multiple selections with optional comments. It does not send automatically and works on stock Harness.
+- **More details** forks from the completed Turn, opens the child in the second Pane, and sends exactly one localized explanation request with a reference-only boundary. It requires Presentation protocol 2.
+- **Ask in side chat** forks the same way but inserts only a boundary-bearing selection reference into an otherwise empty child draft. No model call occurs until the user writes and explicitly submits a question. It requires Presentation protocol 2.
 
-To remove it, delete `~/.dsh/.agent-presets/chat/`; Workbench records the deletion as intent and never re-seeds.
+A side child inherits the parent cwd, model, preset, Workspace, tools, and approval flow. It is not zero-tool Chat mode; tool side effects remain real. Closing its Pane changes presentation only—the durable Session remains in the sidebar. If fork succeeds but opening or input preparation fails, Workbench reports the retained child id and never deletes it silently.
+
+### Boundaries between the three modes
+
+| | Minimal mode (built-in) | Chat mode (seeded by Workbench) | Side chat (forked child) |
+| --- | --- | --- | --- |
+| Session source | New Session | New or same-day reusable blank `chat` Session | Fork of the selected completed parent Turn |
+| Context | Reduced agent scaffolding | Clean Session with no parent context | Completed parent history plus a boundary marking the current task |
+| Tools | 2: persistent shell + `str_replace_editor` | 0 | Inherited from the parent preset |
+| Can touch your system | Yes—still edits files and runs commands | No—there are no tools by construction | Depends on the parent preset and approval flow; side effects are real |
+| Best for | Lightweight coding tasks | Q&A, design discussions, quick questions | Questions, explanations, or follow-up work grounded in the current conversation |
+
+### Installing and removing the Chat mode preset
+
+After installation, the Host entry seeds **聊天模式 / Chat mode** into `~/.dsh/.agent-presets/chat/` (create-only, never overwritten, and never re-created after deletion). The preset has zero tools: no file access, command execution, or project context. Model and provider remain selectable per Session. A measured first turn used 181 input tokens.
+
+To remove it, delete `~/.dsh/.agent-presets/chat/`; Workbench records that deletion as intent and never re-seeds.
 
 ## Security and privacy
 

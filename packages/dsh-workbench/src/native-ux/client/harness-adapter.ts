@@ -13,6 +13,29 @@
 export interface ConversationFace {
   cancel?(): Promise<unknown> | unknown
   loadOlder?(): Promise<void> | void
+  /** Scope-addressed queued prompt used only by More Details side chat. */
+  send?(text: string): Promise<void>
+  /** Public per-session input resolver used by the injected draft adapter. */
+  readonly input?: {
+    for(scope: SessionScope): SessionInputFace
+  }
+}
+
+export interface SessionInputReferenceFace {
+  readonly source: string
+  readonly ref: string
+  readonly label: string
+  readonly appearance?: 'session' | 'file' | 'folder'
+  readonly clipboardText: string
+}
+
+export interface SessionInputFace {
+  readonly state: ObservableSnapshotFace<{ readonly draft: string; readonly draftRev: number }>
+  setDraft(text: string): void
+  insertReference(
+    reference: SessionInputReferenceFace,
+    span: { readonly start: number; readonly end: number; readonly draftRev: number },
+  ): boolean
 }
 
 /** Scope handle for one session: the plugin reads only `conversation`. */
@@ -20,9 +43,72 @@ export interface SessionScope {
   get(name: 'conversation'): ConversationFace | undefined
 }
 
+/** Minimal observable-store face shared by the Sessions and Workspaces seams. */
+export interface ObservableSnapshotFace<T> {
+  getSnapshot(): T
+  subscribe(fn: () => void): () => void
+}
+
+/** Session-list row fields used by the fresh-chat reuse policy. */
+export interface SessionSummaryFace {
+  readonly id: string
+  readonly agentPreset?: string
+  readonly blank: boolean
+  readonly updatedAt: number
+}
+
+/** Session-list snapshot fields used by chat creation and navigation. */
+export interface SessionListSnapshotFace {
+  readonly ids: readonly string[]
+  readonly byId: Readonly<Record<string, SessionSummaryFace | undefined>>
+  readonly current?: string
+}
+
+/** Workspace-list row fields used by the chat workspace resolution chain. */
+export interface WorkspaceSummaryFace {
+  readonly workspaceId: string
+  /** Current Harness name; `name` keeps the adapter compatible with older hosts. */
+  readonly title?: string
+  readonly name?: string
+  readonly sessionIds: readonly string[]
+}
+
+export interface WorkspaceListSnapshotFace {
+  readonly items: readonly WorkspaceSummaryFace[]
+}
+
+export interface WorkspacesService {
+  readonly list: ObservableSnapshotFace<WorkspaceListSnapshotFace>
+}
+
+export interface RpcErrorFace {
+  readonly code: string
+  readonly message: string
+  readonly details?: unknown
+}
+
+export type RpcResultFace<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly error: RpcErrorFace }
+
+/** The connection seam needed to create one chat-preset Session. */
+export interface ConnectionService {
+  readonly api: {
+    readonly sessions: {
+      create(payload: { workspaceId: string; agentPreset: 'chat' }): Promise<{
+        readonly result: RpcResultFace<{ readonly sessionId: string; readonly agentPreset?: string }>
+      }>
+    }
+  }
+}
+
 export interface SessionsService {
   scope(sessionId: string): SessionScope | undefined
+  /** Fork a completed-turn prefix; resolution returns the retained child id. */
+  fork?(options: { sessionId: string; atSeq?: number; increaseTitle?: boolean }): Promise<string>
   presentation?: {
+    /** Protocol 2 is the Edition split-pane contract; absent means stock. */
+    readonly protocol?: number
     /**
      * `state` is asserted to satisfy `ObservableSnapshot<T>` — verified at
      * the pinned 0.1.1-rc.2 store: `@deepseek-ai/dsh-client-runtime/lib/
@@ -35,7 +121,12 @@ export interface SessionsService {
      * consumer (focusedSessionId, subscribeFocusedSessionId below) treats
      * a missing/malformed member as absent rather than a contract breach.
      */
-    state: { getSnapshot(): { focused?: string }; subscribe?(fn: () => void): () => void }
+    state: {
+      getSnapshot(): { visible?: readonly string[]; focused?: string; capacity?: number }
+      subscribe?(fn: () => void): () => void
+    }
+    open?(id: string, options?: { readonly disposition?: 'replace-focused' | 'beside' }): void
+    focus?(id: string): void
     close(id: string): void
   }
   /**
@@ -114,7 +205,10 @@ export interface SessionsService {
    * fork-preferred/list-fallback duality needed. Optional for the same
    * pre-existing-fixture reason as `clear`/`open` above.
    */
-  list?: { getSnapshot(): { current?: string }; subscribe?(fn: () => void): () => void }
+  list?: {
+    getSnapshot(): SessionListSnapshotFace | { current?: string }
+    subscribe?(fn: () => void): () => void
+  }
 }
 
 /**
@@ -150,8 +244,63 @@ export interface LayoutService {
 
 /** Aggregate of the injected services the plugin uses. */
 export interface HarnessServices {
+  connection?: ConnectionService
   layout?: LayoutService
   sessions?: SessionsService
+  workspaces?: WorkspacesService
+}
+
+/** Capability-complete service bundle required by `workbench.chat.open`. */
+export interface ChatActionServices {
+  readonly connection: ConnectionService
+  readonly sessions: Omit<SessionsService, 'list' | 'open'> & {
+    readonly list: ObservableSnapshotFace<SessionListSnapshotFace>
+    open(sessionId: string): void
+  }
+  readonly workspaces: WorkspacesService
+}
+
+/** Capability-complete Edition bundle required by forked side chat. */
+export interface SideChatServices {
+  readonly sessions: SessionsService & {
+    scope(sessionId: string): SessionScope | undefined
+    fork(options: { sessionId: string; atSeq?: number; increaseTitle?: boolean }): Promise<string>
+    readonly presentation: NonNullable<SessionsService['presentation']> & {
+      readonly protocol: 2
+      open(id: string, options?: { readonly disposition?: 'replace-focused' | 'beside' }): void
+      focus(id: string): void
+    }
+  }
+}
+
+/**
+ * Narrow the optional host services into the exact fresh-chat capability.
+ * Presentation is intentionally not part of this gate: stock Harness must
+ * register the action and use `sessions.open()`.
+ */
+export function chatActionServices(services: HarnessServices): ChatActionServices | undefined {
+  const create = services.connection?.api?.sessions?.create
+  const sessionList = services.sessions?.list
+  const workspaceList = services.workspaces?.list
+  if (typeof create !== 'function'
+    || typeof services.sessions?.open !== 'function'
+    || typeof sessionList?.getSnapshot !== 'function'
+    || typeof sessionList.subscribe !== 'function'
+    || typeof workspaceList?.getSnapshot !== 'function') return undefined
+  return services as ChatActionServices
+}
+
+/** Presentation is mandatory here: stock Harness must hide side actions. */
+export function sideChatServices(services: HarnessServices): SideChatServices | undefined {
+  const sessions = services.sessions
+  const presentation = sessions?.presentation
+  if (typeof sessions?.scope !== 'function'
+    || typeof sessions.fork !== 'function'
+    || presentation?.protocol !== 2
+    || typeof presentation.state?.getSnapshot !== 'function'
+    || typeof presentation.open !== 'function'
+    || typeof presentation.focus !== 'function') return undefined
+  return { sessions: sessions as SideChatServices['sessions'] }
 }
 
 /**
@@ -315,7 +464,7 @@ export interface SlotService {
  * (via resolveHarnessServices or a local cast) rather than trusting `any`.
  */
 export interface HarnessContext {
-  get(name: 'layout' | 'sessions'): unknown
+  get(name: 'connection' | 'layout' | 'sessions' | 'workspaces'): unknown
   locale: LocaleService
   slots: SlotService
   settingsScope: { bind(options: { namespace: string }): SettingsScopeFace }
@@ -355,7 +504,9 @@ export interface HarnessContext {
  */
 export function resolveHarnessServices(ctx: HarnessContext): HarnessServices {
   return {
+    connection: ctx.get('connection') as ConnectionService | undefined,
     layout: ctx.get('layout') as LayoutService | undefined,
     sessions: ctx.get('sessions') as SessionsService | undefined,
+    workspaces: ctx.get('workspaces') as WorkspacesService | undefined,
   }
 }

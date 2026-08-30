@@ -15,7 +15,7 @@
 // settingsScope) the way guard.test.ts and native-ux/client/apply.test.ts
 // already do — no module mocking of index.tsx or its collaborators.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { apply } from '../src/client/index.tsx'
+import { apply, inject } from '../src/client/index.tsx'
 import { resetWarnOnce } from '../src/native-ux/client/capabilities.ts'
 import { parseChord } from '../src/native-ux/core/chord.ts'
 
@@ -59,9 +59,9 @@ function makeCtx(options: FakeCtxOptions = {}) {
   const registered: SlotRegistration[] = []
   const injected: Record<string, unknown> = {}
   const effects: EffectEntry[] = []
-  const slotsRegister = vi.fn((def: { id: string; name: string; inject?: () => unknown }, _component: unknown) => {
+  const slotsRegister = vi.fn((def: { id: string; name: string; inject?: (...args: unknown[]) => unknown }, _component: unknown) => {
     registered.push({ name: def.name, id: def.id })
-    if (def.inject !== undefined) injected[def.id] = def.inject()
+    if (def.inject !== undefined) injected[def.id] = def.inject('s1')
     return vi.fn() // disposer
   })
   const slotsInject = vi.fn(options.slotsInject ?? ((_name: string, setup: () => unknown) => setup()))
@@ -82,6 +82,16 @@ function makeCtx(options: FakeCtxOptions = {}) {
   const effect = vi.fn((fn: () => unknown, label?: string) => {
     effects.push({ label, dispose: fn() })
   })
+  const inputTriggers = { registerSource: vi.fn((_source: unknown) => vi.fn()) }
+  const conversation = {
+    input: {
+      for: vi.fn(() => ({
+        state: { getSnapshot: () => ({ draft: '', draftRev: 0, occurrences: [] }) },
+        insertReference: vi.fn(() => false),
+        notify: vi.fn(),
+      })),
+    },
+  }
   // W3.1: a real cordis Context always carries `.reflect` (core
   // infrastructure — ReflectService is installed by the Context constructor
   // itself, unlike host-mountable optional services such as `layout`), so
@@ -102,6 +112,8 @@ function makeCtx(options: FakeCtxOptions = {}) {
     sessions: options.sessions,
     slots,
     locale,
+    conversation,
+    inputTriggers,
     settingsScope,
     effect,
     reflect,
@@ -111,7 +123,7 @@ function makeCtx(options: FakeCtxOptions = {}) {
     }),
     on: vi.fn(),
   }
-  return { ctx, registered, injected, effects, slots, locale, provided }
+  return { ctx, registered, injected, effects, slots, locale, provided, inputTriggers }
 }
 
 /** Drain a handful of microtask hops — the shortcuts settings hydration
@@ -146,6 +158,11 @@ afterEach(() => {
 })
 
 describe('apply() — stock DeepSeek Harness (no compatible split-pane presentation)', () => {
+  it('declares the connection and workspaces services required by fresh chat', () => {
+    expect(inject).toContain('connection')
+    expect(inject).toContain('workspaces')
+  })
+
   it('completes without throwing and emits exactly the one documented disabled diagnostic, and ZERO warnings', () => {
     const { error, warn } = spyConsole()
     const { ctx } = makeCtx({ sessions: {} }) // sessions present, presentation absent
@@ -169,12 +186,27 @@ describe('apply() — stock DeepSeek Harness (no compatible split-pane presentat
     expect(locale.register).toHaveBeenCalled()
   })
 
-  it('registers only the guard-failure banner into shell.overlay, never the same-workspace banner', () => {
+  it('registers selection actions before the guard-failure banner, never the same-workspace banner', async () => {
     spyConsole()
-    const { ctx, registered } = makeCtx({ sessions: {} })
+    const { ctx, registered, injected, inputTriggers } = makeCtx({ sessions: {} })
     apply(ctx as never)
+    expect(registered).toContainEqual({ name: 'shell.overlay', id: 'dsh-workbench.selection-actions' })
+    expect(registered).toContainEqual({ name: 'conversation.input.dock', id: 'dsh-workbench.selection-aggregate' })
     expect(registered).toContainEqual({ name: 'shell.overlay', id: 'dsh-workbench.guard-failure' })
     expect(registered.some((r) => r.id === 'dsh-workbench.same-workspace')).toBe(false)
+    expect(registered.findIndex((entry) => entry.id === 'dsh-workbench.selection-actions'))
+      .toBeLessThan(registered.findIndex((entry) => entry.id === 'dsh-workbench.guard-failure'))
+    expect(inputTriggers.registerSource).toHaveBeenCalledTimes(2)
+    const sources = inputTriggers.registerSource.mock.calls.map(([source]) => source as {
+      name: string
+      candidates: (...args: unknown[]) => Promise<readonly unknown[]>
+    })
+    expect(sources.map((source) => source.name)).toEqual([
+      'dsh-workbench.selection',
+      'dsh-workbench.side-chat-selection',
+    ])
+    await expect(Promise.all(sources.map((source) => source.candidates()))).resolves.toEqual([[], []])
+    expect((injected['dsh-workbench.selection-actions'] as { sideChat: { available: boolean } }).sideChat.available).toBe(false)
   })
 
   it('never calls requestCapacity when sessions has no presentation at all', () => {
@@ -243,12 +275,31 @@ describe('apply() — compatible DeepSeek Harness (protocol 2, full presentation
     expect(releaseCapacity).toHaveBeenCalledTimes(1)
   })
 
-  it('registers only the same-workspace banner into shell.overlay, never the guard-failure banner', () => {
+  it('registers selection actions and the same-workspace banner, never the guard-failure banner', () => {
     spyConsole()
     const { ctx, registered } = compatibleCtx()
     apply(ctx as never)
+    expect(registered).toContainEqual({ name: 'shell.overlay', id: 'dsh-workbench.selection-actions' })
+    expect(registered).toContainEqual({ name: 'conversation.input.dock', id: 'dsh-workbench.selection-aggregate' })
     expect(registered).toContainEqual({ name: 'shell.overlay', id: 'dsh-workbench.same-workspace' })
     expect(registered.some((r) => r.id === 'dsh-workbench.guard-failure')).toBe(false)
+  })
+
+  it('exposes side actions only when fork + protocol-2 open/focus/scope are present', () => {
+    spyConsole()
+    const presentation = makePresentation({
+      state: { getSnapshot: () => ({ visible: ['s1'], focused: 's1', capacity: 2 }) },
+      open: vi.fn(),
+      focus: vi.fn(),
+    })
+    const sessions = {
+      presentation,
+      fork: vi.fn(async () => 'child'),
+      scope: vi.fn(),
+    }
+    const { ctx, injected } = makeCtx({ sessions })
+    apply(ctx as never)
+    expect((injected['dsh-workbench.selection-actions'] as { sideChat: { available: boolean } }).sideChat.available).toBe(true)
   })
 
   it('emits no [dsh-workbench] disabled: diagnostic', () => {

@@ -1,0 +1,4 @@
+# Temporary Edition E2E overlay: load the packaged Workbench Host + Client.
+- insert:
+    - id: dsh-workbench
+      name: '@wanyexin1998/dsh-workbench'
