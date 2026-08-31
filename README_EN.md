@@ -66,7 +66,7 @@ Shortcut labels follow the Harness global language. Conflicts, browser-reserved 
 
 | Component | Required | Supported baseline | Notes |
 | --- | --- | --- | --- |
-| DeepSeek Harness | Yes | fork `fix/plugin-spec-quoting`, commit `1a8cf5b…` | Provides Session Presentation `protocol 2` |
+| DeepSeek Harness | Yes | fork `feat/toggle-settings-verb`, commit `1a8cf5b…` | Provides Session Presentation `protocol 2` |
 | DSH Workbench | Yes | `0.2.0-rc.2` | Maximum two visible Panes |
 | Better Sidebar | Optional | fork `0.16.1`, commit `1685770…` | Provides Pane capability `protocol 1`, plus panel shortcut actions (`actionsProtocol 1`) |
 | Panel Compatibility | Optional | `0.1.0-rc.1` | Connects only explicit compatible providers |

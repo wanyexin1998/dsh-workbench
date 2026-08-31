@@ -114,8 +114,8 @@ $PSNativeCommandUseErrorActionPreference = $false
 $HarnessRepoUrl = 'https://github.com/wanyexin1998/deepseek-harness.git'
 # Informational only — see the TRUST MODEL note above. Never used to select
 # what gets checked out; only the pinned commit below is.
-$HarnessForkBranch = 'fix/plugin-spec-quoting'
-$HarnessCommit = '1a8cf5ba416246f22d9526a917af5fb233170c58'
+$HarnessForkBranch = 'feat/toggle-settings-verb'
+$HarnessCommit = '82de604afc683cd8c7692d0736f26f9ebc0f1823'
 # The upstream DeepSeek Harness commit the fork branch is based on
 # (release-contract.json harness.upstreamCommit). Recorded here only for
 # the self-consistency check and diagnostic output; never checked out.

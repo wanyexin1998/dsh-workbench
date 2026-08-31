@@ -2,7 +2,7 @@
 
 | Component | Required source | Capability | Status |
 | --- | --- | --- | --- |
-| Workbench `0.2.0-rc.2` | Harness fork `1a8cf5ba` | Session Presentation protocol 2 | Supported source preview |
+| Workbench `0.2.0-rc.2` | Harness fork `82de604a` | Session Presentation protocol 2 | Supported source preview |
 | Workbench `0.2.0-rc.2` | Stock Harness `0.1.1-rc.2` | protocol 2 absent | Split Pane fails closed |
 | Panel Compatibility `0.1.0-rc.1` | Better Sidebar fork `1685770` | Pane protocol 1 + actions protocol 1 | Supported optional adapter |
 | Panel Compatibility absent | Any panel provider | n/a | Core Workbench remains functional |

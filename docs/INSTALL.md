@@ -402,7 +402,7 @@ if ($WorktreeState) { throw 'Workbench worktree is not clean' }
 The following commit is part of the verified Workbench release contract. Do not switch to its mutable branch before building.
 
 ```powershell
-$HarnessCommit = '1a8cf5ba416246f22d9526a917af5fb233170c58'
+$HarnessCommit = '82de604afc683cd8c7692d0736f26f9ebc0f1823'
 if ($HarnessCommit -notmatch '^[0-9a-f]{40}$') { throw 'Harness commit must be a full 40-character hexadecimal value' }
 if (Test-Path -LiteralPath 'deepseek-harness') { throw 'Target directory deepseek-harness already exists; retry from an empty directory' }
 git clone --no-checkout https://github.com/wanyexin1998/deepseek-harness.git deepseek-harness

@@ -66,7 +66,7 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 
 | 组件 | 是否必需 | 当前支持 | 说明 |
 | --- | --- | --- | --- |
-| DeepSeek Harness | 必需 | fork `fix/plugin-spec-quoting`，固定提交 `1a8cf5b…` | 提供 Session Presentation `protocol 2` |
+| DeepSeek Harness | 必需 | fork `feat/toggle-settings-verb`，固定提交 `1a8cf5b…` | 提供 Session Presentation `protocol 2` |
 | DSH Workbench | 必需 | `0.2.0-rc.2` | 最多两个可见 Pane |
 | Better Sidebar | 可选 | fork `0.16.1`，固定提交 `1685770…` | 提供 Pane capability `protocol 1`；含面板快捷键 actions（`actionsProtocol 1`） |
 | Panel Compatibility | 可选 | `0.1.0-rc.1` | 只连接显式兼容的面板提供方 |

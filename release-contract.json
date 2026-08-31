@@ -30,8 +30,8 @@
     "upstreamVersion": "0.1.1-rc.2",
     "upstreamCommit": "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e",
     "repository": "https://github.com/wanyexin1998/deepseek-harness",
-    "branch": "fix/plugin-spec-quoting",
-    "implementationCommit": "1a8cf5ba416246f22d9526a917af5fb233170c58",
+    "branch": "feat/toggle-settings-verb",
+    "implementationCommit": "82de604afc683cd8c7692d0736f26f9ebc0f1823",
     "distribution": "source-only"
   },
   "chatPreset": {

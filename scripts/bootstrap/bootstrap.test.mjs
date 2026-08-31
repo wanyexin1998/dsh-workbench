@@ -222,7 +222,7 @@ test('dsh-workbench-bootstrap.sh --check-only performs no network access or writ
 
 // --- (c) static sweep: pinned commit appears exactly once, no personal paths ---
 
-const HARNESS_COMMIT = '1a8cf5ba416246f22d9526a917af5fb233170c58'
+const HARNESS_COMMIT = '82de604afc683cd8c7692d0736f26f9ebc0f1823'
 
 // S2's post-install load verification is only reachable in a real networked
 // run, so pin its presence statically: both engines must carry the

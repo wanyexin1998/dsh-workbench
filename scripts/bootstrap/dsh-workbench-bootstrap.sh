@@ -82,8 +82,8 @@ RESULT_EMITTED=0
 HARNESS_REPO_URL='https://github.com/wanyexin1998/deepseek-harness.git'
 # Informational only -- see the TRUST MODEL note above. Never used to select
 # what gets checked out; only the pinned commit below is.
-HARNESS_FORK_BRANCH='fix/plugin-spec-quoting'
-HARNESS_COMMIT='1a8cf5ba416246f22d9526a917af5fb233170c58'
+HARNESS_FORK_BRANCH='feat/toggle-settings-verb'
+HARNESS_COMMIT='82de604afc683cd8c7692d0736f26f9ebc0f1823'
 # The upstream DeepSeek Harness commit the fork branch is based on
 # (release-contract.json harness.upstreamCommit). Recorded here only for
 # the self-consistency check and diagnostic output; never checked out.
