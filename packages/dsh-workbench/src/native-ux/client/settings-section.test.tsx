@@ -94,8 +94,39 @@ describe('SettingsSection (T8)', () => {
 
   it('shows default chords and reserved note for Primary+B', () => {
     renderSection()
-    expect(screen.getByText('reserved.note.bookmarks')).toBeTruthy()
     expect(screen.getByText('Ctrl+B')).toBeTruthy()
+    // Settings-simplification pass: the reserved note is no longer a
+    // separate rendered text line — it now lives on the chord button's
+    // title (hover) and aria-label (keyboard/screen-reader) instead.
+    const button = document.querySelector('[data-dsh-nux-chord="workbench.layout.sidebar.toggle"]') as HTMLButtonElement
+    expect(button.getAttribute('title')).toContain('reserved.note.bookmarks')
+    expect(button.getAttribute('aria-label')).toContain('reserved.note.bookmarks')
+  })
+
+  it('settings-simplification: the row no longer inline-renders the action id or the reserved-key note text', () => {
+    renderSection()
+    const row = document.querySelector('[data-dsh-nux-shortcut-row="workbench.layout.sidebar.toggle"]')!
+    // Neither the raw action id nor the reserved-note sentence appears
+    // anywhere in the row's rendered text content anymore — both used to be
+    // permanent lines under the label (gray id, yellow reserved warning);
+    // the row now shows only the action name, the chord button, and the
+    // overflow menu.
+    expect(row.textContent).not.toContain('workbench.layout.sidebar.toggle')
+    expect(row.textContent).not.toContain('reserved.note.bookmarks')
+  })
+
+  it('settings-simplification: search still matches an action id even though the id is no longer rendered inline', () => {
+    // Read the filter itself (matchesQuery) rather than assuming: it tests
+    // `action.id.toLowerCase().includes(query)` against the DATA field, not
+    // against any rendered DOM text, so removing the inline id line must not
+    // break id search. Prove both halves in one test: the id string really
+    // is absent from the rendered page, yet searching for it still finds
+    // the row by its (still-visible) label.
+    renderSection()
+    expect(document.body.textContent).not.toContain('workbench.layout.sidebar.toggle')
+    const search = document.querySelector('[data-dsh-nux-search]') as HTMLInputElement
+    fireEvent.change(search, { target: { value: 'workbench.layout.sidebar.toggle' } })
+    expect(screen.getByText('shortcuts.action.sidebar.toggle')).toBeTruthy()
   })
 
   // MEDIUM 2 (Opus review, round 2 of native-actions-pivot): reviewer's claim
@@ -115,7 +146,11 @@ describe('SettingsSection (T8)', () => {
     renderSection(controller)
     const row = document.querySelector('[data-dsh-nux-shortcut-row="workbench.session.new"]')
     expect(row).not.toBeNull()
-    expect(row!.textContent).toContain('reserved.note.newWindow')
+    // Settings-simplification pass: the reserved note moved off the row's
+    // rendered text and onto the chord button's title/aria-label.
+    const button = row!.querySelector('[data-dsh-nux-chord]') as HTMLButtonElement
+    expect(button.getAttribute('title')).toContain('reserved.note.newWindow')
+    expect(button.getAttribute('aria-label')).toContain('reserved.note.newWindow')
   })
 
   it('recording captures a chord, saves it, and reloads the dispatcher', async () => {
@@ -716,7 +751,11 @@ describe('SettingsSection (T8)', () => {
     const row = document.querySelector('[data-dsh-nux-shortcut-row="workbench.chat.open"]')
     expect(row).not.toBeNull()
     expect(row!.textContent).toContain('Ctrl+Shift+C')
-    expect(row!.textContent).toContain('reserved.note.devtoolsInspect')
+    // Settings-simplification pass: the reserved note moved off the row's
+    // rendered text and onto the chord button's title/aria-label.
+    const button = row!.querySelector('[data-dsh-nux-chord]') as HTMLButtonElement
+    expect(button.getAttribute('title')).toContain('reserved.note.devtoolsInspect')
+    expect(button.getAttribute('aria-label')).toContain('reserved.note.devtoolsInspect')
   })
 
   it('F4: both shipped dictionaries carry the new reserved note key', () => {

@@ -20,6 +20,10 @@ export const zh = {
   'shortcuts.action.chat.open': '随手问（聊天模式）',
   'shortcuts.action.session.new': '新建会话',
   'shortcuts.action.settings.open': '打开设置',
+  // 仅在宿主同时提供开关(toggleSettings)语义时使用；只有 openSettings 的宿主
+  // 上这个动作确实只能打开,继续沿用上面的 settings.open 文案更诚实(见
+  // shortcuts.tsx settingsCanToggle 的取舍说明)。
+  'shortcuts.action.settings.toggle': '打开或关闭设置',
   'shortcuts.action.session.previous': '切换到上一个会话',
   'shortcuts.action.conversation.jumpLatest': '跳到最新消息',
   'shortcuts.action.favorite.1': '打开常用智能体 1',
@@ -100,6 +104,10 @@ export const en = {
   'shortcuts.action.chat.open': 'Quick ask (Chat mode)',
   'shortcuts.action.session.new': 'New session',
   'shortcuts.action.settings.open': 'Open settings',
+  // Only used when the host also exposes toggle (close) semantics — a host
+  // with just openSettings genuinely can only open, so it keeps the plain
+  // settings.open wording above (see shortcuts.tsx's settingsCanToggle).
+  'shortcuts.action.settings.toggle': 'Toggle settings',
   'shortcuts.action.session.previous': 'Switch to previous session',
   'shortcuts.action.conversation.jumpLatest': 'Jump to latest message',
   'shortcuts.action.favorite.1': 'Open favorite agent 1',

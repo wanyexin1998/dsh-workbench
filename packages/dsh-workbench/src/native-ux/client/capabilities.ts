@@ -38,6 +38,16 @@ export interface CapabilityReport {
   settingsPersistence: boolean
   /** a real favorite-agent open API is exposed (currently always false). */
   favoriteAgent: boolean
+  // NOT here on purpose: the CSS Custom Highlight API (`CSS.highlights`, used
+  // by the in-place quote bands). It is a *platform* API on a Chromium the
+  // harness pins, not a harness seam that "may be renamed or absent" — the
+  // thing this report exists to spot. It probes true on every runtime this
+  // plugin ships against, so it would only ever add a permanent `true` to a
+  // log whose entire payload is the list of `false`s, and nothing branches on
+  // it (the quote feature deliberately has no overlay fallback). If it ever
+  // does need to surface, the honest place is a warnOnce at the failure site
+  // (quote-highlight.ts's `cssHighlightPainter()` returning null), not a
+  // startup seam probe — and never product chrome (§9A.11).
 }
 
 /**

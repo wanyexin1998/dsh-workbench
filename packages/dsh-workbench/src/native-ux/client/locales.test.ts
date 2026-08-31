@@ -29,4 +29,16 @@ describe('locales (zh/en dictionaries)', () => {
     expect(zh['reserved.note.imeToggle']).toBeTruthy()
     expect(en['reserved.note.imeToggle']).toBeTruthy()
   })
+
+  // Pin: toggle-settings-verb added a SECOND settings.open label (used only
+  // when the host also exposes layout.toggleSettings — see shortcuts.tsx's
+  // settingsCanToggle) alongside the pre-existing open-only one. Both keys
+  // must exist in both dictionaries (same "key 数量必须保持相等" regression
+  // target as imeToggle above).
+  it('carries both shortcuts.action.settings.open and shortcuts.action.settings.toggle in both dictionaries', () => {
+    expect(zh['shortcuts.action.settings.open']).toBeTruthy()
+    expect(en['shortcuts.action.settings.open']).toBeTruthy()
+    expect(zh['shortcuts.action.settings.toggle']).toBeTruthy()
+    expect(en['shortcuts.action.settings.toggle']).toBeTruthy()
+  })
 })

@@ -569,6 +569,50 @@ describe('shortcut dispatcher (seam B)', () => {
       expect(event.defaultPrevented).toBe(false)
     })
 
+    // toggle-settings-verb: workbench.settings.open now prefers a newer
+    // open/close toggle verb (layout.toggleSettings) over the older
+    // open-only one (layout.openSettings) when a host exposes both — see
+    // harness-adapter.ts's LayoutService.toggleSettings doc comment and
+    // shortcuts.tsx's settingsCanToggle for the preference-then-fallback
+    // wiring this pins. The openSettings-only fallback path itself (still
+    // opens, on a host that has not picked up the newer verb yet) is
+    // already covered by the "calls layout.openSettings() when a test
+    // double supplies the seam" test above.
+    it('workbench.settings.open: prefers layout.toggleSettings() over layout.openSettings() when both are present', () => {
+      const toggleSettings = vi.fn()
+      const openSettings = vi.fn()
+      const registry = buildShortcutRegistry({
+        services: { layout: { toggleSidebar: vi.fn(), toggleSettings, openSettings } },
+      })
+      detach = attachDispatcher(registry)
+      const event = keydown({ key: ',', ctrlKey: true })
+      expect(toggleSettings).toHaveBeenCalledOnce()
+      expect(openSettings).not.toHaveBeenCalled()
+      expect(event.defaultPrevented).toBe(true)
+    })
+
+    // Fail-closed: a host with NEITHER verb must not register the action at
+    // all (settingsOpenOn in shortcuts.tsx).
+    it('workbench.settings.open: does not register when layout has neither toggleSettings nor openSettings', () => {
+      const registry = buildShortcutRegistry({ services: { layout: { toggleSidebar: vi.fn() } } })
+      expect(registry.all().some((a) => a.id === 'workbench.settings.open')).toBe(false)
+    })
+
+    // Label wording tracks which verb the host actually exposes: a host
+    // that can only open keeps saying so (shortcuts.action.settings.open,
+    // "Open settings"/"打开设置" — it would be dishonest to promise a close
+    // it cannot deliver); a host that can also close gets the toggle-worded
+    // label (shortcuts.action.settings.toggle) — see locales.ts's entry for
+    // why this is capability-dependent rather than a single global rewrite.
+    it('workbench.settings.open: label is capability-dependent — settings.toggle only when toggleSettings exists', () => {
+      const openOnly = buildShortcutRegistry({ services: { layout: { toggleSidebar: vi.fn(), openSettings: vi.fn() } } })
+      expect(openOnly.all().find((a) => a.id === 'workbench.settings.open')?.label).toBe('shortcuts.action.settings.open')
+      const canToggle = buildShortcutRegistry({
+        services: { layout: { toggleSidebar: vi.fn(), toggleSettings: vi.fn(), openSettings: vi.fn() } },
+      })
+      expect(canToggle.all().find((a) => a.id === 'workbench.settings.open')?.label).toBe('shortcuts.action.settings.toggle')
+    })
+
     // LOW 3 (Opus review, round 2): the missing while-typing dispatch test
     // for settings.open. ',' (the physical comma key's event.key) IS a
     // printable key (isPrintableKey has no non-printable exception for it,

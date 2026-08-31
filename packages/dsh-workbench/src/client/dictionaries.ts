@@ -36,8 +36,23 @@ export const zh = {
   'selection.side.error.unavailable': '当前版本不支持侧边聊天。',
   'selection.side.error.failed': '无法完成侧边聊天操作，请重试。',
   'selection.dock.label': '选区引用',
-  'selection.comment': '添加评论',
-  'selection.remove': '删除',
+  // 引用区的可见计数（原来的「选区引用 (N)」标题行）已经删掉——计数由正文里的
+  // 编号徽标承担。屏读用户看不到徽标，所以把计数并进 section 的无障碍名。
+  'selection.dock.labelCount': '选区引用（{count} 条）',
+  'selection.comment.placeholder': '添加可选评论...',
+  // 摘要进 aria-label 而不是 aria-describedby：它是这个输入框的身份（用来区分
+  // 几个长得一样的框），身份属于 name，聚焦时立刻朗读。
+  'selection.comment.aria': '对引用 {n} 的评论：{excerpt}',
+  'selection.remove.aria': '删除引用 {n}：{excerpt}',
+  // 「跳到原文」的可访问名。摘要**不**进这句：同一行的 title 已经把摘要给了
+  // 指针用户，而屏读用户在同一行的评论框名里已经听过一次，再念一遍就是复读。
+  'selection.reveal.aria': '跳到引用 {n} 的原文',
+  // 锚点三态里需要说出口的两个。anchored 不发声（滚动会让它与 offscreen 频繁
+  // 翻转，任何提示都会变噪音）。detached 那句后半段是关键：色带没了不等于引用
+  // 失效——发送时序列化的是捕获时冻结的文本快照。
+  'selection.anchor.offscreen': '引用的原文当前不在视野内。',
+  'selection.anchor.unmeasured': '暂时无法确定引用原文的位置，引用本身仍然有效。',
+  'selection.anchor.detached': '引用的原文已不在当前对话中，引用内容仍会随消息发送。',
   'selection.error.stale': '选区已失效，请重新选择。',
   'selection.error.composer': '无法访问来源对话输入框。',
   'selection.error.draftChanged': '草稿已变化，请重试。',
@@ -82,8 +97,14 @@ export const en = {
   'selection.side.error.unavailable': 'Side chat is unavailable in this edition.',
   'selection.side.error.failed': 'The side-chat action could not be completed. Try again.',
   'selection.dock.label': 'Selection references',
-  'selection.comment': 'Add comment',
-  'selection.remove': 'Remove',
+  'selection.dock.labelCount': 'Selection references ({count})',
+  'selection.comment.placeholder': 'Add an optional comment…',
+  'selection.comment.aria': 'Comment on quote {n}: {excerpt}',
+  'selection.remove.aria': 'Remove quote {n}: {excerpt}',
+  'selection.reveal.aria': 'Jump to the source of quote {n}',
+  'selection.anchor.offscreen': 'The quoted passage is currently out of view.',
+  'selection.anchor.unmeasured': 'The quoted passage’s position cannot be read right now. The quote itself is still valid.',
+  'selection.anchor.detached': 'The quoted passage is no longer in this conversation. The quote is still sent with your message.',
   'selection.error.stale': 'The selection is stale. Select the text again.',
   'selection.error.composer': 'The source conversation composer is unavailable.',
   'selection.error.draftChanged': 'The draft changed. Try again.',

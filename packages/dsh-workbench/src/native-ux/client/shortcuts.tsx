@@ -199,15 +199,25 @@ export function buildShortcutRegistry(options: ShortcutActionOptions = {}): Acti
   //                       Session view" fallback startSession() itself uses
   //                       when it has nothing else to go on (create() is NOT
   //                       on the public ISessions contract).
-  //   settingsOpenOn:    baseline-dependent seam. The pinned fork ships
+  //   settingsOpenOn:    baseline-dependent seam, EITHER of two verbs
+  //                       (open/close-toggle support): the pinned fork ships
   //                       ILayout.openSettings(), wired by the Settings
   //                       shell via LayoutController.attachSettingsOpener
-  //                       (fork be23380a, carried on the current pin), so
-  //                       this is true there. Stock 0.1.1-rc.2 has no such
-  //                       verb, so it stays false and the action is never
-  //                       registered. This is a real seam check against
-  //                       services.layout, not a hardcoded cap: the same
-  //                       probe is what a test double exercises.
+  //                       (fork be23380a, carried on the current pin); a
+  //                       newer, not-yet-pushed fork branch
+  //                       (feat/toggle-settings-verb) additionally ships
+  //                       ILayout.toggleSettings() alongside it (see that
+  //                       member's doc comment in harness-adapter.ts). This
+  //                       gate is true when either exists, so the action
+  //                       still registers on a host that only has the older
+  //                       openSettings() — the run() below prefers
+  //                       toggleSettings and falls back to openSettings, so
+  //                       registration must not require the newer verb.
+  //                       Stock 0.1.1-rc.2 has neither, so it stays false
+  //                       and the action is never registered (fail-closed).
+  //                       This is a real seam check against services.layout,
+  //                       not a hardcoded cap: the same probe is what a test
+  //                       double exercises.
   //   sessionPreviousOn: TWO public seams, both required (MEDIUM 1, Opus
   //                       review round 2): ISessions.open(id) to actually
   //                       switch (public, unconditional — sessions.d.ts),
@@ -231,7 +241,16 @@ export function buildShortcutRegistry(options: ShortcutActionOptions = {}): Acti
   //                       composerFocus — always registered, fails soft at
   //                       runtime when no scrollport is mounted yet.
   const sessionNewOn = caps.sessionNew !== false && services.sessions?.clear !== undefined
-  const settingsOpenOn = caps.settingsOpen !== false && services.layout?.openSettings !== undefined
+  const settingsOpenOn =
+    caps.settingsOpen !== false &&
+    (services.layout?.toggleSettings !== undefined || services.layout?.openSettings !== undefined)
+  // Which verb this host actually exposes decides the label: a host that
+  // only has the older openSettings() genuinely can only open, so it keeps
+  // saying "Open settings" rather than promising a close it cannot deliver;
+  // a host with the newer toggleSettings() gets the toggle-worded label. See
+  // shortcuts.action.settings.toggle's own dictionary entry (locales.ts) for
+  // why this is a capability-dependent label rather than a single rewrite.
+  const settingsCanToggle = services.layout?.toggleSettings !== undefined
   const sessionPreviousOn =
     caps.sessionPrevious !== false && services.sessions?.open !== undefined && services.sessions?.list !== undefined
   const jumpLatestOn = caps.jumpLatest !== false
@@ -326,7 +345,7 @@ export function buildShortcutRegistry(options: ShortcutActionOptions = {}): Acti
   if (settingsOpenOn) {
     registry.register({
       id: 'workbench.settings.open',
-      label: 'shortcuts.action.settings.open',
+      label: settingsCanToggle ? 'shortcuts.action.settings.toggle' : 'shortcuts.action.settings.open',
       // Confirmed by user testing on Chinese Windows: Primary+Space
       // (Ctrl+Space) never fired — it is the default IME language-toggle
       // hotkey for Microsoft Pinyin and most other Chinese input methods, so
@@ -346,7 +365,17 @@ export function buildShortcutRegistry(options: ShortcutActionOptions = {}): Acti
       // Shift-changes-event.key class of bug entirely.
       defaultChord: 'Primary+,',
       allowWhileTyping: true,
-      run: () => { services.layout?.openSettings?.() },
+      // Prefer the newer open/close toggle verb; fall back to the
+      // open-only one on a host that has not picked up
+      // feat/toggle-settings-verb yet (settingsOpenOn above guarantees at
+      // least one of the two exists whenever this run() can fire).
+      run: () => {
+        if (services.layout?.toggleSettings !== undefined) {
+          services.layout.toggleSettings()
+        } else {
+          services.layout?.openSettings?.()
+        }
+      },
     }, unbind(overrides['workbench.settings.open']), disabled.has('workbench.settings.open'))
   }
   if (sessionPreviousOn) {
@@ -860,6 +889,22 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
       : unbound
         ? t('shortcuts.unbound')
         : (report.display || t('shortcuts.unbound'))
+    // Settings-simplification pass: the browser-reserved note used to be a
+    // permanent third line under the label (design.md §4 row layout, GA-013).
+    // It is now surfaced ONLY on the chord button itself — as a native
+    // mouse-hover tooltip (`title`) and folded into the button's `aria-label`
+    // (see below) — so it costs no vertical space when it does not apply,
+    // while still reaching a keyboard/screen-reader user the moment the
+    // button receives focus (no extra DOM node / no hover-only CSS needed:
+    // aria-label is announced on focus regardless of pointer hover).
+    // 'shortcuts.reserved' ('浏览器保留键：{note}') was defined in locales.ts
+    // but never consumed until now — it exists precisely for this
+    // self-contained "why is this shown" framing, which the tooltip needs
+    // more than the old inline row did (the row's proximity to the chord
+    // button used to supply that context for free).
+    const reservedNoteText = !recording && report.browserReservedNote !== null
+      ? t('shortcuts.reserved', { note: t(report.browserReservedNote) })
+      : null
     return (
       <div
         key={action.id}
@@ -868,16 +913,19 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
       >
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, color: 'var(--dsw-alias-label-primary)' }}>{t(action.label)}</div>
-          <div style={{ fontSize: 11, color: 'var(--dsw-alias-label-tertiary)' }}>{action.id}</div>
-          {/* GA-013: conflict / reserved warnings are secondary info under the label. */}
+          {/* Settings-simplification pass: the action-id line and the
+              browser-reserved-note line are gone from here. The id was
+              display-only chrome — search already filters on the data field
+              `action.id` (see matchesQuery above), never on this rendered
+              text, so dropping it does not touch search. The reserved note
+              moved to the chord button's title/aria-label (reservedNoteText
+              above); this column keeps only what still needs a permanent,
+              always-visible line: an ACTIVE conflict (something the user
+              must resolve right now, unlike the merely-informational
+              reserved note) and the mid-recording invalid-chord message. */}
           {report.conflictWith !== null && (
             <div data-dsh-nux-conflict={action.id} style={{ fontSize: 11, color: 'var(--dsw-alias-state-error, #d24c4c)' }}>
               {t('shortcuts.conflict', { id: report.conflictWith })}
-            </div>
-          )}
-          {report.browserReservedNote !== null && (
-            <div style={{ fontSize: 11, color: 'var(--dsw-alias-state-warn, #b76e00)' }}>
-              {t(report.browserReservedNote)}
             </div>
           )}
           {recording && pending !== null && pending.chord === null && (
@@ -887,14 +935,24 @@ export function SettingsSection({ t, controller, allowSyntheticEventsForTesting 
 
         {/* GA-012: glass chord button = record entry. W1.3: non-editable
             (foreign-provider) rows render the same button, disabled and
-            inert — the binding is still visible, just not changeable here. */}
+            inert — the binding is still visible, just not changeable here.
+            Settings-simplification pass: `title` gives a mouse user the
+            reserved-key note on hover (native tooltip, zero extra markup);
+            the same text is also folded into `aria-label` so a keyboard /
+            screen-reader user gets it read out the moment the button takes
+            focus, independent of any pointer hover. */}
         <button
           type="button"
           data-dsh-nux-chord={action.id}
           data-dsh-nux-chord-button
           disabled={!editable}
           aria-pressed={recording}
-          aria-label={recording ? t('shortcuts.recording') : (chordButtonLabel + ' — ' + t('shortcuts.recordHint'))}
+          title={reservedNoteText ?? undefined}
+          aria-label={
+            recording
+              ? t('shortcuts.recording')
+              : chordButtonLabel + ' — ' + t('shortcuts.recordHint') + (reservedNoteText !== null ? '. ' + reservedNoteText : '')
+          }
           onClick={editable ? () => (recording ? cancelRecording() : startRecording(action.id)) : undefined}
           style={{
             ...CHORD_BTN_BASE,

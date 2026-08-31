@@ -246,7 +246,9 @@ export interface SessionsService {
  * baseline: stock 0.1.1-rc.2 declares exactly `toggleSidebar()` /
  * `openDetails()` / `closeDetails()` (verified at the pinned store,
  * `@deepseek-ai/dsh-client-ui-layout/lib/types/client/service.d.ts`), while
- * the pinned fork adds `openSettings()` — see that member's own doc comment.
+ * the currently pinned fork adds `openSettings()`, and a not-yet-pushed fork
+ * branch adds a second, newer `toggleSettings()` alongside it — see each
+ * member's own doc comment.
  * Every member this plugin does not require unconditionally is optional, so
  * a baseline missing it degrades to "capability absent", never to a crash.
  */
@@ -267,6 +269,33 @@ export interface LayoutService {
    * see `settingsOpenOn` in shortcuts.tsx for the gate this backs).
    */
   openSettings?(): void
+  /**
+   * workbench.settings.open (open/close toggle): a second, newer fork verb
+   * — `ILayout.toggleSettings()` on `@deepseek-ai/dsh-client-ui-layout`,
+   * named to match `toggleSidebar()`'s own convention. It ships on the
+   * `feat/toggle-settings-verb` branch of the pinned Harness fork (commit
+   * `82de604afc683cd8c7692d0736f26f9ebc0f1823`, not yet pushed at the time
+   * this comment was written), alongside `openSettings()` above rather than
+   * replacing it: `openSettings()` is untouched, same signature and
+   * semantics, because the already-shipped `v0.2.0-rc.2` release calls it
+   * directly and cannot be broken retroactively. `LayoutController` gains a
+   * paired `attachSettingsToggle(toggle)` — wired by the Settings shell
+   * store's new `toggle` action through `shellInjected`, the same injection
+   * shape `attachSettingsOpener` already uses for `openSettings()` — and
+   * `LayoutController.toggleSettings()` is fail-soft by that identical
+   * construction: before the shell mounts, or under a replacement layout
+   * provider implementing only the documented `ILayout`, calling it is a
+   * no-op rather than a throw.
+   * Neither the currently pinned fork commit (the one `openSettings()`
+   * above documents) nor stock Harness `0.1.1-rc.2` ships this member, so it
+   * stays `undefined` on both today. The action prefers this verb when
+   * present and falls back to `openSettings()` otherwise — open-only on a
+   * host that has not picked up `feat/toggle-settings-verb` yet, open-and-
+   * close once it has — see `settingsOpenOn` and the `workbench.settings.
+   * open` action `run()` in shortcuts.tsx for the preference-then-fallback
+   * wiring this backs.
+   */
+  toggleSettings?(): void
 }
 
 /** Aggregate of the injected services the plugin uses. */

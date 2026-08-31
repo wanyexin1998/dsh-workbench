@@ -1,13 +1,21 @@
 import * as React from 'react'
 import type { IConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { InputTriggerServiceContract } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import { revealNode } from '../core/navigation-adapter.js'
+import {
+  ensureQuoteHighlightStyles, findBusinessRow, focusedPaneScope, locateScrollport,
+} from './conversation-dom.js'
 import type { HarnessServices } from './harness-adapter.js'
+import {
+  quoteExcerpt, type QuoteAnchorState, type QuoteHighlightRegistry,
+} from './quote-highlight.js'
+import { QuoteBadge, QuoteBadgeLayer, useQuoteAnchors } from './quote-overlay.js'
 import { SelectionController, type SelectionSessions } from './selection-controller.js'
 import type { ConversationSelection } from './selection-contract.js'
 import {
   appendSelectionReference, createSelectionReferenceSource, createSideChatReferenceSource,
   insertSideChatReference, readSelectionAggregate, removeSelectionItem,
-  updateSelectionComment, type SelectionInput,
+  updateSelectionComment, type SelectionAggregateItem, type SelectionInput,
   type SelectionInputSnapshot, type SelectionMutationResult,
 } from './selection-reference.js'
 import {
@@ -513,6 +521,22 @@ export function SelectionToolbar({ controller, onAdd, sideChat, t }: SelectionTo
   )
 }
 
+/**
+ * 只读给屏读的状态说明。视觉上完全不占位，但内容必须是真文本节点 ——
+ * `aria-describedby` 指向的元素若被 `display:none` 隐藏就读不出来了。
+ */
+const VISUALLY_HIDDEN: React.CSSProperties = {
+  position: 'absolute', width: 1, height: 1, margin: -1, padding: 0,
+  overflow: 'hidden', clip: 'rect(0 0 0 0)', clipPath: 'inset(50%)',
+  whiteSpace: 'nowrap', border: 0,
+}
+
+/** 引用区最多常驻 4 行（32 行高 + 2 行距），再多就滚动 —— 旧实现无高度上限，
+ * 6 条以上会把 composer 顶飞。 */
+const DOCK_MAX_HEIGHT = 4 * 34
+
+const NO_ITEMS: readonly SelectionAggregateItem[] = []
+
 interface SelectionDockProps {
   readonly sessionId: string
   readonly session: { readonly sessionId: string }
@@ -520,12 +544,32 @@ interface SelectionDockProps {
   readonly updateComment: (itemId: string, comment: string) => SelectionMutationResult
   readonly removeItem: (itemId: string) => SelectionMutationResult
   readonly t: Translate
+  /** 测试注入用；生产走 quote-highlight.ts 的模块级单例。 */
+  readonly highlights?: QuoteHighlightRegistry
 }
 
-export function SelectionDock({ sessionId, session, input, updateComment, removeItem, t }: SelectionDockProps) {
+export function SelectionDock({
+  sessionId, session, input, updateComment, removeItem, t, highlights,
+}: SelectionDockProps) {
   const owned = session.sessionId === sessionId ? readSelectionAggregate(input) : null
   const ref = owned?.occurrence.ref
+  const items = owned?.aggregate.items ?? NO_ITEMS
   const [comments, setComments] = React.useState<Record<string, string>>({})
+  // 引用区行与正文徽标共享的强调状态：hover 任意一侧、或聚焦行内控件都会点亮它，
+  // 于是键盘用户免费拿到与鼠标 hover 等价的联动。
+  //
+  // hover 与 focus **分开存**，合成时 hover 优先。合成前两者共用一个
+  // activeItemId，而行的 onMouseLeave 是无条件清空：鼠标划过第 2 行再移开，会把
+  // 第 1 行（键盘正聚焦）的强调一起抹掉——键盘用户的状态被指针的路过事件顺手
+  // 删了。拆开之后 leave 只动 hover 格子，focus 格子原封不动，指针离开时强调
+  // **回落**到聚焦那一行而不是消失。
+  // 顺序取 hover 在前是因为指针是即时的直接操作：鼠标停在哪一行，那一行就该亮；
+  // 松开后再回到键盘的那一行。两个 leave 各自带身份判据（只清自己那条），乱序的
+  // enter/leave（进入下一行的 enter 先于上一行的 leave）也不会误清后来者。
+  const [hoveredItemId, setHoveredItemId] = React.useState<string | null>(null)
+  const [focusedItemId, setFocusedItemId] = React.useState<string | null>(null)
+  const activeItemId = hoveredItemId ?? focusedItemId
+  const inputs = React.useRef(new Map<string, HTMLInputElement>())
   React.useEffect(() => {
     if (owned === null) {
       setComments({})
@@ -533,160 +577,279 @@ export function SelectionDock({ sessionId, session, input, updateComment, remove
     }
     setComments(Object.fromEntries(owned.aggregate.items.map((item) => [item.id, item.comment ?? ''])))
   }, [ref])
+  // Hook 必须无条件调用 —— `owned === null` 的早退在它之后。空列表会让 registry
+  // 收到一次空发布，正好把这个 session 的色带撤掉。
+  const anchors = useQuoteAnchors({
+    items,
+    revision: ref,
+    sessionId,
+    activeItemId,
+    ownerId: `dsh-workbench.selection-dock:${sessionId}`,
+    registry: highlights,
+  })
   if (owned === null) return null
+
+  const setHover = (itemId: string, on: boolean) => {
+    setHoveredItemId((current) => (on ? itemId : current === itemId ? null : current))
+  }
+  const setFocus = (itemId: string, on: boolean) => {
+    setFocusedItemId((current) => (on ? itemId : current === itemId ? null : current))
+  }
+
+  const reveal = (item: SelectionAggregateItem) => {
+    const reducedMotion = typeof window !== 'undefined'
+      && typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    // `highlight: false` 是刻意的：revealNode 默认会往宿主锚点写
+    // `data-dsh-nux-reveal` 属性。我们自己的色带已经是视觉反馈，关掉它顺便让
+    // 本特性**一个宿主属性都不写**。
+    // findAnchor 也换成 findBusinessRow —— 默认那个比 `data-chat-anchor-key`，
+    // 而引用身份用的是 `data-chat-flow-key`，混用会滚到别的行。
+    void revealNode(item.parentSessionId, item.nodeKey, { highlight: false, reducedMotion }, {
+      locateScrollport: () => locateScrollport(focusedPaneScope(item.parentSessionId)),
+      findAnchor: (scrollport, nodeKey) => findBusinessRow(scrollport, nodeKey),
+      currentSessionId: () => sessionId,
+    }).catch(() => {})
+  }
+
   return (
     <section
       data-dsh-selection-dock
-      aria-label={t('selection.dock.label')}
+      // 可见计数已随标题行一起删掉（计数由正文徽标承担），把它并进无障碍名，
+      // 免得屏读用户丢掉"有几条引用"这个信息。
+      aria-label={t('selection.dock.labelCount', { count: String(items.length) })}
       style={{
-        boxSizing: 'border-box', flex: 'none', overflow: 'hidden', margin: '0 auto',
+        boxSizing: 'border-box', flex: 'none', margin: '0 auto',
         // 与 TodoPanel(order 0) / QueueDock(order 20) 对齐同一根宽度轴，否则 composer 上下文栈会散。
         width: 'calc(100% - var(--dsh-composer-side-clearance, 16px) * 2 - var(--dsh-composer-dock-inset, 8px) * 4)',
         maxWidth: 'calc(var(--dsh-composer-card-max-width, 780px) - var(--dsh-composer-dock-inset, 8px) * 4)',
-        border: '1px solid var(--dsw-alias-border-l1, rgba(0,0,0,.04))',
-        borderRadius: 12,
-        // bg-layer-1 浅色下就是纯白，和正文分不开；specific-tip 浅 #F5F6F7 / 深 #353638 两边都有层次。
-        // 栈内卡片一律无阴影——阴影是浮层专用。
-        background: 'var(--dsw-specific-tip, #f5f6f7)',
       }}
     >
-      <div style={{ display: 'grid', gap: 8, padding: '6px 12px' }}>
-        <div style={{
-          fontSize: 13, lineHeight: '24px', fontWeight: 500,
-          color: 'var(--dsw-alias-label-primary, #0f1115)',
-        }}>
-          {t('selection.dock.label')}{' '}
-          {/* 13px 计数是正文，要过 4.5:1。label-tertiary 画在 specific-tip 卡面上浅色
-              只有 3.42:1（深色 5.67:1 过）；换成 label-secondary：浅 5.36:1 / 深 8.03:1。 */}
-          <span style={{ fontWeight: 400, color: 'var(--dsw-alias-label-secondary, #61666b)' }}>
-            ({owned.aggregate.items.length})
-          </span>
-        </div>
-        {owned.aggregate.items.map((item, index) => (
+      {/* 卡片外框、标题行、竖条预览、行间分隔线全部去掉：原文不再在这里重复
+          显示，"轻"由减法实现，而不是靠把边框调淡（那会掉到 1.4.11 的 3:1 之下）。 */}
+      {/* 左右各留 4px：`overflowY:'auto'` 让这个盒子成为滚动容器，溢出被裁在
+          padding box 上，而「跳到原文」按钮的焦点环画在按钮**外面**
+          （offset 2 + 宽 2 = 4px）。没有这 4px，第一列按钮的环会被容器左缘裁掉。 */}
+      <div style={{ display: 'grid', gap: 2, padding: '2px 4px', maxHeight: DOCK_MAX_HEIGHT, overflowY: 'auto' }}>
+        {items.map((item, index) => (
           <SelectionDockRow
             key={item.id}
             index={index}
-            text={item.text}
+            item={item}
+            state={anchors.states.get(item.id) ?? 'detached'}
+            emphasis={activeItemId === item.id}
             comment={comments[item.id] ?? ''}
+            onHover={(on) => setHover(item.id, on)}
+            onFocusChange={(on) => setFocus(item.id, on)}
             onCommentChange={(value) => setComments((current) => ({ ...current, [item.id]: value }))}
             onCommentCommit={(value) => updateComment(item.id, value)}
             onRemove={() => removeItem(item.id)}
+            onReveal={() => reveal(item)}
+            registerInput={(node) => {
+              if (node === null) inputs.current.delete(item.id)
+              else inputs.current.set(item.id, node)
+            }}
             t={t}
           />
         ))}
       </div>
+      {/* 正文徽标只写 hover 格子：它是纯指针图层，不该有能力清掉键盘聚焦的强调。 */}
+      <QuoteBadgeLayer
+        badges={anchors.badges}
+        activeItemId={activeItemId}
+        onHover={(itemId) => setHoveredItemId(itemId)}
+        onSelect={(itemId) => inputs.current.get(itemId)?.focus()}
+      />
     </section>
   )
 }
 
 interface SelectionDockRowProps {
   readonly index: number
-  readonly text: string
+  readonly item: SelectionAggregateItem
+  readonly state: QuoteAnchorState
+  readonly emphasis: boolean
   readonly comment: string
+  /** 指针进入/离开本行。只写 hover 格子。 */
+  readonly onHover: (on: boolean) => void
+  /** 本行的某个控件拿到/失去键盘焦点。只写 focus 格子。 */
+  readonly onFocusChange: (on: boolean) => void
   readonly onCommentChange: (value: string) => void
   readonly onCommentCommit: (value: string) => void
   readonly onRemove: () => void
+  readonly onReveal: () => void
+  readonly registerInput: (node: HTMLInputElement | null) => void
   readonly t: Translate
 }
 
 function SelectionDockRow({
-  index, text, comment, onCommentChange, onCommentCommit, onRemove, t,
+  index, item, state, emphasis, comment, onHover, onFocusChange, onCommentChange, onCommentCommit,
+  onRemove, onReveal, registerInput, t,
 }: SelectionDockRowProps) {
   const remove = useInteractive()
+  const jump = useInteractive()
   const [inputFocused, setInputFocused] = React.useState(false)
+  const [inputHovered, setInputHovered] = React.useState(false)
+  const ordinal = String(index + 1)
+  const excerpt = quoteExcerpt(item.text)
+  const stateId = `dsh-quote-state-${item.id}`
+  // anchored 故意留空串：滚动会让 anchored ⇄ offscreen 频繁翻转,任何提示都会
+  // 变成噪音。也正因为如此,这个 span 绝不设 aria-live —— 文本变了就行,
+  // 屏读下次聚焦时读到。
+  const stateNote = state === 'detached'
+    ? t('selection.anchor.detached')
+    : state === 'offscreen'
+      ? t('selection.anchor.offscreen')
+      // 'unmeasured' 说的是「这一帧量不出几何」，不是「滚出视口」——锚点是好的，
+      // 只是滚动容器还没布局、或运行环境没有 Range 几何 API。两者混为一谈会让
+      // 屏读用户听到一句关于位置的假话，这正是上一轮修掉的缺陷。
+      : state === 'unmeasured'
+        ? t('selection.anchor.unmeasured')
+        : ''
   return (
     <div
+      data-dsh-selection-dock-row={item.id}
+      // 视觉用户拿回原文的那条途径。重写后引用区只剩数字徽标 + 空评论框，而正文
+      // 侧徽标在 offscreen / detached 时**根本不渲染**——那两种状态下视觉用户
+      // 没有任何办法知道第 N 条引用的是哪句话，屏读用户反而更全（摘要在评论框的
+      // 可访问名里）。这里用 title 补齐，而不是把厚重的原文预览搬回来：
+      //   * 挂在**整行**而不是 16px 的徽标上——行是这一区里最大的悬停靶（整宽
+      //     32px 高），子元素自己没有 title 时浏览器会沿祖先找，所以悬停行内任
+      //     何位置都读得到；
+      //   * 零布局代价，引用区仍是「一行 = 一个编号 + 一个评论框」，用户要的
+      //     简洁没有被换回来；
+      //   * 三种锚点状态下**同一条**途径，包括 detached ——那时既没有正文徽标、
+      //     也没有可跳转的原文，是最需要它的一档；
+      //   * 这个 div 没有 role、没有可访问名，title 不会给 AT 造出第二处复读。
+      title={excerpt}
+      onMouseEnter={() => onHover(true)}
+      onMouseLeave={() => onHover(false)}
       style={{
-        display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 10,
-        alignItems: 'center', minHeight: 36,
-        ...(index > 0
-          ? { paddingTop: 8, boxShadow: 'inset 0 1px 0 var(--dsw-alias-border-l1, rgba(0,0,0,.04))' }
-          : null),
+        display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr)', gap: 8,
+        alignItems: 'center', minHeight: 32,
       }}
     >
-      <div style={{ minWidth: 0 }}>
-        <div
-          title={text}
-          style={{
-            fontSize: 13, lineHeight: '20px',
-            color: 'var(--dsw-alias-label-primary-dimmed, #151517)',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            // 竖条与发送出去的引用装订线呼应；不要用 markdown-citation——它深色下与
-            // specific-tip 同色，竖条会消失。
-            borderLeft: '2px solid var(--dsw-alias-border-l4, rgba(0,0,0,.16))', paddingLeft: 8,
-          }}
-        >
-          {text}
-        </div>
+      {/* 「跳到原文」以前是 `<span aria-hidden onClick>`：对 AT 隐藏、不可聚焦、
+          无 role，等于把「滚动到被引用段落」做成了纯鼠标能力。换成真 <button>：
+          可 Tab、Enter/Space 生效、有可访问名。名字里**只**放编号（摘要留给同行
+          评论框的名字和整行的 title），两个可访问名信息互补而不是复读。
+          外观仍由 QuoteBadge 画，按钮只负责语义、命中区和焦点环。 */}
+      <button
+        type="button"
+        aria-label={t('selection.reveal.aria', { n: ordinal })}
+        onClick={onReveal}
+        {...jump.handlers}
+        // 聚焦这颗按钮与聚焦评论框一样点亮本行 —— 键盘拿到与 hover 等价的联动。
+        // 展开在 handlers 之后：后写的 prop 覆盖同名的，再手动转调原处理器。
+        onFocus={(event) => { jump.handlers.onFocus(event); onFocusChange(true) }}
+        onBlur={() => { jump.handlers.onBlur(); onFocusChange(false) }}
+        style={{
+          display: 'inline-grid', placeItems: 'center',
+          padding: 0, border: 0, background: 'transparent', borderRadius: 999,
+          cursor: 'pointer',
+          // 环画在徽标**外面**：徽标自身的描边就是 business-primary，内缩的环会
+          // 和它糊成一团，分不出「聚焦了没有」。外侧 4px 的容身之处由引用区滚动
+          // 容器的左右 padding 让出（见上）。
+          outlineOffset: FOCUS_RING_OFFSET,
+          outline: jump.focusRing ? FOCUS_RING : 'none',
+        }}
+      >
+        <QuoteBadge label={ordinal} state={state} emphasis={emphasis} />
+      </button>
+      <div style={{ position: 'relative', minWidth: 0 }}>
         <input
-          aria-label={`${t('selection.comment')} ${index + 1}`}
+          ref={registerInput}
+          data-dsh-quote-comment
+          // 摘要进 name 而不是 description：它是这个输入框的**身份**（用来区分
+          // 三个长得一样的框），身份属于 name，聚焦时立刻朗读；description 在
+          // 部分屏读的浏览模式里会被跳过。
+          aria-label={t('selection.comment.aria', { n: ordinal, excerpt })}
+          aria-describedby={stateId}
           value={comment}
-          placeholder={t('selection.comment')}
+          placeholder={t('selection.comment.placeholder')}
           onChange={(event) => onCommentChange(event.target.value)}
-          onFocus={() => setInputFocused(true)}
+          onMouseEnter={() => setInputHovered(true)}
+          onMouseLeave={() => setInputHovered(false)}
+          onFocus={() => {
+            setInputFocused(true)
+            onFocusChange(true)
+          }}
           onBlur={(event) => {
             setInputFocused(false)
+            onFocusChange(false)
             onCommentCommit(event.target.value)
           }}
           style={{
-            boxSizing: 'border-box', width: '100%', height: 28, marginTop: 4,
-            padding: '0 8px', borderRadius: 6, outline: 'none',
-            // bg-base 在 specific-tip 上是凹面（浅 #FFF on #F5F6F7、深 #151517 on #353638）。
+            boxSizing: 'border-box', width: '100%', height: 32,
+            // 右侧 30px 让开输入框内的删除按钮（20px 图标 + 6px 边距 + 4px 呼吸）。
+            padding: '0 30px 0 10px', borderRadius: 8,
+            // 焦点环。旧写法 `outline:'none'`，聚焦的唯一信号是描边从
+            // label-tertiary 换成 business-primary —— 两色互比浅 1.14:1 / 深
+            // 1.25:1，远低于「焦点态相对未聚焦态 3:1」。这里改用本文件为所有
+            // 按钮定义的同一套 FOCUS_RING（2px business-primary）。
             //
-            // 静息边框曾用 border-l2（10% 黑 alpha）。按 WCAG 公式自己合成一遍：
-            // rgba(0,0,0,.1) 叠在浅色 bg-base #FFF 上 → 有效色 ≈ #E6E6E6（L=0.7874），
-            // 对 #FFF（L=1.0）只有 (1.05)/(0.7874+0.05) ≈ 1.25:1——WCAG 1.4.11 对 UI
-            // 组件边界要求的是 3:1，差了一倍还多。border-l2 在这份文件里从没被
-            // 实测过深色值，但它是同一套「弱 alpha 描边」token，观感上不会比浅色好到
-            // 哪去，达标希望不大，所以直接换 token 而不是等深色实测。
-            //
-            // 换成 label-tertiary（本文件删除按钮静息态在用的同一个 token，见下方
-            // remove.hovered 分支），不是本轮焦点环选的 business-primary——那是
-            // focus 态专用色，静息态另选是任务要求，也是设计上"焦点才该跳色"的
-            // 惯例。label-tertiary 是不透明纯色，不需要 alpha 合成，直接算：
-            //   浅色 #81858c vs bg-base #FFFFFF        → 3.71:1
-            //   浅色 #81858c vs specific-tip #F5F6F7    → 3.43:1
-            //   深色 #adb2b8 vs bg-base #151517         → 8.54:1
-            //   深色 #adb2b8 vs specific-tip #353638    → 5.66:1
-            // 边框内侧贴 bg-base、外侧（隔着无背景色的包裹层）透出 specific-tip，
-            // 两侧四个数字都过 3:1，两套主题都有余量。label-tertiary 在本组件里
-            // 已经是这两块卡面上验证过的边界色（3.71 / 3.42 / 5.67，删除按钮那三个
-            // 数字），不是新引入的观感。
+            // 唯一不同是**偏移取负**：按钮的环画在外侧，因为它们的填充是近白/
+            // 近黑的按钮色；输入框不能这么做——它高 32px、正好占满 32px 的行，
+            // 而行距只有 2px、滚动容器上下 padding 也只有 2px，外侧 4px 的环会
+            // 压到相邻行上、并被滚动容器的上下缘裁掉。内缩 2px 后环整条落在
+            // 输入框自己的填充里（border 只占最外 1px，环在 2–4px 处，不碰它），
+            // 而那块填充是 bg-base，实测环的两侧相邻色都远过 3:1：
+            //   环 vs 聚焦态填充 bg-base       浅 #4176e6/#fff     4.23:1
+            //                                  深 #679efe/#151517  6.86:1
+            //   环 vs 未聚焦时同一批像素(卡面) 浅 #4176e6/#fff     4.23:1
+            //                                  深 #679efe/#2c2c2e  5.24:1
+            // 后一对就是 WCAG 要的「焦点态 vs 未聚焦态」，从 1.14/1.25 抬到
+            // 4.23/5.24。
+            outline: inputFocused ? FOCUS_RING : 'none',
+            outlineOffset: -FOCUS_RING_OFFSET,
+            // 静息态**故意**保留 1px 描边，与参考图的"完全无边框"不同：透明/
+            // 弱 alpha 描边过不了 WCAG 1.4.11 的 3:1（border-l2 合成后只有
+            // 1.25:1），而 label-tertiary 在这两块卡面上是 3.71 / 3.43 / 8.54 /
+            // 5.66，四个数都过。"轻"已经由去掉卡片、标题、竖条、分隔线拿到了。
             border: `1px solid ${inputFocused
               ? 'var(--dsw-alias-state-business-primary, #4176e6)'
               : 'var(--dsw-alias-label-tertiary, #81858c)'}`,
-            background: 'var(--dsw-alias-bg-base, #fff)',
+            background: inputFocused
+              ? 'var(--dsw-alias-bg-base, #fff)'
+              : inputHovered
+                ? 'var(--dsw-alias-interactive-bg-hover, rgba(38,49,72,.06))'
+                : 'transparent',
             color: 'var(--dsw-alias-label-primary, #0f1115)',
             fontFamily: 'inherit', fontSize: 13,
           }}
         />
+        {/* 删除入口留在输入框里,不放正文徽标上 —— 那个徽标可能滚出视口
+            (offscreen)、可能根本不存在(detached)，且只有 16px 命中区。
+            删除不能依赖锚点活着。 */}
+        <button
+          type="button"
+          aria-label={t('selection.remove.aria', { n: ordinal, excerpt })}
+          onClick={onRemove}
+          {...remove.handlers}
+          style={{
+            position: 'absolute', top: '50%', right: 6, transform: 'translateY(-50%)',
+            display: 'grid', placeItems: 'center', width: 20, height: 20, padding: 0,
+            border: 0, borderRadius: 999, cursor: 'pointer', outlineOffset: FOCUS_RING_OFFSET,
+            background: remove.active
+              ? 'var(--dsw-alias-interactive-bg-active, rgba(38,49,72,.1))'
+              : remove.hovered
+                ? 'var(--dsw-alias-interactive-bg-hover-danger, rgba(236,19,19,.05))'
+                : 'transparent',
+            color: remove.hovered || remove.active
+              ? 'var(--dsw-alias-state-error-primary, #ec1313)'
+              : 'var(--dsw-alias-label-tertiary, #81858c)',
+            outline: remove.focusRing ? FOCUS_RING : 'none',
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden focusable="false">
+            <path
+              d="M2 2 L10 10 M10 2 L2 10"
+              fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
+            />
+          </svg>
+        </button>
+        <span id={stateId} style={VISUALLY_HIDDEN}>{stateNote}</span>
       </div>
-      <button
-        type="button"
-        aria-label={`${t('selection.remove')} ${index + 1}`}
-        onClick={onRemove}
-        {...remove.handlers}
-        style={{
-          display: 'grid', placeItems: 'center', width: 28, height: 28, padding: 0,
-          border: 0, borderRadius: 999, cursor: 'pointer', outlineOffset: FOCUS_RING_OFFSET,
-          background: remove.active
-            ? 'var(--dsw-alias-interactive-bg-active, rgba(38,49,72,.1))'
-            : remove.hovered
-              ? 'var(--dsw-alias-interactive-bg-hover-danger, rgba(236,19,19,.05))'
-              : 'transparent',
-          color: remove.hovered || remove.active
-            ? 'var(--dsw-alias-state-error-primary, #ec1313)'
-            : 'var(--dsw-alias-label-tertiary, #81858c)',
-          outline: remove.focusRing ? FOCUS_RING : 'none',
-        }}
-      >
-        <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden focusable="false">
-          <path
-            d="M2 2 L10 10 M10 2 L2 10"
-            fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
-          />
-        </svg>
-      </button>
     </div>
   )
 }
@@ -732,6 +895,13 @@ export function applySelectionActions(
     quoteNote: t('selection.quote.note'),
   }
   ctx.effect(() => () => controller.dispose(), 'dsh-workbench: selection controller')
+  // 就地高亮的 `::highlight()` 规则只能来自样式表（没有内联等价物）。注入点
+  // 与 navigator.tsx:547 的 reveal-highlight 同形，是既有适配器决策的延伸，
+  // 不是新机制；样式表刻意不随 dispose 撤回（模块级 once flag，同 ensureHighlightStyles）。
+  ctx.effect(() => {
+    ensureQuoteHighlightStyles()
+    return () => {}
+  }, 'dsh-workbench: quote highlight styles')
   ctx.effect(() => services.inputTriggers.registerSource(createSelectionReferenceSource(quoteCopy)), 'dsh-workbench: selection reference source')
   ctx.effect(() => services.inputTriggers.registerSource(createSideChatReferenceSource()), 'dsh-workbench: side-chat reference source')
 

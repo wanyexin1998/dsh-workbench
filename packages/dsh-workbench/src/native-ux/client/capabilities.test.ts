@@ -65,6 +65,9 @@ describe('probeCapabilities (GA-030)', () => {
     expect(report.chatAnchorDom).toBe(true)
     expect(report.conversationFace).toBe(true)
     expect(report.favoriteAgent).toBe(false)
+    // 就地高亮用的 CSS Custom Highlight API 刻意不进这份报告（它是宿主锁定的
+    // 平台 API，不是会改名/缺席的宿主缝）——见 capabilities.ts 里的说明。
+    expect(report).not.toHaveProperty('quoteHighlightApi')
   })
 })
 
@@ -111,16 +114,21 @@ describe('fail-soft: service-backed actions gate on service presence (GA-043)', 
     expect(registry.all().some((a) => a.id === 'workbench.session.new')).toBe(false)
   })
 
-  it('workbench.settings.open registers only when layout.openSettings exists — absent in production TODAY (no real seam ships yet; see harness-adapter.ts LayoutService.openSettings doc comment for the investigated-and-ruled-out citation)', () => {
+  it('workbench.settings.open registers when EITHER layout.openSettings or layout.toggleSettings exists — neither ships in stock production TODAY (see harness-adapter.ts LayoutService.openSettings/toggleSettings doc comments for the investigated-and-ruled-out citations)', () => {
     const withoutSeam = buildShortcutRegistry({ services: { layout: { toggleSidebar: () => {} } } })
     expect(withoutSeam.all().some((a) => a.id === 'workbench.settings.open')).toBe(false)
     // No layout service at all is the same "absent" case.
     const noLayout = buildShortcutRegistry({ services: {} })
     expect(noLayout.all().some((a) => a.id === 'workbench.settings.open')).toBe(false)
-    // A test double MAY supply the seam (the registration path is real, even
-    // though nothing in production wires it yet).
-    const withSeam = buildShortcutRegistry({ services: { layout: { toggleSidebar: () => {}, openSettings: () => {} } } })
-    expect(withSeam.all().some((a) => a.id === 'workbench.settings.open')).toBe(true)
+    // A test double MAY supply either seam (the registration path is real,
+    // even though nothing in production wires either one up yet).
+    const withOpenOnly = buildShortcutRegistry({ services: { layout: { toggleSidebar: () => {}, openSettings: () => {} } } })
+    expect(withOpenOnly.all().some((a) => a.id === 'workbench.settings.open')).toBe(true)
+    // toggle-settings-verb: the newer toggleSettings() verb alone (no
+    // openSettings at all) must be just as sufficient to register — the
+    // gate is an OR of the two, not "openSettings plus an optional extra".
+    const withToggleOnly = buildShortcutRegistry({ services: { layout: { toggleSidebar: () => {}, toggleSettings: () => {} } } })
+    expect(withToggleOnly.all().some((a) => a.id === 'workbench.settings.open')).toBe(true)
   })
 
   // LOW 4 (Opus review, round 2): missing capability-flag suppression tests.
