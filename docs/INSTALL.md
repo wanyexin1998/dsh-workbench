@@ -54,6 +54,29 @@ inactive — the official interface it needs (`sessions.presentation` protocol
 [discussion #4718](https://github.com/deepseek-ai/deepseek-harness/discussions/4718).
 This is not an install failure, and nothing else is affected.
 
+#### Requirements — read before copying the commands
+
+This path is for people who are **already running DeepSeek Harness**. Its
+third step calls the `dsh` command, so `dsh` must already be installed and
+on your `PATH`. Confirm it before you start:
+
+```
+dsh --version
+```
+
+If that prints a version, you are ready. If it fails — `command not found`,
+or `CommandNotFoundException` on Windows — Harness is not installed on this
+machine, and the block below will download and hash-verify the TGZ, then
+stop at the third step with exactly that error and no install performed.
+
+Installing DeepSeek Harness itself is upstream's business, not this
+document's. If you would rather not install it separately, use
+[(b) Split pane (bootstrap)](#b-split-pane-bootstrap) instead: it needs no
+pre-existing `dsh`. It clones and builds its own pinned Harness fork inside
+one isolated directory and drives that copy, so Node.js, `pnpm@11` and
+`git` are its only prerequisites — and it is also the only path on which
+Split Pane actually activates.
+
 Three steps, always in this order: download the Workbench release TGZ →
 verify its SHA256 against the Release's `SHA256SUMS` → install with
 `dsh plugin --profile web add file:<absolute path>`. A `file:` spec with an
@@ -115,6 +138,35 @@ else
   false
 fi
 ```
+
+#### After it installs
+
+A successful `add` only proves the package was written into the profile, not
+that Harness loads it. Ask the same profile to dump its resolved config and
+look for the Workbench package name:
+
+```
+dsh --profile web --dump-config
+```
+
+Seeing `@wanyexin1998/dsh-workbench` in that output is the check that
+matters — it is the same no-boot load probe the bootstrap script runs
+against itself before it is allowed to report `installed` (`phase3b_verify_load`
+in `scripts/bootstrap/dsh-workbench-bootstrap.sh`).
+
+Then start Harness Web the way you normally do. On this path you get
+Navigator, the Workbench shortcuts (rebindable in the shortcut settings
+page), and Workbench Ask. Split Pane does not activate, and with it these
+stay unavailable: `Primary+\` (close focused Pane), and the two Workbench
+Ask actions that open a second Pane ("More detail", "Ask in a side chat").
+Those need Presentation protocol 2, which the Split Pane module and the
+chat actions both check for explicitly before registering
+(`packages/dsh-workbench/src/client/guard.ts`,
+`packages/dsh-workbench/src/native-ux/client/chat-actions.ts`). Workbench
+Ask itself still works: it switches to the chat Session in place instead of
+opening it beside the source Pane, and says so once. "Add to conversation"
+also works unchanged. This is the documented stock-Harness behaviour, not a
+partial install.
 
 #### Documented completion message
 
@@ -234,6 +286,13 @@ official install. It never touches your official install. These are the
 same two commands embedded in the completion message above — running them
 directly here works identically.
 
+You do not need an existing Harness install for this path, and it does not
+use your `dsh` command even if you have one. The script's preconditions are
+Node.js, `pnpm@11` and `git` (see Requirements below); it then clones and
+builds the pinned Harness fork itself and drives that copy. That is the
+substantive difference from (a), alongside Split Pane actually activating
+here.
+
 **Windows (PowerShell 7+ / `pwsh`):**
 
 ```
@@ -273,6 +332,31 @@ Requirements:
 - `git`
 - PowerShell 7+ (`pwsh`) on Windows; macOS runs the script directly under
   its Terminal `bash`.
+
+#### After it finishes
+
+The script's last line is its result JSON, with `state` `installed` on
+success, and it prints the launcher path. That launcher is the only thing
+you run from now on:
+
+- Windows: `%USERPROFILE%\dsh-workbench\dsh-workbench.cmd`
+- macOS: `$HOME/dsh-workbench/dsh-workbench`
+
+(Or the same file name directly under `<target>` if you passed
+`-Target` / `--target`.)
+
+Running it opens Harness Web from the isolated install, with Split Pane
+available: Ctrl/Command-click a Session in the list to open it beside the
+focused one.
+
+**Expect an empty environment on the first launch.** The generated launcher
+pins `DSH_HOME` to `<target>/home`, a Harness home of its own
+(`dsh-workbench-bootstrap.ps1` line 463, `.sh` line 551). That isolation is
+exactly what keeps your official install untouched, but it also means this
+Harness starts with no Sessions, no Workspaces, and no configured model or
+provider — you set those up once, here, and they stay inside `<target>`.
+Nothing is missing and nothing failed: your official install still holds all
+of its own data, under its own `~/.dsh`.
 
 Honest note on the hashes: `v0.2.0-rc.2` is now attached to a GitHub
 Release, so the real SHA256 values in `SHA256SUMS` are published and the
@@ -501,6 +585,12 @@ succeeds:
 The compatibility package does not download, install, update, or remove Better Sidebar. Stock Better Sidebar without Pane protocol 1 remains on its original global path. And — the decline path this whole section exists to protect — if the user never said yes, none of this runs at all: whatever Better Sidebar state was detected above (official, the pinned fork, or nothing) is exactly what remains, byte-for-byte, and Pane-local panels simply stay unavailable.
 
 ### 5. Verify
+
+These four checks all describe Presentation protocol 2 behaviour, so they
+apply to this source-build path and to [(b) Split pane
+(bootstrap)](#b-split-pane-bootstrap). On stock Harness — path (a) — none of
+them happen by design; see [After it
+installs](#after-it-installs) there for what to check instead.
 
 - Ctrl/Command-click a listed Session opens it beside the focused Pane.
 - Ordinary click replaces the focused Pane.

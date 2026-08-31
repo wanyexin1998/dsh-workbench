@@ -80,13 +80,20 @@ Workbench Split Pane, Navigator, and shortcuts work without Better Sidebar. When
 > [!NOTE]
 > The `v0.2.0-rc.2` GitHub Release is published, with both TGZs, both Split Pane bootstrap scripts, `SHA256SUMS`, and `release-manifest.json` attached — both paths below work today, copy-paste ready. Release artifacts are SHA256-verified, not GPG-signed (`release-contract.json`'s `sourceVerification.signedReleaseAvailable` is still `false`). `release-contract.json` itself still reports `0.2.0-rc.2` / `source-preview` — that reflects the distribution model (source plus local TGZ, no npm), not an unavailable install path. To audit the source yourself line by line, the collapsed "Advanced: build from source (audit path)" section below (i.e. [`docs/INSTALL.md` § Advanced: source build](docs/INSTALL.md#advanced-source-build)) remains available.
 
-### General plugin (stock Harness, default)
+**Pick your path first.** The two paths are independent; choose by what you already have:
 
-Download the immutable Workbench TGZ from the GitHub Release, verify its SHA256, install with `dsh plugin --profile web add file:<path>` (on Windows, keep the install path space-free or you'll hit an `ENOENT` — see the link below for details). Split Pane stays inactive on stock Harness — the official interface is not merged yet (see [discussion #4718](https://github.com/deepseek-ai/deepseek-harness/discussions/4718)); everything else is unaffected. Full command blocks live in [`docs/INSTALL.md` § Quick Install](docs/INSTALL.md#quick-install-default).
+- DeepSeek Harness is already installed (`dsh --version` prints a version) and you do not need Split Pane yet → take **(a) General plugin**.
+- No Harness yet, or Split Pane is the reason you are here → take **(b) Split pane bootstrap**. It ships and builds its own pinned Harness fork, so it needs no pre-existing `dsh`; the trade-off is that it runs in an isolated, brand-new environment.
 
-### Split pane (bootstrap, one command)
+### (a) General plugin (stock Harness, default)
 
-Copy and run the single command for your platform below to get Split Pane (coexists with the official Harness, zero changes to the official install; requires Node.js `^22.19`/`>=24`, `pnpm@11`, `git`, and PowerShell 7+ on Windows):
+**Prerequisite: the `dsh` command must already be on your `PATH`** — this path is for people already running DeepSeek Harness. Run `dsh --version` first; only continue if it prints a version. Otherwise the install command stops at its last step with `CommandNotFoundException` / `command not found`, and you want (b) below instead. Installing Harness itself is upstream's business; this repository does not provide it.
+
+Download the immutable Workbench TGZ from the GitHub Release, verify its SHA256, install with `dsh plugin --profile web add file:<path>` (on Windows, keep the install path space-free or you'll hit an `ENOENT` — see the link below for details). Split Pane stays inactive on stock Harness — the official interface is not merged yet (see [discussion #4718](https://github.com/deepseek-ai/deepseek-harness/discussions/4718)); everything else is unaffected. Afterwards, confirm `@wanyexin1998/dsh-workbench` appears in `dsh --profile web --dump-config`. Full command blocks, the prerequisite check, and what to expect after installing live in [`docs/INSTALL.md` § Quick Install](docs/INSTALL.md#quick-install-default).
+
+### (b) Split pane (bootstrap, one command)
+
+No pre-existing `dsh` required. Copy and run the single command for your platform below to get Split Pane (coexists with the official Harness, zero changes to the official install; requires Node.js `^22.19`/`>=24`, `pnpm@11`, `git`, and PowerShell 7+ on Windows):
 
 Windows (PowerShell 7+ / `pwsh`):
 
@@ -103,6 +110,8 @@ rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2
 ```
 
 (This command is byte-identical to the normative §1 command, so its own failure messages are currently Chinese; an English variant is tracked as follow-up work for the release task. The command is not altered here.)
+
+When it finishes, launch it through the generated launcher: Windows `%USERPROFILE%\dsh-workbench\dsh-workbench.cmd`, macOS `$HOME/dsh-workbench/dsh-workbench`. The launcher pins `DSH_HOME` to `<target>/home`, so **the first launch is a brand-new empty environment**: no past Sessions, no Workspaces, and the model and provider need configuring again. Nothing failed — that isolation is precisely why your official install is untouched, and its own data is still there under its own `~/.dsh`.
 
 Full details on what the script does, how to uninstall, and when the hashes take effect live in [`docs/INSTALL.md` § Split pane (bootstrap)](docs/INSTALL.md#b-split-pane-bootstrap).
 
@@ -159,7 +168,7 @@ Successful verification writes these files under `dist/`:
 - `release-manifest.json`
 - `SHA256SUMS`
 
-`release:check` performs privacy and secret scans, release-contract validation, typechecks, 241 package tests plus the install-contract and bootstrap-script test suites, dependency audit, a clean rebuild, generated-runtime scanning, TGZ packing, and SHA256 verification. It does not publish to npm.
+`release:check` is 9 steps, in order: privacy and secret scanning, release-contract validation, the secret scanner's own unit tests, the install-contract tests, the bootstrap-script tests, typechecks, package unit tests, a dependency audit, and finally the bundle step's clean rebuild, generated-runtime scanning, TGZ packing, and SHA256 verification. It does not publish to npm. Measured pass counts for each suite are recorded in [`RELEASE_NOTES.md`](RELEASE_NOTES.md).
 
 > See [`docs/INSTALL.md`](docs/INSTALL.md) for the complete Harness build, installation order, and optional panel setup.
 
@@ -187,7 +196,7 @@ Successful verification writes these files under `dist/`:
 | Close focused Pane | `Primary+\` | Requires Presentation protocol 2 (Split Pane bootstrap path only) |
 | Workbench Ask | `Primary+Shift+C` | Conflicts with the browser DevTools "Inspect element" shortcut; Settings surfaces a warning; the default chord is unchanged |
 | New Session | `Primary+N` | A normal browser tab reserves this for "New window"; Settings surfaces a warning. Works as bound in a desktop shell environment |
-| Open Settings | `Primary+Space` | Requires the Harness to expose `ctx.layout.openSettings()`; today only this project's pinned Harness fork ships it, so the action is not registered on stock Harness |
+| Open Settings | `Primary+,` | Requires the Harness to expose `ctx.layout.openSettings()`; today only this project's pinned Harness fork ships it, so the action is not registered on stock Harness; the earlier default `Primary+Space` was intercepted by most Chinese IMEs as their language-toggle hotkey (confirmed unresponsive in testing), so it is no longer the default |
 | Switch to previous Session | `Alt+Q` | Derived from `event.code` across platforms, so macOS Option-key character composition does not break it |
 | Jump to latest message | `Primary+Shift+L` | |
 
@@ -224,9 +233,11 @@ A side child inherits the parent cwd, model, preset, Workspace, tools, and appro
 
 ### Installing and removing the Chat mode preset
 
-After installation, the Host entry seeds **聊天模式 / Chat mode** into `~/.dsh/.agent-presets/chat/` (create-only, never overwritten, and never re-created after deletion). The preset has zero tools: no file access, command execution, or project context. Model and provider remain selectable per Session. A measured first turn used 181 input tokens.
+After installation, the Host entry seeds **聊天模式 / Chat mode** into `$DSH_HOME/.agent-presets/chat/` (create-only, never overwritten, and never re-created after deletion). The preset has zero tools: no file access, command execution, or project context. Model and provider remain selectable per Session. A measured first turn used 181 input tokens.
 
-To remove it, delete `~/.dsh/.agent-presets/chat/`; Workbench records that deletion as intent and never re-seeds.
+That resolves to `~/.dsh/.agent-presets/chat/` only when `DSH_HOME` is unset. On the Split Pane bootstrap path it is somewhere else: the generated launcher pins `DSH_HOME` to the `home` directory under `<target>`, so the preset lands in `.agent-presets/chat/` inside that one (default target: Windows `%USERPROFILE%\dsh-workbench`, macOS `$HOME/dsh-workbench`).
+
+To remove it, delete the corresponding `.agent-presets/chat/` directory; Workbench records that deletion as intent and never re-seeds.
 
 ## Security and privacy
 

@@ -80,13 +80,20 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 > [!NOTE]
 > `v0.2.0-rc.2` GitHub Release 已发布，附带两个 TGZ、两个分屏 bootstrap 脚本、`SHA256SUMS` 与 `release-manifest.json`；下面两条路径今天就能照抄执行。Release 产物经 SHA256 校验，不是 GPG 签名产物（`release-contract.json` 的 `sourceVerification.signedReleaseAvailable` 仍为 `false`）。`release-contract.json` 状态本身仍是 `0.2.0-rc.2` / `source-preview`——这是既定的分发模型（只发源码与本地 TGZ，不发 npm），不代表安装路径不可用。想自己从源码逐字审计，仍可用下方折叠区「高级：从源码构建（审计路径）」（即 [`docs/INSTALL.md` § Advanced: source build](docs/INSTALL.md#advanced-source-build)）。
 
-### 通用插件（stock Harness，默认）
+**先选路径**。两条路径互相独立，按你现在手上有什么来选：
 
-从 GitHub Release 下载不可变的 Workbench TGZ、核对 SHA256、用 `dsh plugin --profile web add file:<path>` 安装（Windows 上安装路径不要含空格，否则会遇到 `ENOENT`，详见下方链接）。分屏（双 Pane）在 stock Harness 上不会激活——官方接口尚未合并（见 [discussion #4718](https://github.com/deepseek-ai/deepseek-harness/discussions/4718)）；其余功能不受影响。完整命令块见 [`docs/INSTALL.md` § Quick Install](docs/INSTALL.md#quick-install-default)。
+- 机器上已经装了 DeepSeek Harness（`dsh --version` 能打印版本），并且暂时不需要分屏 → 走 **(a) 通用插件**。
+- 还没有 Harness，或者就是冲着分屏来的 → 走 **(b) 分屏 bootstrap**。它自带并构建固定版本的 Harness fork，不需要预先安装 `dsh`；代价是它跑在一个隔离的全新环境里。
 
-### 分屏（bootstrap，一条命令）
+### (a) 通用插件（stock Harness，默认）
 
-想用分屏，按你的平台复制运行下面这一条命令（与官方 Harness 并存，零改动官方安装；要求 Node.js `^22.19`/`>=24`、`pnpm@11`、`git`，Windows 需 PowerShell 7+）：
+**前提：`dsh` 命令已经在 PATH 上可用**——这条路径面向已经在用 DeepSeek Harness 的人。先跑 `dsh --version`，能打印版本才继续；否则安装命令会在最后一步报 `CommandNotFoundException` / `command not found`，此时改走下面的 (b)。安装 Harness 本身属于上游项目的事，本仓库不提供。
+
+从 GitHub Release 下载不可变的 Workbench TGZ、核对 SHA256、用 `dsh plugin --profile web add file:<path>` 安装（Windows 上安装路径不要含空格，否则会遇到 `ENOENT`，详见下方链接）。分屏（双 Pane）在 stock Harness 上不会激活——官方接口尚未合并（见 [discussion #4718](https://github.com/deepseek-ai/deepseek-harness/discussions/4718)）；其余功能不受影响。装完后用 `dsh --profile web --dump-config` 确认输出里出现 `@wanyexin1998/dsh-workbench`。完整命令块、前提检查与「装完之后」见 [`docs/INSTALL.md` § Quick Install](docs/INSTALL.md#quick-install-default)。
+
+### (b) 分屏（bootstrap，一条命令）
+
+不需要预先安装 `dsh`。按你的平台复制运行下面这一条命令（与官方 Harness 并存，零改动官方安装；要求 Node.js `^22.19`/`>=24`、`pnpm@11`、`git`，Windows 需 PowerShell 7+）：
 
 Windows（PowerShell 7+ / `pwsh`）：
 
@@ -99,6 +106,8 @@ macOS（Terminal）：
 ```
 rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2'; if curl -fsSLO "$rel/dsh-workbench-bootstrap.sh" && curl -fsSLO "$rel/SHA256SUMS"; then expected=$(grep 'dsh-workbench-bootstrap\.sh$' SHA256SUMS | awk '{print $1}'); actual=$(shasum -a 256 dsh-workbench-bootstrap.sh | awk '{print $1}'); if [ -n "$expected" ] && printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$' && [ "$actual" = "$expected" ]; then chmod +x dsh-workbench-bootstrap.sh && ./dsh-workbench-bootstrap.sh; else echo 'SHA256 校验失败，已中止，不会执行未校验脚本' >&2; false; fi; else echo '下载失败，已中止，不会执行未校验脚本' >&2; false; fi
 ```
+
+装完后用生成的启动器启动：Windows `%USERPROFILE%\dsh-workbench\dsh-workbench.cmd`，macOS `$HOME/dsh-workbench/dsh-workbench`。启动器把 `DSH_HOME` 固定在 `<target>/home`，所以**第一次打开会是一个全新的空环境**：没有历史会话、没有 Workspace，模型与供应商都要重新配置。这不是装坏了——隔离正是它不动你官方安装的原因，官方 Harness 的数据仍在它自己的 `~/.dsh` 下。
 
 脚本做了什么、如何卸载、哈希何时生效等完整说明见 [`docs/INSTALL.md` § 分屏（bootstrap）](docs/INSTALL.md#b-split-pane-bootstrap)。
 
@@ -155,7 +164,7 @@ pnpm release:check
 - `release-manifest.json`
 - `SHA256SUMS`
 
-`release:check` 会执行隐私/密钥扫描、发布契约校验、类型检查、241 项包测试与安装契约/引导脚本测试套件、依赖审计、干净重建、生成代码扫描、TGZ 打包和 SHA256 校验，不会执行 npm 发布。
+`release:check` 共 9 步，依次是：隐私/密钥扫描、发布契约校验、密钥扫描器自身的单元测试、安装契约测试、引导脚本测试、类型检查、包单元测试、依赖审计，最后由发布打包步骤完成干净重建、生成代码扫描、TGZ 打包与 SHA256 校验。不会执行 npm 发布。各项测试的实测通过数记录在 [`RELEASE_NOTES.md`](RELEASE_NOTES.md)。
 
 > 完整安装顺序、Harness fork 构建方式和可选面板接入步骤见 [`docs/INSTALL.md`](docs/INSTALL.md)。
 
@@ -183,7 +192,7 @@ pnpm release:check
 | 关闭聚焦 Pane | `Primary+\` | 仅 Presentation protocol 2 可用（需分屏 bootstrap 路径） |
 | 随手问（Workbench Ask） | `Primary+Shift+C` | 与浏览器 DevTools「检查元素」冲突，设置页会提示；默认键位未更换 |
 | 新建会话 | `Primary+N` | 浏览器普通标签页会保留为「新建窗口」，设置页会提示；桌面壳环境下可正常触发 |
-| 打开设置 | `Primary+Space` | 需要 Harness 提供 `ctx.layout.openSettings()`，目前只有本项目固定的 Harness fork 提供，stock Harness 上不会注册该动作 |
+| 打开设置 | `Primary+,` | 需要 Harness 提供 `ctx.layout.openSettings()`，目前只有本项目固定的 Harness fork 提供，stock Harness 上不会注册该动作；早期默认值 `Primary+Space` 在多数中文输入法下会被系统拦截（当作中英文切换热键），实测按下毫无反应，因此不再作为默认值 |
 | 切换到上一个会话 | `Alt+Q` | 跨平台从 `event.code` 派生按键，macOS 上不受 Option 字符合成影响 |
 | 跳到最新消息 | `Primary+Shift+L` | |
 
@@ -220,9 +229,11 @@ pnpm release:check
 
 ### 聊天模式预设的安装与删除
 
-安装 Workbench 后，Host 启动时会把 **聊天模式 / Chat mode** 预设写入 `~/.dsh/.agent-presets/chat/`（只创建、绝不覆盖；你删除后不会重建）。它是零工具预设：模型只对话，不读写文件、不执行命令、不加载项目上下文；模型与供应商仍按会话自由选择。实测示例的首轮输入为 181 token。
+安装 Workbench 后，Host 启动时会把 **聊天模式 / Chat mode** 预设写入 `$DSH_HOME/.agent-presets/chat/`（只创建、绝不覆盖；你删除后不会重建）。它是零工具预设：模型只对话，不读写文件、不执行命令、不加载项目上下文；模型与供应商仍按会话自由选择。实测示例的首轮输入为 181 token。
 
-不想要它时，删除 `~/.dsh/.agent-presets/chat/` 目录即可；Workbench 记录你的删除意图，不会重新写入。
+`$DSH_HOME` 未设置时才是 `~/.dsh/.agent-presets/chat/`。走分屏 bootstrap 路径时不是这个位置：生成的启动器把 `DSH_HOME` 固定在 `<target>` 下的 `home` 目录，预设写在它里面的 `.agent-presets/chat/`（默认 target 为 Windows `%USERPROFILE%\dsh-workbench`、macOS `$HOME/dsh-workbench`）。
+
+不想要它时，删除对应的 `.agent-presets/chat/` 目录即可；Workbench 记录你的删除意图，不会重新写入。
 
 ## 安全与隐私
 
