@@ -16,9 +16,18 @@ export const zh = {
   'selection.moreDetails': '更多详情',
   'selection.askInSideChat': '在侧边聊天中提问',
   'selection.reference.label': '已选内容',
+  // “添加到对话”投影里的散文标签：这条路径没有 fork、没有边界声明，
+  // 装订线只是排版约定，靠这几句话告诉模型“下面是引用的上文”。
+  // 另一份真相在 native-ux/client/side-chat-actions.ts 的 SELECTION_QUOTE_COPY（默认回退）。
+  'selection.quote.heading': '引用上文：',
+  'selection.quote.headingMultiple': '引用上文（{count} 处）',
+  'selection.quote.item': '引用 {index}：',
+  'selection.quote.note': '备注：',
   'selection.side.reference.label': '侧聊选区',
   'selection.side.boundary': '继承的会话历史仅供参考。当前任务从此边界之后开始。除非用户明确要求修改，否则请只做轻量、非修改性的解释。',
-  'selection.side.moreDetailsRequest': '请更详细地解释所选上下文。',
+  // 消息里已经没有叫“所选上下文”的容器了（XML 信封已删），
+  // 文案改为指向它真正能看到的东西：上面那个装订线引用块。
+  'selection.side.moreDetailsRequest': '请更详细地解释上面引用的内容。',
   'selection.side.confirmReplace': '已经打开两个 Pane。是否替换非来源 Pane？',
   'selection.side.pending': '正在准备侧边聊天…',
   'selection.side.cancelled': '已取消，未创建侧边聊天。',
@@ -58,9 +67,13 @@ export const en = {
   'selection.moreDetails': 'More details',
   'selection.askInSideChat': 'Ask in side chat',
   'selection.reference.label': 'Selected context',
+  'selection.quote.heading': 'Quoting from above:',
+  'selection.quote.headingMultiple': 'Quoting from above ({count} passages)',
+  'selection.quote.item': 'Quote {index}:',
+  'selection.quote.note': 'Note: ',
   'selection.side.reference.label': 'Side-chat selection',
   'selection.side.boundary': 'Inherited conversation history is reference-only. The current task begins after this boundary. Give a lightweight, non-modifying explanation unless the user explicitly requests changes.',
-  'selection.side.moreDetailsRequest': 'Explain the selected context in more detail.',
+  'selection.side.moreDetailsRequest': 'Explain the quoted passage above in more detail.',
   'selection.side.confirmReplace': 'Two Panes are already open. Replace the non-source Pane?',
   'selection.side.pending': 'Preparing side chat…',
   'selection.side.cancelled': 'Cancelled. No side chat was created.',

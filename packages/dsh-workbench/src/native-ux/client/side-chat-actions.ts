@@ -89,23 +89,68 @@ export interface SideChatCopy {
   readonly moreDetailsRequest: string
 }
 
+/**
+ * Prose labels the "add to conversation" projection needs.
+ *
+ * 路径 3 没有 fork，也就没有边界声明，装订线只是排版约定而不是声明，所以必须有
+ * 一句散文告诉模型"下面这些是引用的上文"。这些串在 `src/client/dictionaries.ts`
+ * 里另有一份 `selection.quote.*` 真相（宿主 UI 走 `t()`），改一处就要改另一处。
+ */
+export interface SelectionQuoteCopy {
+  /** Prose label above a single quoted passage. */
+  readonly quoteHeading: string
+  /** Prose label above several quoted passages; `{count}` is the passage count. */
+  readonly quoteHeadingMultiple: string
+  /** Per-passage label used only when several are quoted; `{index}` is 1-based. */
+  readonly quoteItem: string
+  /** Prefix for a user-authored note about the passage above it. */
+  readonly quoteNote: string
+}
+
 export const SIDE_CHAT_REFERENCE_VERSION = 'side-chat-v1' as const
 
 export const SIDE_CHAT_COPY: Readonly<Record<'en' | 'zh', SideChatCopy>> = {
   en: {
     referenceBoundary: 'Inherited conversation history is reference-only. The current task begins after this boundary. Give a lightweight, non-modifying explanation unless the user explicitly requests changes.',
-    moreDetailsRequest: 'Explain the selected context in more detail.',
+    // 消息里唯一存在的容器就是上面那个装订线引用块，文案必须指向它本身，
+    // 而不是指向早已删掉的 <selected_context> 容器。
+    moreDetailsRequest: 'Explain the quoted passage above in more detail.',
   },
   zh: {
     referenceBoundary: '继承的会话历史仅供参考。当前任务从此边界之后开始。除非用户明确要求修改，否则请只做轻量、非修改性的解释。',
-    moreDetailsRequest: '请更详细地解释所选上下文。',
+    moreDetailsRequest: '请更详细地解释上面引用的内容。',
   },
+}
+
+export const SELECTION_QUOTE_COPY: Readonly<Record<'en' | 'zh', SelectionQuoteCopy>> = {
+  en: {
+    quoteHeading: 'Quoting from above:',
+    quoteHeadingMultiple: 'Quoting from above ({count} passages)',
+    quoteItem: 'Quote {index}:',
+    quoteNote: 'Note: ',
+  },
+  zh: {
+    quoteHeading: '引用上文：',
+    quoteHeadingMultiple: '引用上文（{count} 处）',
+    quoteItem: '引用 {index}：',
+    quoteNote: '备注：',
+  },
+}
+
+/** The unprefixed heading line that opens an "add to conversation" projection. */
+export function quoteHeading(copy: SelectionQuoteCopy, count: number): string {
+  return count <= 1 ? copy.quoteHeading : copy.quoteHeadingMultiple.replace('{count}', String(count))
+}
+
+/** The unprefixed per-passage label; only emitted when more than one is quoted. */
+export function quoteItemLabel(copy: SelectionQuoteCopy, index: number): string {
+  return copy.quoteItem.replace('{index}', String(index))
 }
 
 export interface StructuredSelectionReference {
   readonly version: typeof SIDE_CHAT_REFERENCE_VERSION
   readonly kind: 'side-chat-selection'
-  /** Serialized by the side-chat reference codec before selected context. */
+  /** Serialized by the side-chat reference codec after the quoted passage. */
   readonly referenceBoundary: string
   readonly parentSessionId: string
   readonly nodeKey: string
@@ -156,13 +201,47 @@ function status(
   return { code, level, action, ...details }
 }
 
-function xmlEscape(text: string): string {
-  return text
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&apos;')
+/** Gutter carried by every line that came out of the user's selection. */
+export const QUOTE_GUTTER = '│ '
+/** Gutter carried by a user-authored note about the passage above it. */
+export const NOTE_GUTTER = '↳ '
+
+/**
+ * 每一个"宿主会当成强制换行来渲染"的码点。
+ *
+ * 装订线的防伪前提是"用户内容贡献的每一行都带前缀"，而"行"由渲染决定，不由
+ * `\n` 决定：宿主用 `white-space: pre-wrap` 原样渲染，断行遵循 UAX#14，其中
+ * BK/NL 类（VT U+000B、FF U+000C、NEL U+0085、LS U+2028、PS U+2029）与 CR/LF
+ * 一样是强制换行。只按 `\r\n?|\n` 切分会让含 U+2028 的选区产出一条视觉上顶格
+ * 无前缀的行——正是装订线要堵的那个洞。这里把它们统一归一成 `\n`。
+ */
+const FORCED_LINE_BREAK = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/
+
+/** Prefix every rendered line of `text` with `prefix`. */
+function gutter(text: string, prefix: string): string {
+  return text.split(FORCED_LINE_BREAK).map(line => prefix + line).join('\n')
+}
+
+/**
+ * 给选区原文的每一行加装订线。
+ *
+ * 装订线不只是装饰，它是防伪边界：选区贡献的每一行都带前缀，所以选中的内容
+ * 无法伪造出一条无前缀的结构行（边界声明、请求、引用标题、备注）。这就是删掉
+ * XML 转义之后仍然成立的结构完整性机制——被引用的文本再怎么写都留在装订线之内。
+ */
+export function quoteBlock(text: string): string {
+  return gutter(text, QUOTE_GUTTER)
+}
+
+/**
+ * 给用户备注的每一行加装订线。
+ *
+ * 评论框今天是 `<input type="text">`（见 selection-actions.tsx），浏览器会剥掉
+ * CR/LF，所以 UI 路径走不出多行备注；但备注是用户内容，防伪不变量不能建立在
+ * "上游控件恰好过滤了换行"之上——粘贴、程序化写入、控件换成 textarea 都会破坏它。
+ */
+export function noteBlock(comment: string): string {
+  return gutter(comment, NOTE_GUTTER)
 }
 
 /** Existing user-input path: one text block, no hidden prompt/event channel. */
@@ -171,33 +250,18 @@ export function composeMoreDetailsPrompt(
   copy: SideChatCopy,
 ): string {
   const reference = structuredSelectionReference(selection, copy)
-  return [
-    serializeSideChatReference(reference),
-    '<request>',
-    xmlEscape(copy.moreDetailsRequest),
-    '</request>',
-  ].join('\n')
+  return `${serializeSideChatReference(reference)}\n\n${copy.moreDetailsRequest}`
 }
 
-/** Model-visible projection the draft reference codec must reproduce on submit. */
+/**
+ * Model-visible projection the draft reference codec must reproduce on submit.
+ *
+ * 宿主用 `white-space: pre-wrap` 原样渲染用户气泡（不解析 Markdown），所以这条
+ * 消息必须同时给人和模型读：没有 XML、没有内部标识符，只有装订线 + 纯文本。
+ * 选区身份的重校验走内存里的 ConversationSelection，不经过文本往返。
+ */
 export function serializeSideChatReference(reference: StructuredSelectionReference): string {
-  const attributes = [
-    `version="${SIDE_CHAT_REFERENCE_VERSION}"`,
-    `parent_session_id="${xmlEscape(reference.parentSessionId)}"`,
-    `node_key="${xmlEscape(reference.nodeKey)}"`,
-    `node_kind="${xmlEscape(reference.nodeKind)}"`,
-    `at_seq="${reference.atSeq}"`,
-    `start_offset="${reference.startOffset}"`,
-    `end_offset="${reference.endOffset}"`,
-  ].join(' ')
-  return [
-    '<side_chat_boundary>',
-    xmlEscape(reference.referenceBoundary),
-    '</side_chat_boundary>',
-    `<selected_context ${attributes}>`,
-    xmlEscape(reference.text),
-    '</selected_context>',
-  ].join('\n')
+  return `${quoteBlock(reference.text)}\n\n${reference.referenceBoundary}`
 }
 
 export function structuredSelectionReference(

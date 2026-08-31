@@ -54,7 +54,42 @@ const LEFT_ID = 'workbench-selection-left'
 const RIGHT_ID = 'workbench-selection-right'
 const DONE = 'DONE'
 const ASK_QUESTION = 'What does DONE mean here?'
-const FIXED_REQUEST = 'Explain the selected context in more detail.'
+
+// ---------------------------------------------------------------------------
+// Model-visible message format asserted below: gutter-quoted plain text, v2.
+//
+// v1 (removed) wrapped the passage in an XML envelope —
+//   <side_chat_boundary> ... <selected_context parent_session_id="..."> ...
+// v2 ships no XML and no internal identifiers. The Host renders the user
+// bubble with `white-space: pre-wrap` and does NOT parse Markdown, so the
+// message must read for a human and a model at once. Every line that came out
+// of the user's selection carries the QUOTE_GUTTER prefix `'│ '`; the
+// unprefixed lines (boundary declaration, request, quote heading) are the only
+// structural lines, which is what replaced XML escaping as the anti-forgery
+// mechanism. Both side-chat paths deliver the same five-part layout:
+//
+//   │ <selected passage>
+//   <blank>
+//   <boundary declaration>
+//   <blank>
+//   <user question | fixed request>
+//
+// Sources of truth (keep in sync when this file goes red):
+//   packages/dsh-workbench/src/native-ux/client/side-chat-actions.ts
+//     — QUOTE_GUTTER, serializeSideChatReference(), composeMoreDetailsPrompt(),
+//       SIDE_CHAT_COPY (en fallback)
+//   packages/dsh-workbench/src/client/dictionaries.ts
+//     — `selection.side.boundary`, `selection.side.moreDetailsRequest` (shipped en copy)
+// ---------------------------------------------------------------------------
+const FORMAT_VERSION = 'gutter-quoted-v2'
+const GUTTER = '│ '
+const BOUNDARY = 'Inherited conversation history is reference-only. The current task begins after this boundary. Give a lightweight, non-modifying explanation unless the user explicitly requests changes.'
+const FIXED_REQUEST = 'Explain the quoted passage above in more detail.'
+
+/** The exact user-message text a side-chat path must deliver for `DONE`. */
+function expectedSideChatMessage(closing: string): string[] {
+  return [`${GUTTER}${DONE}`, '', BOUNDARY, '', closing]
+}
 
 async function waitFor<T>(read: () => T | Promise<T>, ready: (value: T) => boolean, timeoutMs = 15_000): Promise<T> {
   const deadline = Date.now() + timeoutMs
@@ -138,7 +173,8 @@ async function durableOwnUserMessages(scaffold: WebScaffold, id: string): Promis
   return inspected.events
     .filter(event => event.type === 'user/message')
     .map(eventText)
-    .filter(text => text.includes('<side_chat_boundary>'))
+    // The seeded parent message carries neither; only a side-chat delivery does.
+    .filter(text => text.includes(BOUNDARY) && text.includes(GUTTER))
 }
 
 function childrenOf(scaffold: WebScaffold, parentId: string): string[] {
@@ -341,10 +377,18 @@ describe.skipIf(MODE === 'record')('web e2e: Workbench selection actions in Edit
       timeout: 15_000,
     }).toBe(1)
     const askMessages = await durableOwnUserMessages(scaffold, askChildId)
-    expect(askMessages[0]).toContain('Inherited conversation history is reference-only.')
-    expect(askMessages[0]).toContain('<selected_context')
-    expect(askMessages[0]).toContain(DONE)
-    expect(askMessages[0]).toContain(ASK_QUESTION)
+    // Format gutter-quoted-v2: the codec's serialized reference plus the typed
+    // question, spliced by the Host and trimmed once as a whole string. The
+    // question must be flush left and separated by a blank line — the machine-
+    // generated separator space after the reference token is turned into a
+    // newline at insertion time (see insertSideChatReference), because the Host
+    // only trims the whole string and never touches its middle.
+    expect(askMessages[0]?.split('\n'), FORMAT_VERSION).toEqual(expectedSideChatMessage(ASK_QUESTION))
+    // The v1 XML envelope must not come back through any path.
+    expect(askMessages[0]).not.toContain('<selected_context')
+    expect(askMessages[0]).not.toContain('side_chat_boundary')
+    expect(askMessages[0]).not.toContain('parent_session_id')
+    expect(askMessages[0]).not.toContain(LEFT_ID)
     expect(JSON.stringify(parent.session.events)).toBe(parentBeforeAsk)
 
     // More Details: cancel creates nothing; accept/double-click creates and sends exactly once.
@@ -377,10 +421,13 @@ describe.skipIf(MODE === 'record')('web e2e: Workbench selection actions in Edit
       timeout: 15_000,
     }).toBe(1)
     const moreMessages = await durableOwnUserMessages(scaffold, moreChildId)
-    expect(moreMessages[0]).toContain('Inherited conversation history is reference-only.')
-    expect(moreMessages[0]).toContain('<selected_context')
-    expect(moreMessages[0]).toContain(DONE)
-    expect(moreMessages[0]).toContain(FIXED_REQUEST)
+    // Format gutter-quoted-v2: same five-part layout as Ask, with the fixed
+    // request in place of the user's question — composeMoreDetailsPrompt().
+    expect(moreMessages[0]?.split('\n'), FORMAT_VERSION).toEqual(expectedSideChatMessage(FIXED_REQUEST))
+    expect(moreMessages[0]).not.toContain('<selected_context')
+    expect(moreMessages[0]).not.toContain('side_chat_boundary')
+    expect(moreMessages[0]).not.toContain('parent_session_id')
+    expect(moreMessages[0]).not.toContain(LEFT_ID)
     expect(JSON.stringify(parent.session.events)).toBe(parentBeforeMore)
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])

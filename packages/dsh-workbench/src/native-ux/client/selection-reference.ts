@@ -4,8 +4,14 @@ import type {
 import type { ConversationSelection } from './selection-contract.js'
 import type { SessionInputFace } from './harness-adapter.js'
 import {
+  SELECTION_QUOTE_COPY,
   SIDE_CHAT_REFERENCE_VERSION,
+  noteBlock,
+  quoteBlock,
+  quoteHeading,
+  quoteItemLabel,
   serializeSideChatReference,
+  type SelectionQuoteCopy,
   type StructuredSelectionReference,
 } from './side-chat-actions.js'
 
@@ -316,49 +322,59 @@ export function removeSelectionItem(input: SelectionInput, itemId: string, label
   return { ok: true, aggregate: { ...aggregate, items: [] } }
 }
 
-function escapeXml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&apos;')
+/**
+ * "添加到对话" 的模型可见形态。
+ *
+ * 这条路径没有 fork，也就没有边界声明。装订线是排版约定，不是声明——模型只看到
+ * 用户草稿后面跟着一段 `│ ` 前缀的块，没有任何东西说"这是引用的上文"。所以散文
+ * 标题（`copy.quoteHeading`）是这条路径唯一的语义标记，必须出现。
+ *
+ * 标题、条目标签、备注标签都不带装订线，而选区与备注贡献的每一行都带——防伪由
+ * 这个反差成立：被引用的文本无论写什么都留在装订线之内，伪造不出结构行。
+ *
+ * 内部标识符（parent_session_id / node_key / offsets）全部不出现在文本里——
+ * 全仓没有任何解析者，它们只在 JSON ref 里承担草稿重载的 schema 门禁。
+ */
+export function createSelectionReferenceCodec(copy: SelectionQuoteCopy): ReferenceCodec {
+  return {
+    clipboardText(ref) {
+      const aggregate = decodeSelectionAggregate(ref)
+      return aggregate.items.map((item) => item.comment === undefined ? item.text : `${item.text}\nComment: ${item.comment}`).join('\n\n')
+    },
+    async serialize(ref, signal) {
+      if (signal.aborted) throw new DOMException('Selection serialization aborted', 'AbortError')
+      const aggregate = decodeSelectionAggregate(ref)
+      const many = aggregate.items.length > 1
+      const blocks = aggregate.items.map((item, index) => {
+        // 单条时标题本身就够定位，不再重复编号；多条时每块自带 "引用 N："。
+        const head = many ? `${quoteItemLabel(copy, index + 1)}\n` : ''
+        const note = item.comment === undefined ? '' : `\n${noteBlock(`${copy.quoteNote}${item.comment}`)}`
+        return `${head}${quoteBlock(item.text)}${note}`
+      })
+      // 前导换行：这个块会被 splice 进用户草稿中间，不加换行会得到 "你好 引用上文："。
+      // 引用在草稿开头时，宿主 sinkSerialized 的 out.trim() 会把它吃掉，所以是免费的。
+      return `\n${quoteHeading(copy, aggregate.items.length)}\n${many ? '\n' : ''}${blocks.join('\n\n')}`
+    },
+  }
 }
 
-export const selectionReferenceCodec: ReferenceCodec = {
-  clipboardText(ref) {
-    const aggregate = decodeSelectionAggregate(ref)
-    return aggregate.items.map((item) => item.comment === undefined ? item.text : `${item.text}\nComment: ${item.comment}`).join('\n\n')
-  },
-  async serialize(ref, signal) {
-    if (signal.aborted) throw new DOMException('Selection serialization aborted', 'AbortError')
-    const aggregate = decodeSelectionAggregate(ref)
-    const items = aggregate.items.map((item, index) => {
-      const attributes = [
-        `index="${index + 1}"`,
-        `parent_session_id="${escapeXml(item.parentSessionId)}"`,
-        `node_key="${escapeXml(item.nodeKey)}"`,
-        `node_kind="${escapeXml(item.nodeKind)}"`,
-        `at_seq="${item.atSeq}"`,
-        `start_offset="${item.startOffset}"`,
-        `end_offset="${item.endOffset}"`,
-      ].join(' ')
-      const comment = item.comment === undefined ? '' : `\n    <comment>${escapeXml(item.comment)}</comment>`
-      return `  <selection ${attributes}>\n    <text>${escapeXml(item.text)}</text>${comment}\n  </selection>`
-    })
-    return `<selected_context version="${SELECTION_AGGREGATE_VERSION}">\n${items.join('\n')}\n</selected_context>`
-  },
-}
+/**
+ * 默认（英文）编解码器。
+ *
+ * 宿主 UI 应当把 `t('selection.quote.*')` 组成的 copy 传给
+ * {@link createSelectionReferenceSource}；不传时退回这份英文默认，语义标记仍在。
+ */
+export const selectionReferenceCodec: ReferenceCodec = createSelectionReferenceCodec(SELECTION_QUOTE_COPY.en)
 
 /** Codec owner only: it deliberately contributes no @ candidates or pick behavior. */
-export function createSelectionReferenceSource(): InputTriggerSource {
+export function createSelectionReferenceSource(copy?: SelectionQuoteCopy): InputTriggerSource {
   return {
     trigger: '@',
     name: SELECTION_REFERENCE_SOURCE,
     showGroupTitle: false,
     candidates: async () => [],
     onPick: () => undefined,
-    codec: selectionReferenceCodec,
+    codec: copy === undefined ? selectionReferenceCodec : createSelectionReferenceCodec(copy),
   }
 }
 
@@ -366,7 +382,11 @@ export const sideChatReferenceCodec: ReferenceCodec = {
   clipboardText: ref => decodeSideChatReference(ref).text,
   async serialize(ref, signal) {
     if (signal.aborted) throw new DOMException('Side-chat selection serialization aborted', 'AbortError')
-    return serializeSideChatReference(decodeSideChatReference(ref))
+    // 尾随换行：引用固定插在空草稿的第 0 位，草稿里紧跟其后的那一个换行
+    //（见 breakAfterReference）与这里的换行合起来，让用户敲入的问题与边界声明
+    // 之间空一行——与路径 1 的 composeMoreDetailsPrompt 排版逐字一致
+    //（引用块 / 空行 / 边界声明 / 空行 / 用户那段）。
+    return `${serializeSideChatReference(decodeSideChatReference(ref))}\n`
   },
 }
 
@@ -382,11 +402,39 @@ export function createSideChatReferenceSource(): InputTriggerSource {
   }
 }
 
+/** Face `insertSideChatReference` needs: insertion plus the separator cleanup below. */
+type SideChatDraftInput = Pick<SessionInputFace, 'insertReference' | 'setDraft'> & {
+  readonly state: { getSnapshot(): { readonly draft: string; readonly draftRev: number } }
+}
+
+/**
+ * 把输入机在引用 token 后面补的那个分隔空格换成换行。
+ *
+ * 宿主 `sinkSerialized` 只对整串做一次 `out.trim()`，不碰串中间；这个空格正好
+ * 落在序列化文本与用户后续输入之间，于是用户那一行会以一个空格开头。引用插在
+ * 空草稿的第 0 位，所以插入后草稿恰好是「显示文本 + 一个空格」，末位即分隔符。
+ *
+ * 换行而不是直接删掉：`@` 触发器的词法是 `(?:^|\s)(@[^\s]*)$`（input-trigger 的
+ * activeAtToken），紧贴 chip 敲字会让 `@显示文本` 重新变成一个活的 @ token 并弹出
+ * 补全菜单——今天只因为英文 label 里恰好有空格才没发生，中文 label「侧聊选区」
+ * 没有空格，删掉分隔符就会踩中。换行同样是 `\s`，两条扫描都会在此止步。
+ *
+ * 换行还顺带补齐了排版：序列化文本以 `\n` 收尾，加上这一个换行正好空一行，
+ * 与路径 1 的 composeMoreDetailsPrompt 逐字同形。
+ *
+ * 输入机的 reconcile 保留"结束位置 <= 编辑起点"的 occurrence，改动末位字符不会
+ * 动到 [0, 显示文本长度) 这条 occurrence，chip 与 CAS 都完好。
+ * 空格不在（宿主换了实现）就什么都不做——退化回来只是这一个空格，不是错误。
+ */
+function breakAfterReference(input: SideChatDraftInput): void {
+  const after = input.state.getSnapshot()
+  if (!after.draft.endsWith(' ')) return
+  input.setDraft(`${after.draft.slice(0, -1)}\n`)
+}
+
 /** Insert at the empty child draft using the exact observed draft revision. */
 export function insertSideChatReference(
-  input: Pick<SessionInputFace, 'insertReference'> & {
-    readonly state: { getSnapshot(): { readonly draft: string; readonly draftRev: number } }
-  },
+  input: SideChatDraftInput,
   reference: StructuredSelectionReference,
   label: string,
 ): SideChatReferenceInsertResult {
@@ -399,5 +447,7 @@ export function insertSideChatReference(
     label,
     clipboardText: sideChatReferenceCodec.clipboardText(ref),
   }, { start: 0, end: 0, draftRev: snapshot.draftRev })
-  return applied ? { ok: true } : { ok: false, reason: 'stale-draft' }
+  if (!applied) return { ok: false, reason: 'stale-draft' }
+  breakAfterReference(input)
+  return { ok: true }
 }
