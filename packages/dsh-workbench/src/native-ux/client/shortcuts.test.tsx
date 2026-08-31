@@ -514,7 +514,7 @@ describe('shortcut dispatcher (seam B)', () => {
   // DISPATCH side — the traced verb each action's run() actually calls, its
   // default chord, and (since all four set allowWhileTyping: true) that they
   // still fire from inside an editable target without the MEDIUM-1 Shift
-  // guard swallowing a real keystroke — none of Primary+N / Primary+Space /
+  // guard swallowing a real keystroke — none of Primary+N / Primary+, /
   // Alt+Q / Primary+Shift+L is a Shift-only chord on a printable key, so the
   // guard's `chord.primary || chord.alt` branch always admits them (see
   // attachDispatcher's own doc comment for the guard itself).
@@ -542,21 +542,35 @@ describe('shortcut dispatcher (seam B)', () => {
       input.remove()
     })
 
-    it('workbench.settings.open: Primary+Space calls layout.openSettings() when a test double supplies the seam (no real seam ships yet in production — see harness-adapter.ts)', () => {
+    it('workbench.settings.open: Primary+, calls layout.openSettings() when a test double supplies the seam (no real seam ships yet in production — see harness-adapter.ts)', () => {
       const openSettings = vi.fn()
       const registry = buildShortcutRegistry({ services: { layout: { toggleSidebar: vi.fn(), openSettings } } })
       detach = attachDispatcher(registry)
-      // event.key for the physical Space bar is the literal ' ' character
-      // (KeyboardEvent spec) — chordFromEvent lowercases it to the same ' '
-      // parseChord('Primary+Space') itself resolves to (chord.ts's own
-      // 'Space' -> ' ' mapping), so recording and matching agree.
-      const event = keydown({ key: ' ', ctrlKey: true })
+      // event.key for the physical comma key is the literal ',' character
+      // (KeyboardEvent spec) — chordFromEvent lowercases it to the same ','
+      // parseChord('Primary+,') itself resolves to, so recording and
+      // matching agree.
+      const event = keydown({ key: ',', ctrlKey: true })
       expect(openSettings).toHaveBeenCalledOnce()
       expect(event.defaultPrevented).toBe(true)
     })
 
+    // Regression: the chord this action shipped with BEFORE the IME-toggle
+    // fix (see browser-reserved.ts's Primary+Space entry and shortcuts.tsx's
+    // settingsOpenOn comment) must no longer be bound to anything — a stray
+    // reintroduction of the old default would silently resurrect the exact
+    // bug user testing found (Ctrl+Space unreachable on Chinese Windows).
+    it('workbench.settings.open: Primary+Space (the old default) no longer resolves to any action', () => {
+      const openSettings = vi.fn()
+      const registry = buildShortcutRegistry({ services: { layout: { toggleSidebar: vi.fn(), openSettings } } })
+      detach = attachDispatcher(registry)
+      const event = keydown({ key: ' ', ctrlKey: true })
+      expect(openSettings).not.toHaveBeenCalled()
+      expect(event.defaultPrevented).toBe(false)
+    })
+
     // LOW 3 (Opus review, round 2): the missing while-typing dispatch test
-    // for settings.open. ' ' (the physical Space bar's event.key) IS a
+    // for settings.open. ',' (the physical comma key's event.key) IS a
     // printable key (isPrintableKey has no non-printable exception for it,
     // unlike Enter/Escape/F-keys/arrows), so unlike jump-latest's
     // Primary+Shift+L (a non-printable-adjacent letter chord) or
@@ -568,14 +582,17 @@ describe('shortcut dispatcher (seam B)', () => {
     // the chord fired without Ctrl), this chord specifically would regress
     // to the pre-Finding-1 suppressed-while-typing behavior. A seam-supplied
     // test double stands in for `layout.openSettings` since no real seam
-    // ships yet (see the test above).
-    it('workbench.settings.open fires from inside a textarea (allowWhileTyping — ' + "' '" + ' is printable, so this exercises the chord.primary branch of the Shift guard specifically)', () => {
+    // ships yet (see the test above). (Originally pinned against the Space
+    // bar for the same reason before the default chord changed to Primary+,
+    // — the printable-key property this test protects is identical for both
+    // characters.)
+    it('workbench.settings.open fires from inside a textarea (allowWhileTyping — ' + "','" + ' is printable, so this exercises the chord.primary branch of the Shift guard specifically)', () => {
       const openSettings = vi.fn()
       const registry = buildShortcutRegistry({ services: { layout: { toggleSidebar: vi.fn(), openSettings } } })
       detach = attachDispatcher(registry)
       const input = document.createElement('textarea')
       document.body.appendChild(input)
-      const event = new KeyboardEvent('keydown', { key: ' ', ctrlKey: true, bubbles: true, cancelable: true })
+      const event = new KeyboardEvent('keydown', { key: ',', ctrlKey: true, bubbles: true, cancelable: true })
       input.dispatchEvent(event) // real path: composedPath()[0] === input (editable)
       expect(openSettings).toHaveBeenCalledOnce()
       expect(event.defaultPrevented).toBe(true)

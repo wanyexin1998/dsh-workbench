@@ -32,6 +32,23 @@ describe('isBrowserReserved', () => {
     expect(BROWSER_RESERVED.filter((e) => e.chord === 'Primary+Shift+C')).toHaveLength(1)
   })
 
+  // Confirmed by user testing on Chinese Windows: Ctrl+Space (Primary+Space)
+  // never reaches the page — it is the default IME language-toggle hotkey
+  // for Microsoft Pinyin and most other Chinese input methods, so it must be
+  // flagged reserved here even though no browser owns it. This was
+  // workbench.settings.open's shipped default until that finding; the
+  // default chord itself moved to Primary+, (shortcuts.tsx), but the entry
+  // stays so Settings still warns if anyone (re)binds onto Primary+Space.
+  it('flags Primary+Space (system IME language-toggle hotkey, not actually a browser default)', () => {
+    const verdict = isBrowserReserved(parseChord('Primary+Space')!)
+    expect(verdict.reserved).toBe(true)
+    expect(verdict.note).toBe('reserved.note.imeToggle')
+  })
+
+  it('Primary+Space sits in the table exactly once (no duplicate owner note)', () => {
+    expect(BROWSER_RESERVED.filter((e) => e.chord === 'Primary+Space')).toHaveLength(1)
+  })
+
   // GA-021 regression: non-Primary combos must never match Primary+ entries.
   it.each([
     ['Shift+N', false],

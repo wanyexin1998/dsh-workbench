@@ -1,7 +1,15 @@
 // T8 — browser-reserved chord risk table (pure, seam A).
-// These chords are owned by mainstream browsers. The settings row warns
-// before the user explicitly saves the recorded binding. Notes are locale
-// keys so the UI follows the Harness language.
+// Most of these chords are owned by mainstream browsers, but the table's
+// real job is broader than the name suggests: it flags any chord that may
+// never reach the page's own keydown handler at all — a browser default, an
+// OS-level shortcut, or (see the Primary+Space entry below) a system IME
+// hotkey that intercepts the keydown even lower than the browser does. The
+// exported names (BROWSER_RESERVED / isBrowserReserved) are kept as-is
+// rather than renamed for one entry — "reserved" here should be read as "a
+// layer outside the page (browser or system input method) may claim this
+// chord first". The settings row warns before the user explicitly saves the
+// recorded binding. Notes are locale keys so the UI follows the Harness
+// language.
 import { chordId, parseChord, type Chord } from './chord.js'
 
 export interface ReservedEntry {
@@ -35,6 +43,19 @@ export const BROWSER_RESERVED: readonly ReservedEntry[] = [
   { chord: 'Primary+Shift+P', note: 'reserved.note.printPreview' },
   { chord: 'Primary+Shift+T', note: 'reserved.note.reopenTab' },
   { chord: 'Primary+Shift+Tab', note: 'reserved.note.prevTab' },
+  // Not a browser default at all — it is intercepted a layer BELOW the
+  // browser. Ctrl+Space (Primary+Space) is the default IME language-toggle
+  // hotkey for Microsoft Pinyin and most other Chinese input methods on
+  // Windows, and also collides with macOS Spotlight's Cmd+Space; either way
+  // the OS/IME swallows the keydown before any web page's listener ever
+  // sees it. This was workbench.settings.open's shipped default until user
+  // testing confirmed it: Ctrl+Space did nothing on Chinese Windows, while
+  // rebinding the same action to Ctrl+Shift+, opened Settings immediately —
+  // proof the registration/dispatch path was fine and the chord itself was
+  // simply unreachable. The default was changed to Primary+, (see
+  // shortcuts.tsx), but this entry stays so the Settings row still warns
+  // anyone who manually (re)binds an action back onto Primary+Space.
+  { chord: 'Primary+Space', note: 'reserved.note.imeToggle' },
 ]
 
 /**

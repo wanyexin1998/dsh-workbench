@@ -75,6 +75,10 @@ export const zh = {
   'reserved.note.reopenTab': '恢复关闭的标签页',
   'reserved.note.prevTab': '反向切换标签页',
   'reserved.note.tabSwitch': '切换标签页 (Primary+数字)',
+  // 中文 Windows 上，Ctrl+Space 是多数输入法（微软拼音等）默认的中英文切换热键，
+  // 键盘事件在到达浏览器页面之前就已被系统/输入法拦截；macOS 上 Cmd+Space 同样
+  // 会被系统聚焦搜索抢先拦截。若按下这个组合键毫无反应，请改绑其他组合键。
+  'reserved.note.imeToggle': '输入法中英文切换热键（系统级拦截，可能永远到不了页面），如按下无反应请改绑',
 }
 
 export const en = {
@@ -151,4 +155,10 @@ export const en = {
   'reserved.note.reopenTab': 'Reopen closed tab',
   'reserved.note.prevTab': 'Previous tab',
   'reserved.note.tabSwitch': 'Switch tab (Primary+digit)',
+  // On Windows, Ctrl+Space is the default language-toggle hotkey for most
+  // IMEs (Microsoft Pinyin and others), and the keydown is intercepted by
+  // the OS/IME before it ever reaches the browser page; on macOS, Cmd+Space
+  // is intercepted the same way by Spotlight. If pressing this chord does
+  // nothing, rebind the action to something else.
+  'reserved.note.imeToggle': 'IME language-toggle hotkey (intercepted at the system level — may never reach the page); rebind if pressing it does nothing',
 }

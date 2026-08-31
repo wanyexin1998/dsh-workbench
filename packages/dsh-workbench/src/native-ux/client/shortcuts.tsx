@@ -327,7 +327,24 @@ export function buildShortcutRegistry(options: ShortcutActionOptions = {}): Acti
     registry.register({
       id: 'workbench.settings.open',
       label: 'shortcuts.action.settings.open',
-      defaultChord: 'Primary+Space',
+      // Confirmed by user testing on Chinese Windows: Primary+Space
+      // (Ctrl+Space) never fired — it is the default IME language-toggle
+      // hotkey for Microsoft Pinyin and most other Chinese input methods, so
+      // the OS/IME layer swallows the keydown before it ever reaches the
+      // browser (rebinding to Ctrl+Shift+, worked immediately, proving the
+      // registration/dispatch path itself was never the problem — see
+      // browser-reserved.ts's new Primary+Space entry for the full trace).
+      // Primary+, (⌘, / Ctrl+,) replaces it as the default: it is the
+      // near-universal convention for Settings/Preferences (macOS, VS Code,
+      // ...), so it stays the most discoverable choice; it does not collide
+      // with any other default chord in this file (Primary+Shift+O, Primary+/,
+      // Primary+B, Primary+Shift+X, Primary+\, Primary+Shift+C, Primary+N,
+      // Alt+Q, Primary+Shift+L) or with the pinned Harness fork's own key
+      // handling; and unlike a bare-Shift chord such as Shift+. (which
+      // becomes '>' in event.key — see the F6/MEDIUM-1 history in this file),
+      // it always carries the Primary modifier, so it is immune to the
+      // Shift-changes-event.key class of bug entirely.
+      defaultChord: 'Primary+,',
       allowWhileTyping: true,
       run: () => { services.layout?.openSettings?.() },
     }, unbind(overrides['workbench.settings.open']), disabled.has('workbench.settings.open'))
