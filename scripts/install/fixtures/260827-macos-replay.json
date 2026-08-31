@@ -1,0 +1,36 @@
+{
+  "$schema": "install-result-replay-fixture/1",
+  "id": "260827-macos-replay",
+  "description": "Anonymized, coarse-grained replay of the real macOS install session referenced by plans/260827-real-user-install-review/task_plan.md §2.2/§2.3 (37 steps, 36 tool calls, ~15m40s, ~2m31s waiting on the user). No real usernames, hostnames, project paths, session content, or company identifiers appear here; placeholders such as <USER_HOME> stand in for anything that was.",
+  "sourceFacts": {
+    "totalDurationApprox": "15m40s",
+    "sessionSteps": 37,
+    "toolCalls": 36,
+    "userWaitApprox": "2m31s",
+    "avoidableExecutionErrors": 5,
+    "conceptsUserHadToUnderstand": ["40-character commit hash", "detached HEAD", "Harness fork", "TGZ artifact", "profile write permission"],
+    "finalStateBeforeThisFix": "build completed, plugin not installed, Split Pane not verified, no declared terminal state"
+  },
+  "steps": [
+    { "step": 1, "kind": "user-request", "observation": "User asked the agent to install DSH Workbench and enable Split Pane in the current Web profile." },
+    { "step": 3, "kind": "agent-plan", "observation": "Agent read the README default path: clone the repository, obtain a 40-character commit hash from the user, perform a detached checkout, then run pnpm install and build." },
+    { "step": 6, "kind": "user-input", "observation": "Agent asked the user to paste the 40-character pinned commit hash to authorize source verification; the user needed a clarifying exchange before complying (this and one later question account for most of the ~2m31s user wait)." },
+    { "step": 10, "kind": "tool-call", "observation": "Agent cloned the repository with --no-checkout into an isolated build directory under <USER_HOME>, then performed a detached checkout at the pinned commit." },
+    { "step": 14, "kind": "tool-call", "observation": "Agent ran pnpm install --frozen-lockfile across the workspace." },
+    { "step": 18, "kind": "tool-call", "observation": "Agent ran the full build and the 187-test release-check suite as part of the same source-verification flow; all tests passed." },
+    { "step": 23, "kind": "execution-error", "observation": "Agent hit an avoidable execution error while resolving the pinned Harness fork's build output path (one of 5 avoidable errors logged across the session); recovered after a retry." },
+    { "step": 27, "kind": "tool-call", "observation": "Agent built local TGZ artifacts for the Workbench packages." },
+    { "step": 30, "kind": "capability-check", "observation": "Agent inspected the user's stock Harness and found it does not implement Session Presentation protocol 2, so Split Pane cannot activate regardless of whether the plugin installs." },
+    { "step": 33, "kind": "permission-check", "observation": "Agent attempted to install the built TGZ into <USER_HOME>/.dsh/profiles/web and found the sandbox could not write to that path." },
+    { "step": 35, "kind": "agent-decision", "observation": "Instead of producing one deterministic command, the agent asked the user whether to expand sandbox filesystem permissions — a path this contract's evaluateEnvironment explicitly forbids." },
+    { "step": 36, "kind": "agent-output", "observation": "Agent's final message described the TGZ build as complete and gave one manual command, but never declared installed, manual-action-required, incompatible, or failed." },
+    { "step": 37, "kind": "session-end", "observation": "Session ended with the plugin not installed and Split Pane unverified in the user's profile; this ambiguity is exactly what the four-terminal-state contract in scripts/install/result.mjs closes." }
+  ],
+  "environment": {
+    "presentationProtocol": null,
+    "wantsSplitPane": true,
+    "dshHomeWritable": false,
+    "artifactsVerified": true
+  },
+  "expectedTerminal": "manual-action-required"
+}

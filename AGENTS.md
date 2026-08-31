@@ -26,6 +26,6 @@ Run package-focused tests while developing; run `pnpm release:check` before any 
 - Reuse Harness Conversation under explicit `SessionProvider(sessionId)`; never copy it or patch private DOM/store state.
 - Maximum two visible Panes. `visible` owns stable membership; `focused` owns interaction routing.
 - Focus changes never open, close, mount, or unmount Pane panels.
-- Workbench adds no Host filesystem, subprocess, credential, or arbitrary network permission.
+- Workbench adds no Host filesystem, subprocess, credential, or arbitrary network permission, with one exception: the Host entry seeds the bundled `chat` agent preset into `$DSH_HOME/.agent-presets/` (create-only, never overwrite, never re-create after user deletion — see `docs/PRODUCT_CONTRACT.md` "Chat preset seeding").
 - Never commit credentials, private Session content, proprietary paths, personal machine paths, or company identity data.
 - Keep comments and public docs in English, except that `README.md` is the default Simplified Chinese landing page, `README_EN.md` is its English counterpart, and localized product dictionaries contain their target language.

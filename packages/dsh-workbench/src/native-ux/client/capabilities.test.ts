@@ -73,18 +73,113 @@ describe('fail-soft: service-backed actions gate on service presence (GA-043)', 
     // No services → only the always-on navigator/composer (+ favorites off) register.
     const none = buildShortcutRegistry()
     const ids = none.all().map((a) => a.id)
-    expect(ids).not.toContain('layout.sidebar.toggle')
-    expect(ids).not.toContain('session.stop')
-    expect(ids).toContain('conversation.navigator.toggle')
+    expect(ids).not.toContain('workbench.layout.sidebar.toggle')
+    expect(ids).not.toContain('workbench.session.stop')
+    expect(ids).toContain('workbench.conversation.navigator.toggle')
 
     // Layout present → sidebar registers; sessions still absent.
     const layout = buildShortcutRegistry({ services: { layout: { toggleSidebar: () => {} } } })
-    expect(layout.all().some((a) => a.id === 'layout.sidebar.toggle')).toBe(true)
-    expect(layout.all().some((a) => a.id === 'session.stop')).toBe(false)
+    expect(layout.all().some((a) => a.id === 'workbench.layout.sidebar.toggle')).toBe(true)
+    expect(layout.all().some((a) => a.id === 'workbench.session.stop')).toBe(false)
 
     // Sessions present → session.stop registers.
     const sessions = buildShortcutRegistry({ services: { sessions: { scope: () => ({ get: () => ({ cancel: () => {} }) }) } } })
-    expect(sessions.all().some((a) => a.id === 'session.stop')).toBe(true)
+    expect(sessions.all().some((a) => a.id === 'workbench.session.stop')).toBe(true)
+  })
+
+  // -----------------------------------------------------------------
+  // native-actions-pivot — Part B: the four new native L0 actions follow
+  // the SAME GA-043 pattern as sidebar/session-stop above: absent seam ->
+  // not registered, fail-soft (never a throw, never a fake placeholder —
+  // GA-002). See harness-adapter.ts for the seam citations behind each
+  // gate, and shortcuts.tsx's sessionNewOn/settingsOpenOn/sessionPreviousOn/
+  // jumpLatestOn comment block for the registration-gate reasoning.
+  // -----------------------------------------------------------------
+
+  it('workbench.session.new registers only when sessions.clear exists', () => {
+    const none = buildShortcutRegistry({ services: { sessions: { scope: () => undefined } } })
+    expect(none.all().some((a) => a.id === 'workbench.session.new')).toBe(false)
+    const withClear = buildShortcutRegistry({ services: { sessions: { scope: () => undefined, clear: () => {} } } })
+    expect(withClear.all().some((a) => a.id === 'workbench.session.new')).toBe(true)
+  })
+
+  it('a false sessionNew capability flag suppresses registration even when sessions.clear is present', () => {
+    const registry = buildShortcutRegistry({
+      services: { sessions: { scope: () => undefined, clear: () => {} } },
+      caps: { sessionNew: false },
+    })
+    expect(registry.all().some((a) => a.id === 'workbench.session.new')).toBe(false)
+  })
+
+  it('workbench.settings.open registers only when layout.openSettings exists — absent in production TODAY (no real seam ships yet; see harness-adapter.ts LayoutService.openSettings doc comment for the investigated-and-ruled-out citation)', () => {
+    const withoutSeam = buildShortcutRegistry({ services: { layout: { toggleSidebar: () => {} } } })
+    expect(withoutSeam.all().some((a) => a.id === 'workbench.settings.open')).toBe(false)
+    // No layout service at all is the same "absent" case.
+    const noLayout = buildShortcutRegistry({ services: {} })
+    expect(noLayout.all().some((a) => a.id === 'workbench.settings.open')).toBe(false)
+    // A test double MAY supply the seam (the registration path is real, even
+    // though nothing in production wires it yet).
+    const withSeam = buildShortcutRegistry({ services: { layout: { toggleSidebar: () => {}, openSettings: () => {} } } })
+    expect(withSeam.all().some((a) => a.id === 'workbench.settings.open')).toBe(true)
+  })
+
+  // LOW 4 (Opus review, round 2): missing capability-flag suppression tests.
+  it('a false settingsOpen capability flag suppresses registration even when layout.openSettings is present', () => {
+    const registry = buildShortcutRegistry({
+      services: { layout: { toggleSidebar: () => {}, openSettings: () => {} } },
+      caps: { settingsOpen: false },
+    })
+    expect(registry.all().some((a) => a.id === 'workbench.settings.open')).toBe(false)
+  })
+
+  // MEDIUM 1 (Opus review, round 2): workbench.session.previous needs BOTH
+  // `open` (the switch verb) AND `list` (the tracker feed — see
+  // harness-adapter.ts's `SessionsService.list` doc comment) to register.
+  // Before this fix, `open` alone was the gate and the tracker was fed from
+  // the fork-only `presentation` face: a stock Harness (open present, no
+  // presentation) registered the action but left it permanently inert. Now
+  // EITHER seam missing means "not registered" — fail-soft over
+  // "registered and silently broken."
+  const fakeListStore = (current?: string) => ({ getSnapshot: () => ({ current }), subscribe: () => () => {} })
+
+  it('workbench.session.previous does NOT register with neither seam present', () => {
+    const none = buildShortcutRegistry({ services: { sessions: { scope: () => undefined } } })
+    expect(none.all().some((a) => a.id === 'workbench.session.previous')).toBe(false)
+  })
+
+  it('workbench.session.previous does NOT register with only `open` present (the original MEDIUM-1 bug shape: registered-but-inert on stock)', () => {
+    const openOnly = buildShortcutRegistry({ services: { sessions: { scope: () => undefined, open: () => {} } } })
+    expect(openOnly.all().some((a) => a.id === 'workbench.session.previous')).toBe(false)
+  })
+
+  it('workbench.session.previous does NOT register with only `list` present (feed with no switch verb is just as useless)', () => {
+    const listOnly = buildShortcutRegistry({ services: { sessions: { scope: () => undefined, list: fakeListStore() } } })
+    expect(listOnly.all().some((a) => a.id === 'workbench.session.previous')).toBe(false)
+  })
+
+  it('workbench.session.previous registers when BOTH `open` and `list` are present — stock-shaped services (no `presentation` at all) are enough', () => {
+    const stockShaped = buildShortcutRegistry({
+      services: { sessions: { scope: () => undefined, open: () => {}, list: fakeListStore() } },
+    })
+    expect(stockShaped.all().some((a) => a.id === 'workbench.session.previous')).toBe(true)
+  })
+
+  it('a false sessionPrevious capability flag suppresses registration even when both seams are present', () => {
+    const registry = buildShortcutRegistry({
+      services: { sessions: { scope: () => undefined, open: () => {}, list: fakeListStore() } },
+      caps: { sessionPrevious: false },
+    })
+    expect(registry.all().some((a) => a.id === 'workbench.session.previous')).toBe(false)
+  })
+
+  it('workbench.conversation.jump-latest always registers regardless of service presence (DOM-backed via conversation-dom.ts, not a service seam — fails soft at RUNTIME instead, when no scrollport is mounted)', () => {
+    const none = buildShortcutRegistry()
+    expect(none.all().some((a) => a.id === 'workbench.conversation.jump-latest')).toBe(true)
+  })
+
+  it('a false jumpLatest capability flag suppresses registration', () => {
+    const registry = buildShortcutRegistry({ caps: { jumpLatest: false } })
+    expect(registry.all().some((a) => a.id === 'workbench.conversation.jump-latest')).toBe(false)
   })
 })
 

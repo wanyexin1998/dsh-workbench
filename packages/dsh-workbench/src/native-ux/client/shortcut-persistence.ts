@@ -19,6 +19,106 @@ function isEmptyState(state: ShortcutPersistedStateV1): boolean {
   return Object.keys(state.bindings).length === 0 && state.disabled.length === 0
 }
 
+// W1.2 — id namespacing migration -------------------------------------
+//
+// Every built-in action id shipped un-namespaced through 0.1 (e.g.
+// 'session.stop'); shortcuts.tsx now declares them under the `workbench.`
+// namespace (e.g. 'workbench.session.stop') so the open catalog (W2 host
+// commands as `host.command.<name>`, W3 third-party as `<plugin>.<action>`)
+// cannot collide with a Workbench built-in. A key frozen here forever: the
+// list is the exact set of bare ids shortcuts.tsx registered before the
+// rename, never extended — any *new* built-in action is declared already
+// namespaced, so it never needs a migration entry. Duplicated (not
+// imported) from shortcuts.tsx to avoid a circular import (shortcuts.tsx
+// already imports this module for the persistence classes); these strings
+// are historical artifacts of a rename, not a live source of truth.
+const LEGACY_BUILTIN_ACTION_IDS: ReadonlySet<string> = new Set([
+  'conversation.navigator.toggle',
+  'conversation.composer.focus',
+  'layout.sidebar.toggle',
+  'session.stop',
+  'pane.close-focused',
+  'agent.favorite.open:1',
+  'agent.favorite.open:2',
+  'agent.favorite.open:3',
+  'agent.favorite.open:4',
+  'agent.favorite.open:5',
+  'agent.favorite.open:6',
+  'agent.favorite.open:7',
+  'agent.favorite.open:8',
+  'agent.favorite.open:9',
+])
+
+/** Matches action-registry.ts's DEFAULT_PROVIDER ('workbench'); duplicated
+ * as a literal (not imported) because this file is pure client-persistence
+ * plumbing and importing the core registry module here to reach one string
+ * constant is not worth the coupling. */
+const BUILTIN_NAMESPACE_PREFIX = 'workbench.'
+
+function migrateLegacyActionId(id: string): string {
+  return LEGACY_BUILTIN_ACTION_IDS.has(id) ? BUILTIN_NAMESPACE_PREFIX + id : id
+}
+
+/**
+ * One-time forward migration of persisted binding keys from the pre-W1.2
+ * bare built-in ids to their `workbench.`-namespaced form. Pure projection
+ * (read-side only, no I/O) — see parsePersistedState's call site for why:
+ * this composes for free with the pre-existing local->host import in
+ * FallbackShortcutPersistence (that mechanism reads through this function
+ * before ever writing, so what it copies into the host is already
+ * namespaced) without this function needing its own write-back path.
+ * Storage physically still holds the old bare keys until the user's next
+ * explicit binding change round-trips the (already-migrated) full state
+ * back through persist() — until then this projection keeps every read
+ * correct, so the stale bytes in storage are harmless.
+ *
+ * - A key already namespaced (or belonging to an unknown/future provider,
+ *   e.g. a W2 `host.command.*` id or a W3 third-party `<plugin>.*` id)
+ *   passes through untouched — this function only ever recognizes the
+ *   frozen bare built-in ids above, nothing else.
+ * - When both the bare id and its already-namespaced form are present for
+ *   the same action, the namespaced key wins and the bare entry is
+ *   dropped: the namespaced key can only have been written by a version of
+ *   this code that already ran this migration (or by a save after it),
+ *   so it reflects the user's most recent intent.
+ */
+export function migrateLegacyActionIds(bindings: BindingOverrides): BindingOverrides {
+  const out: BindingOverrides = {}
+  // Pass 1: carry over every key this function does not recognize as a
+  // legacy bare id (already namespaced, or a foreign/future provider id).
+  for (const [id, spec] of Object.entries(bindings)) {
+    if (!LEGACY_BUILTIN_ACTION_IDS.has(id)) out[id] = spec
+  }
+  // Pass 2: re-key legacy bare ids, but never clobber a namespaced key
+  // pass 1 already carried over (new wins over old, order-independent).
+  for (const [id, spec] of Object.entries(bindings)) {
+    if (!LEGACY_BUILTIN_ACTION_IDS.has(id)) continue
+    const namespaced = migrateLegacyActionId(id)
+    if (namespaced in out) continue
+    out[namespaced] = spec
+  }
+  return out
+}
+
+/** Same migration, applied to the `disabled` action-id list (not covered by
+ * the literal "overrides section" wording of the W1.2 migration spec, but
+ * the same rename applies: a `disabled: ['session.stop']` entry from
+ * before the rename no longer matches the live registry's
+ * 'workbench.session.stop' id post-migration, which would silently
+ * re-enable an action the user had explicitly turned off. Deduplicates in
+ * case both the bare and namespaced form were ever present together. */
+function migrateLegacyDisabledIds(disabled: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const id of disabled) {
+    const migrated = migrateLegacyActionId(id)
+    if (seen.has(migrated)) continue
+    seen.add(migrated)
+    out.push(migrated)
+  }
+  return out
+}
+
 export interface ShortcutPersistence {
   load(): Promise<ShortcutPersistedStateV1>
   save(state: ShortcutPersistedStateV1): Promise<'host' | 'local'>
@@ -26,15 +126,30 @@ export interface ShortcutPersistence {
 
 export const LOCAL_STORAGE_KEY = 'dsh-native-ux.shortcuts.v1'
 
-/** Narrowing of persisted JSON into the V1 shape; malformed -> empty. */
+/** Narrowing of persisted JSON into the V1 shape; malformed -> empty.
+ * W1.2: the id-namespace migration runs here, after value validation
+ * (parseBindingOverrides's value semantics are untouched — see its own
+ * doc comment) so it is the single choke point every read path shares
+ * (Local, Host, and therefore the Fallback layer's local->host import,
+ * which reads through both before ever writing). */
 export function parsePersistedState(value: unknown): ShortcutPersistedStateV1 {
   if (typeof value !== 'object' || value === null) return EMPTY_SHORTCUT_STATE
+  // `hostDirectExecute` is deliberately NOT in this narrowing (or in
+  // ShortcutPersistedStateV1 any more, post W2-bridge-removal): an old
+  // persisted document that still carries it from before the removal is
+  // simply an object with an extra, unread key — this function's existing
+  // "narrow only the fields we know" shape tolerates that silently, the
+  // same unknown-key tolerance every other extra field on this object
+  // already gets. See shortcut-persistence.test.ts's dedicated regression
+  // pinning that this degrades silently rather than throwing.
   const raw = value as { schemaVersion?: unknown; bindings?: unknown; disabled?: unknown }
   if (raw.schemaVersion !== 1) return EMPTY_SHORTCUT_STATE
-  const bindings = parseBindingOverrides(raw.bindings)
-  const disabled = Array.isArray(raw.disabled)
-    ? raw.disabled.filter((id: unknown): id is string => typeof id === 'string')
-    : []
+  const bindings = migrateLegacyActionIds(parseBindingOverrides(raw.bindings))
+  const disabled = migrateLegacyDisabledIds(
+    Array.isArray(raw.disabled)
+      ? raw.disabled.filter((id: unknown): id is string => typeof id === 'string')
+      : [],
+  )
   return { schemaVersion: 1, bindings, disabled }
 }
 

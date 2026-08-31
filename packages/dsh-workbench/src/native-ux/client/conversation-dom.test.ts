@@ -2,8 +2,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   anchorRectsFromCache, createHumanAnchorCache, detectConversationDom,
-  locateConversationRoot, locateScrollport,
+  captureConversationRange, locateConversationRoot, locateScrollport,
 } from './conversation-dom.js'
+import { MAX_SELECTION_BYTES } from './selection-contract.js'
 
 // MutationObserver delivery (one microtask) + the coalesced refresh (the next
 // microtask) — a macrotask flush drains both turns.
@@ -158,5 +159,92 @@ describe('detectConversationDom (GA-030 probe, ADR-0001)', () => {
     seat.setAttribute('data-composer-seat', '')
     document.body.appendChild(seat)
     expect(detectConversationDom()).toEqual({ scrollport: true, anchors: true, composer: true })
+  })
+})
+
+interface SelectionRow {
+  pane: HTMLElement | null
+  flow: HTMLElement
+  row: HTMLElement
+}
+
+function selectionRow(sessionId: string | null, key: string, kind = 'user'): SelectionRow {
+  const pane = sessionId === null ? null : document.createElement('section')
+  if (pane !== null && sessionId !== null) pane.dataset.sessionPane = sessionId
+  const flow = document.createElement('div')
+  flow.dataset.chatFlow = ''
+  const row = document.createElement('article')
+  row.dataset.chatAnchorKey = `anchor-${key}`
+  row.dataset.chatFlowKey = key
+  row.dataset.chatFlowKind = kind
+  flow.appendChild(row)
+  ;(pane ?? document.body).appendChild(flow)
+  if (pane !== null) document.body.appendChild(pane)
+  return { pane, flow, row }
+}
+
+function rangeBetween(start: Text, startOffset: number, end: Text, endOffset: number): Range {
+  const range = document.createRange()
+  range.setStart(start, startOffset)
+  range.setEnd(end, endOffset)
+  return range
+}
+
+describe('captureConversationRange', () => {
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('captures normalized UTF-16 offsets inside one verified business row', () => {
+    const { row } = selectionRow('left', 'node-1')
+    const first = document.createTextNode('alpha ')
+    const second = document.createTextNode('beta')
+    row.append(first, second)
+    const capture = captureConversationRange(rangeBetween(first, 2, second, 2), MAX_SELECTION_BYTES)
+    expect(capture).toMatchObject({
+      paneSessionId: 'left', nodeKey: 'node-1', nodeKind: 'user',
+      text: 'pha be', startOffset: 2, endOffset: 8,
+    })
+  })
+
+  it('fails closed for collapsed, cross-row, and cross-pane ranges', () => {
+    const left = selectionRow('left', 'left-node')
+    const right = selectionRow('right', 'right-node')
+    const leftText = document.createTextNode('left')
+    const rightText = document.createTextNode('right')
+    left.row.append(leftText)
+    right.row.append(rightText)
+
+    expect(captureConversationRange(rangeBetween(leftText, 1, leftText, 1), MAX_SELECTION_BYTES)).toBeNull()
+    expect(captureConversationRange(rangeBetween(leftText, 0, rightText, 5), MAX_SELECTION_BYTES)).toBeNull()
+  })
+
+  it('rejects ranges intersecting controls or editable content', () => {
+    const { row } = selectionRow('left', 'node')
+    const before = document.createTextNode('before')
+    const button = document.createElement('button')
+    button.textContent = 'control'
+    const editable = document.createElement('span')
+    editable.setAttribute('contenteditable', 'true')
+    editable.textContent = 'editable'
+    const after = document.createTextNode('after')
+    row.append(before, button, editable, after)
+
+    expect(captureConversationRange(rangeBetween(before, 0, after, 5), MAX_SELECTION_BYTES)).toBeNull()
+    expect(captureConversationRange(rangeBetween(button.firstChild as Text, 0, button.firstChild as Text, 7), MAX_SELECTION_BYTES)).toBeNull()
+    expect(captureConversationRange(rangeBetween(editable.firstChild as Text, 0, editable.firstChild as Text, 8), MAX_SELECTION_BYTES)).toBeNull()
+  })
+
+  it('rejects streaming and over-16-KiB selections', () => {
+    const streaming = selectionRow('left', 'stream', 'assistant-step')
+    streaming.row.dataset.streaming = 'true'
+    const streamingText = document.createTextNode('partial')
+    streaming.row.append(streamingText)
+    expect(captureConversationRange(rangeBetween(streamingText, 0, streamingText, 7), MAX_SELECTION_BYTES)).toBeNull()
+
+    const large = selectionRow('left', 'large')
+    const largeText = document.createTextNode('界'.repeat(6000))
+    large.row.append(largeText)
+    expect(captureConversationRange(rangeBetween(largeText, 0, largeText, largeText.length), MAX_SELECTION_BYTES)).toBeNull()
   })
 })

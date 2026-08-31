@@ -17,6 +17,7 @@ import {
   HostShortcutPersistence,
   LocalShortcutPersistence,
   LOCAL_STORAGE_KEY,
+  migrateLegacyActionIds,
   parsePersistedState,
   type ShortcutPersistedStateV1,
 } from './shortcut-persistence.js'
@@ -91,27 +92,134 @@ describe('parsePersistedState', () => {
   it('drops invalid chord specs and non-string disabled ids', () => {
     const state = parsePersistedState({
       schemaVersion: 1,
-      bindings: { 'conversation.navigator.toggle': 'Primary+Shift+O', bad: 'not-a-chord' },
-      disabled: ['session.stop', 42, null],
+      bindings: { 'workbench.conversation.navigator.toggle': 'Primary+Shift+O', bad: 'not-a-chord' },
+      disabled: ['workbench.session.stop', 42, null],
     })
-    expect(state.bindings).toEqual({ 'conversation.navigator.toggle': 'Primary+Shift+O' })
-    expect(state.disabled).toEqual(['session.stop'])
+    expect(state.bindings).toEqual({ 'workbench.conversation.navigator.toggle': 'Primary+Shift+O' })
+    expect(state.disabled).toEqual(['workbench.session.stop'])
   })
 
   it('keeps the explicit unbound sentinel', () => {
-    const state = parsePersistedState({ schemaVersion: 1, bindings: { 'session.stop': 'Unbound' } })
-    expect(state.bindings['session.stop']).toBe('Unbound')
+    const state = parsePersistedState({ schemaVersion: 1, bindings: { 'workbench.session.stop': 'Unbound' } })
+    expect(state.bindings['workbench.session.stop']).toBe('Unbound')
+  })
+})
+
+// native-actions-pivot — the W2 host slash-command bridge (and its
+// hostDirectExecute persisted field) was removed by product decision.
+// parsePersistedState's narrowing reads only { schemaVersion, bindings,
+// disabled } now; an old document that still carries a hostDirectExecute
+// array from before the removal is simply an object with one extra, unread
+// key. Pin that this degrades silently (dropped, not thrown) rather than
+// leaking into the returned state or crashing — the general "unknown-key
+// tolerance" this parser has always had for any other stray field.
+describe('parsePersistedState — orphaned hostDirectExecute field (W2 bridge removed)', () => {
+  it('a persisted hostDirectExecute array is ignored without throwing', () => {
+    const state = parsePersistedState({
+      schemaVersion: 1,
+      bindings: {},
+      disabled: [],
+      hostDirectExecute: ['host.command.foo', 'host.command.bar'],
+    })
+    expect(state).toEqual(EMPTY_SHORTCUT_STATE)
+    expect((state as unknown as Record<string, unknown>).hostDirectExecute).toBeUndefined()
+  })
+
+  it('a non-empty hostDirectExecute field does not mask real bindings/disabled data', () => {
+    const state = parsePersistedState({
+      schemaVersion: 1,
+      bindings: { 'workbench.session.stop': 'Primary+K' },
+      disabled: ['workbench.layout.sidebar.toggle'],
+      hostDirectExecute: ['host.command.foo'],
+    })
+    expect(state).toEqual({
+      schemaVersion: 1,
+      bindings: { 'workbench.session.stop': 'Primary+K' },
+      disabled: ['workbench.layout.sidebar.toggle'],
+    })
+  })
+})
+
+// W1.2 — id namespacing migration: any key that exactly matches an old
+// (pre-W1.2, un-namespaced) built-in id is re-keyed to its
+// `workbench.`-prefixed form on read. Exercised both through the pure
+// projection directly (migrateLegacyActionIds) and through
+// parsePersistedState (the shared choke point every persistence backend
+// reads through).
+describe('migrateLegacyActionIds (W1.2 id namespacing)', () => {
+  it('re-keys an old built-in id to its workbench.-namespaced form, value preserved verbatim', () => {
+    expect(migrateLegacyActionIds({ 'session.stop': 'Primary+Shift+K' })).toEqual({
+      'workbench.session.stop': 'Primary+Shift+K',
+    })
+  })
+
+  it('preserves the Unbound sentinel through the rekey', () => {
+    expect(migrateLegacyActionIds({ 'pane.close-focused': 'Unbound' })).toEqual({
+      'workbench.pane.close-focused': 'Unbound',
+    })
+  })
+
+  it('passes an already-namespaced key through untouched', () => {
+    expect(migrateLegacyActionIds({ 'workbench.session.stop': 'Primary+K' })).toEqual({
+      'workbench.session.stop': 'Primary+K',
+    })
+  })
+
+  it('re-keys the favorite slots (frozen :1..:9 suffix form)', () => {
+    expect(migrateLegacyActionIds({ 'agent.favorite.open:1': 'Primary+1', 'agent.favorite.open:9': 'Primary+9' }))
+      .toEqual({ 'workbench.agent.favorite.open:1': 'Primary+1', 'workbench.agent.favorite.open:9': 'Primary+9' })
+  })
+
+  it('passes an unknown foreign-provider key through untouched (not dropped, not re-prefixed)', () => {
+    // Future L1/L2/L3 providers own ids like host.command.<name> or
+    // <plugin>.<action> — this function must never touch them.
+    expect(migrateLegacyActionIds({ 'someplugin.custom-action': 'Primary+K' })).toEqual({
+      'someplugin.custom-action': 'Primary+K',
+    })
+  })
+
+  it('when both the old and the namespaced key are present, the new key wins and the old is dropped', () => {
+    // The namespaced key can only have been written by a version that
+    // already migrated (or by a save after migration), so it reflects the
+    // user's most recent intent — deleting this rule would let the old
+    // value win instead, or leave both keys present.
+    const out = migrateLegacyActionIds({
+      'session.stop': 'Primary+A',
+      'workbench.session.stop': 'Primary+B',
+    })
+    expect(out).toEqual({ 'workbench.session.stop': 'Primary+B' })
+    expect(Object.keys(out)).not.toContain('session.stop')
+  })
+
+  it('composes with parseBindingOverrides value validation via parsePersistedState (invalid values still dropped)', () => {
+    const state = parsePersistedState({
+      schemaVersion: 1,
+      bindings: { 'session.stop': 'not-a-chord', 'layout.sidebar.toggle': 'Primary+J' },
+    })
+    // The invalid value is dropped by parseBindingOverrides BEFORE the
+    // rekey ever sees it — deleting the migration step would leave the
+    // key un-namespaced instead of missing it entirely.
+    expect(state.bindings).toEqual({ 'workbench.layout.sidebar.toggle': 'Primary+J' })
+  })
+
+  it('also migrates old ids in the disabled list, deduplicating old+new', () => {
+    const state = parsePersistedState({
+      schemaVersion: 1,
+      bindings: {},
+      disabled: ['session.stop', 'workbench.layout.sidebar.toggle', 'layout.sidebar.toggle'],
+    })
+    expect(state.disabled).toEqual(['workbench.session.stop', 'workbench.layout.sidebar.toggle'])
   })
 })
 
 describe('HostShortcutPersistence', () => {
   it('loads the versioned envelope from a durable, ready snapshot', async () => {
     const scope = fixedScope(
-      readySnapshot({ schemaVersion: 1, bindings: { 'session.stop': 'Primary+X' }, disabled: ['layout.sidebar.toggle'] }),
+      readySnapshot({ schemaVersion: 1, bindings: { 'workbench.session.stop': 'Primary+X' }, disabled: ['workbench.layout.sidebar.toggle'] }),
     )
     const state = await new HostShortcutPersistence(scope).load()
-    expect(state.bindings['session.stop']).toBe('Primary+X')
-    expect(state.disabled).toEqual(['layout.sidebar.toggle'])
+    expect(state.bindings['workbench.session.stop']).toBe('Primary+X')
+    expect(state.disabled).toEqual(['workbench.layout.sidebar.toggle'])
   })
 
   it('returns empty (not throw) when the host is durable but holds no state yet', async () => {
@@ -139,18 +247,18 @@ describe('HostShortcutPersistence', () => {
 
   it('saves the envelope to the single __state field on a durable host', async () => {
     const scope = fixedScope(readySnapshot(null))
-    await new HostShortcutPersistence(scope).save({ schemaVersion: 1, bindings: { 'session.stop': 'Primary+K' }, disabled: [] })
+    await new HostShortcutPersistence(scope).save({ schemaVersion: 1, bindings: { 'workbench.session.stop': 'Primary+K' }, disabled: [] })
     expect(scope.set).toHaveBeenCalledTimes(1)
     const [field, raw] = scope.set.mock.calls[0] as [string, unknown]
     expect(field).toBe(HOST_STATE_FIELD)
-    expect(JSON.parse(String(raw)).bindings['session.stop']).toBe('Primary+K')
+    expect(JSON.parse(String(raw)).bindings['workbench.session.stop']).toBe('Primary+K')
   })
 
   it('does NOT write to the host when the namespace is not durable', async () => {
     const scope = fixedScope({ status: 'unavailable', mode: 'host', user: undefined, value: undefined })
     const set = scope.set as ReturnType<typeof vi.fn>
     await expect(
-      new HostShortcutPersistence(scope).save({ schemaVersion: 1, bindings: { 'session.stop': 'Primary+K' }, disabled: [] }),
+      new HostShortcutPersistence(scope).save({ schemaVersion: 1, bindings: { 'workbench.session.stop': 'Primary+K' }, disabled: [] }),
     ).rejects.toThrow('settings-not-exposed')
     expect(set).not.toHaveBeenCalled()
   })
@@ -160,8 +268,8 @@ describe('FallbackShortcutPersistence', () => {
   it('imports a legacy local state when the durable Host section is empty', async () => {
     const legacy: ShortcutPersistedStateV1 = {
       schemaVersion: 1,
-      bindings: { 'pane.close-focused': 'Primary+Shift+W' },
-      disabled: ['layout.sidebar.toggle'],
+      bindings: { 'workbench.pane.close-focused': 'Primary+Shift+W' },
+      disabled: ['workbench.layout.sidebar.toggle'],
     }
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(legacy))
     const scope = fixedScope(readySnapshot(null))
@@ -171,14 +279,40 @@ describe('FallbackShortcutPersistence', () => {
     expect(JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY)!)).toEqual(EMPTY_SHORTCUT_STATE)
   })
 
+  it('W1.2: composes with the legacy-namespace import — a 0.1 local section with bare ids lands fully namespaced in the host after both migrations', async () => {
+    // The 0.1 section predates BOTH the host-settings backend and the id
+    // namespace: it is a flat localStorage blob keyed by the bare built-in
+    // ids. load() must (1) rekey the bare ids to their workbench.-namespaced
+    // form (parsePersistedState, via LocalShortcutPersistence.load()) and
+    // (2) import that already-migrated state into the (empty) durable host,
+    // clearing local — the pre-existing legacy-namespace migration path.
+    const legacyZeroOne = {
+      schemaVersion: 1,
+      bindings: { 'pane.close-focused': 'Primary+Shift+W' },
+      disabled: ['layout.sidebar.toggle'],
+    }
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(legacyZeroOne))
+    const scope = fixedScope(readySnapshot(null))
+
+    const fullyMigrated: ShortcutPersistedStateV1 = {
+      schemaVersion: 1,
+      bindings: { 'workbench.pane.close-focused': 'Primary+Shift+W' },
+      disabled: ['workbench.layout.sidebar.toggle'],
+    }
+    await expect(makeFallback(new HostShortcutPersistence(scope)).load()).resolves.toEqual(fullyMigrated)
+    // The import write itself carries the namespaced ids, not the bare 0.1 ones.
+    expect(scope.set).toHaveBeenCalledWith('__state', JSON.stringify(fullyMigrated))
+    expect(JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY)!)).toEqual(EMPTY_SHORTCUT_STATE)
+  })
+
   it('falls back to local when the host namespace is not exposed', async () => {
     localStorage.setItem(
       LOCAL_STORAGE_KEY,
-      JSON.stringify({ schemaVersion: 1, bindings: { 'conversation.navigator.toggle': 'Primary+Shift+P' }, disabled: [] }),
+      JSON.stringify({ schemaVersion: 1, bindings: { 'workbench.conversation.navigator.toggle': 'Primary+Shift+P' }, disabled: [] }),
     )
     const fallback = makeFallback(new HostShortcutPersistence(fixedScope({ status: 'unavailable', mode: 'host', user: undefined, value: undefined })))
     const state = await fallback.load()
-    expect(state.bindings['conversation.navigator.toggle']).toBe('Primary+Shift+P')
+    expect(state.bindings['workbench.conversation.navigator.toggle']).toBe('Primary+Shift+P')
   })
 
   it('CRITICAL: set() resolves but host is not durable -> local is preserved, not wiped', async () => {
@@ -187,51 +321,51 @@ describe('FallbackShortcutPersistence', () => {
     // cleared local data, losing the chord on reload.
     const scope = fixedScope({ status: 'unavailable', mode: 'host', user: {}, value: {} })
     const fallback = makeFallback(new HostShortcutPersistence(scope))
-    const where = await fallback.save({ schemaVersion: 1, bindings: { 'session.stop': 'Primary+K' }, disabled: ['layout.sidebar.toggle'] })
+    const where = await fallback.save({ schemaVersion: 1, bindings: { 'workbench.session.stop': 'Primary+K' }, disabled: ['workbench.layout.sidebar.toggle'] })
     expect(where).toBe('local')
     // local must now hold the state (NOT the empty cleared state)
     const stored = JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY)!) as ShortcutPersistedStateV1
-    expect(stored.bindings['session.stop']).toBe('Primary+K')
-    expect(stored.disabled).toEqual(['layout.sidebar.toggle'])
+    expect(stored.bindings['workbench.session.stop']).toBe('Primary+K')
+    expect(stored.disabled).toEqual(['workbench.layout.sidebar.toggle'])
     // and a reload (fresh instance) must read it back from local
     const reloaded = await makeFallback(new HostShortcutPersistence(fixedScope({ status: 'unavailable', mode: 'host', user: {}, value: {} }))).load()
-    expect(reloaded.bindings['session.stop']).toBe('Primary+K')
-    expect(reloaded.disabled).toEqual(['layout.sidebar.toggle'])
+    expect(reloaded.bindings['workbench.session.stop']).toBe('Primary+K')
+    expect(reloaded.disabled).toEqual(['workbench.layout.sidebar.toggle'])
   })
 
   it('prefers the durable host on success and clears stale local data (migration path)', async () => {
     localStorage.setItem(
       LOCAL_STORAGE_KEY,
-      JSON.stringify({ schemaVersion: 1, bindings: { 'layout.sidebar.toggle': 'Primary+J' }, disabled: [] }),
+      JSON.stringify({ schemaVersion: 1, bindings: { 'workbench.layout.sidebar.toggle': 'Primary+J' }, disabled: [] }),
     )
     const scope = fixedScope(readySnapshot(null))
     const fallback = makeFallback(new HostShortcutPersistence(scope))
-    const where = await fallback.save({ schemaVersion: 1, bindings: { 'session.stop': 'Primary+K' }, disabled: [] })
+    const where = await fallback.save({ schemaVersion: 1, bindings: { 'workbench.session.stop': 'Primary+K' }, disabled: [] })
     expect(where).toBe('host')
     // host accepted the state -> stale local fallback is cleared
     expect(JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY)!)).toEqual(EMPTY_SHORTCUT_STATE)
   })
 
   it('round-trips through a durable host snapshot (restart)', async () => {
-    const saved: ShortcutPersistedStateV1 = { schemaVersion: 1, bindings: { 'conversation.composer.focus': 'Primary+Shift+F' }, disabled: ['agent.favorite.open:1'] }
+    const saved: ShortcutPersistedStateV1 = { schemaVersion: 1, bindings: { 'workbench.conversation.composer.focus': 'Primary+Shift+F' }, disabled: ['workbench.agent.favorite.open:1'] }
     const hostFor = () => new HostShortcutPersistence(fixedScope(readySnapshot(saved)))
     const first = makeFallback(hostFor())
     await first.save(saved)
     // "restart": a fresh fallback reading the same durable host state
     const restarted = makeFallback(hostFor())
     const state = await restarted.load()
-    expect(state.bindings['conversation.composer.focus']).toBe('Primary+Shift+F')
-    expect(state.disabled).toEqual(['agent.favorite.open:1'])
+    expect(state.bindings['workbench.conversation.composer.focus']).toBe('Primary+Shift+F')
+    expect(state.disabled).toEqual(['workbench.agent.favorite.open:1'])
   })
 
   it('local fallback round-trips after restart when the host is never durable', async () => {
     const hostFor = () => new HostShortcutPersistence(fixedScope({ status: 'unavailable', mode: 'host', user: {}, value: {} }))
     const first = makeFallback(hostFor())
-    await first.save({ schemaVersion: 1, bindings: { 'conversation.composer.focus': 'Primary+Shift+F' }, disabled: ['agent.favorite.open:1'] })
+    await first.save({ schemaVersion: 1, bindings: { 'workbench.conversation.composer.focus': 'Primary+Shift+F' }, disabled: ['workbench.agent.favorite.open:1'] })
     const restarted = makeFallback(hostFor())
     const state = await restarted.load()
-    expect(state.bindings['conversation.composer.focus']).toBe('Primary+Shift+F')
-    expect(state.disabled).toEqual(['agent.favorite.open:1'])
+    expect(state.bindings['workbench.conversation.composer.focus']).toBe('Primary+Shift+F')
+    expect(state.disabled).toEqual(['workbench.agent.favorite.open:1'])
   })
 
   it('ignores malformed localStorage content instead of crashing', async () => {

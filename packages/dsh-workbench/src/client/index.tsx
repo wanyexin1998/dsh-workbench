@@ -1,17 +1,52 @@
 import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
-import { runStartupGuard, WORKBENCH_VISIBLE_CAPACITY } from './guard.ts'
+import type { IConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { InputTriggerServiceContract } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import {
+  presentationBlindContext,
+  presentationBlindSessions,
+  runStartupGuard,
+  WORKBENCH_VISIBLE_CAPACITY,
+} from './guard.ts'
 import { SUPPORTED_HARNESS } from './contract.ts'
 import { makeGuardFailureBanner } from './guard-failure.tsx'
 import { SameWorkspaceWarning, useWorkspacePathIndex, type PaneWorkspace, type WorkspaceFacts } from './same-workspace-warning.tsx'
 import { en, zh } from './dictionaries.ts'
 import { applyNavigator } from '../native-ux/client/navigator.js'
 import { applyShortcuts } from '../native-ux/client/shortcuts.js'
-import type { HarnessContext } from '../native-ux/client/harness-adapter.js'
+import { resolveHarnessServices, type HarnessContext } from '../native-ux/client/harness-adapter.js'
 import { warnOnce } from '../native-ux/client/capabilities.js'
+import type { WorkbenchActionsService } from '../native-ux/client/actions-api.js'
+import { applySelectionActions } from '../native-ux/client/selection-actions.js'
+import type { SelectionSessions } from '../native-ux/client/selection-controller.js'
+
+// W3.1 — the public `workbench.actions` service (design.md §3 "L2"): the
+// ecosystem's documented way for a plugin to PROVIDE a service other
+// plugins can inject is Cordis's own `ctx.reflect.provide(name, value)` /
+// the mixed-in `ctx.provide(name, value)` (both call the same
+// ReflectService.provide — node_modules/.pnpm/@deepseek-ai+cordis@4.0.1/
+// node_modules/@deepseek-ai/cordis/src/reflect.ts:44-46,277-305), paired
+// with a `declare module '@deepseek-ai/cordis' { interface Context { ... }
+// }` augmentation so `ctx.<name>` typechecks for injecting consumers. This
+// is the exact pattern the sibling `dsh-workbench-panel-compat` package
+// already ships for its own `workbenchPanels` service — see
+// packages/dsh-workbench-panel-compat/src/client/index.ts:9-14,23 (`declare
+// module` + `ctx.reflect.provide('workbenchPanels', coordinator)` inside a
+// `ctx.effect(...)`, released via the effect's own teardown). `workbenchActions`
+// mirrors that sibling's `workbench<Noun>` naming (not a bare `actions`,
+// which would be far more likely to collide with an unrelated host or
+// plugin service of the same generic name).
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    workbenchActions: WorkbenchActionsService
+  }
+}
 
 /** Required services for split presentation and the merged Native UX modules. */
-export const inject = ['sessions', 'slots', 'locale', 'layout', 'settingsScope'] as const
+export const inject = [
+  'connection', 'sessions', 'workspaces', 'slots', 'locale', 'layout',
+  'settingsScope', 'conversation', 'inputTriggers',
+] as const
 
 const NS = 'dsh-workbench'
 
@@ -27,13 +62,20 @@ interface WorkbenchSessions {
 /** The slots share the plugin consumes (list-slot registration, see ui-slots). */
 interface WorkbenchSlots {
   inject(name: string, setup: () => () => void): () => void
-  register(options: { name: string; id: string; label: () => string; locale: string }, component: unknown): () => void
+  register(options: {
+    name: string
+    id: string
+    label?: () => string
+    locale?: string
+    order?: number
+    inject?: (() => Record<string, unknown>) | ((sessionId: string) => Record<string, unknown>)
+  }, component: unknown): () => void
 }
 
 /** The locale share the plugin consumes (dictionary registration + bound translator). */
 interface WorkbenchLocale {
   register(ns: string, dictionaries: { zh: Record<string, string>; en: Record<string, string> }): () => void
-  bind(ns: string): (key: string) => string
+  bind(ns: string): (key: string, vars?: Record<string, string>) => string
 }
 
 /** Facts the banner component reads off the framework-standard useSessions seat. */
@@ -73,9 +115,30 @@ function SameWorkspaceBanner({ useSessions, useWorkspaces, t }: {
 export function apply(ctx: ClientContext): void {
   // The npm Context type declares sessions/slots but not locale; resolve all
   // three through one platform cast (the cordis fiber gates them at runtime).
-  const platform = ctx as never as { sessions?: unknown; slots?: unknown; locale?: unknown }
+  const platform = ctx as never as {
+    sessions?: unknown
+    slots?: unknown
+    locale?: unknown
+    conversation?: unknown
+    inputTriggers?: unknown
+  }
   const slots = platform.slots as WorkbenchSlots
   const locale = platform.locale as WorkbenchLocale
+  // The split-pane verdict is decided here, before a single module is
+  // registered, because it decides what those modules are allowed to see.
+  // A disabled verdict does not merely skip the capacity request and mount a
+  // banner: it withholds `sessions.presentation` from every module below, so
+  // the presentation-gated capabilities (forked side chat, fresh chat's
+  // beside-open, pane-scoped DOM lookups) cannot re-derive an "Edition"
+  // answer the guard just rejected. See presentationBlindSessions().
+  const verdict = runStartupGuard(platform.sessions, SUPPORTED_HARNESS)
+  const guardedSessions = verdict.disabled
+    ? presentationBlindSessions(platform.sessions)
+    : platform.sessions
+  const nativeContext = (verdict.disabled
+    ? presentationBlindContext(ctx as object, guardedSessions)
+    : ctx) as never as HarnessContext
+  const harness = resolveHarnessServices(nativeContext)
   // Dictionaries first: the failure surface (below) needs the bound
   // translator to render its localized copy, so the locale is registered
   // before the guard verdict is consumed.
@@ -83,16 +146,47 @@ export function apply(ctx: ClientContext): void {
   const t = locale.bind(NS)
   const sessions = platform.sessions as WorkbenchSessions
   try {
-    applyNavigator(ctx as never as HarnessContext)
+    applyNavigator(nativeContext)
   } catch (error) {
     warnOnce('navigator-apply-failed', 'navigator module failed to register: ' + String(error))
   }
+  // W3.1: applyShortcuts() owns the third-party-actions handle's full
+  // lifecycle (create + dispose, alongside its own previous-session focus
+  // tracking subscription) and hands it back so the cordis service binding
+  // below can expose exactly that live handle's `.service` — never a
+  // second, disconnected instance.
+  // A failed applyShortcuts() (caught above) leaves no live registry for
+  // third-party registrations to reach anyway, so the service is correctly
+  // left unexposed in that case rather than accepting registrations into a
+  // black hole.
+  let thirdPartyActionsHandle: ReturnType<typeof applyShortcuts> | undefined
   try {
-    applyShortcuts(ctx as never as HarnessContext)
+    thirdPartyActionsHandle = applyShortcuts(nativeContext)
   } catch (error) {
     warnOnce('shortcuts-apply-failed', 'shortcuts module failed to register: ' + String(error))
   }
-  const verdict = runStartupGuard(platform.sessions, SUPPORTED_HARNESS)
+  if (thirdPartyActionsHandle !== undefined) {
+    const handle = thirdPartyActionsHandle
+    // ctx.effect's setup may return its own teardown (see the
+    // "dsh-workbench: pane capacity" effect below for the same idiom); here
+    // that teardown IS ctx.reflect.provide()'s own disposer — it only
+    // unregisters the ctx.workbenchActions BINDING. The service object's own
+    // internal state (the def store) is torn down by applyShortcuts's own
+    // `ctx.on('dispose', ...)` handler, which owns `handle` — see this
+    // block's comment above.
+    ctx.effect(() => ctx.reflect.provide('workbenchActions', handle.service), 'dsh-workbench: actions api service')
+  }
+  try {
+    applySelectionActions(ctx, {
+      sessions: guardedSessions as SelectionSessions,
+      conversation: platform.conversation as IConversation,
+      inputTriggers: platform.inputTriggers as InputTriggerServiceContract,
+      slots: slots as never,
+      harness,
+    }, t, NS)
+  } catch (error) {
+    warnOnce('selection-actions-apply-failed', 'selection actions failed to register: ' + String(error))
+  }
   if (verdict.disabled) {
     // The role="alert" entry reports why only the split-pane module is
     // disabled. Navigator and non-presentation shortcuts remain registered.

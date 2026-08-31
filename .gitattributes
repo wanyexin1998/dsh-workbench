@@ -1,0 +1,4 @@
+# The bash bootstrap installer is a Release artifact consumed on macOS:
+# it must carry LF line endings regardless of the committer's platform
+# (CRLF would break the shebang and every line continuation).
+scripts/bootstrap/*.sh text eol=lf

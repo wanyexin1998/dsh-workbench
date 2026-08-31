@@ -1,6 +1,6 @@
 {
   "name": "dsh-workbench-source",
-  "version": "0.2.0-rc.1",
+  "version": "0.2.0-rc.2",
   "private": true,
   "description": "Source workspace for DSH Workbench and its optional pane-panel compatibility adapter",
   "type": "module",
@@ -16,7 +16,9 @@
     "contract:check": "node scripts/release-contract-check.mjs",
     "secrets:check": "node scripts/scan-secrets.mjs",
     "bundle": "node scripts/build-release-bundle.mjs",
-    "release:check": "node scripts/release-check.mjs"
+    "release:check": "node scripts/release-check.mjs",
+    "install:contract:test": "node --test scripts/install/result.test.mjs",
+    "bootstrap:test": "node --test scripts/bootstrap/bootstrap.test.mjs"
   },
   "license": "MIT"
 }

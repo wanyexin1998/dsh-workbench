@@ -6,6 +6,216 @@ import type { ContentBlockView, InputNodeView } from '../core/derive-index.js'
 export const SCROLLPORT_SELECTOR = '[data-conversation-scroll]'
 export const ANCHOR_SELECTOR = '[data-chat-anchor-key]'
 export const COMPOSER_SELECTOR = '[data-composer-seat]'
+export const SESSION_PANE_SELECTOR = '[data-session-pane]'
+export const CHAT_FLOW_SELECTOR = '[data-chat-flow]'
+export const BUSINESS_ROW_SELECTOR = '[data-chat-anchor-key][data-chat-flow-key]'
+export const SELECTION_CONTROL_SELECTOR = [
+  'a[href]', 'button', 'input', 'textarea', 'select', 'option',
+  '[contenteditable]:not([contenteditable="false"])',
+  '[role="button"]', '[role="link"]', '[role="menuitem"]',
+  '[role="checkbox"]', '[role="radio"]', '[role="switch"]', '[role="tab"]',
+].join(',')
+/** Matches the editable node inside one composer seat — textarea, plain
+ * text input, or a contenteditable variant. Shared by composer-focus (L0)
+ * and the W2 host-command composer-insert mapping. */
+export const COMPOSER_EDITABLE_SELECTOR =
+  'textarea, input[type="text"], [contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]'
+
+/**
+ * Resolve the DOM scope for one focused session's pane, falling back to
+ * `document` when there is no focused session id or no pane element carries
+ * a matching `[data-session-pane]`. Pure DOM lookup — deliberately decoupled
+ * from `HarnessServices`/`focusedSessionId` (harness-adapter.ts) so this
+ * adapter module never needs to know about the ctx/services boundary,
+ * matching ADR-0001 ("the ONLY module allowed to touch conversation DOM
+ * structure"). Callers resolve the session id first (harness-adapter.ts's
+ * `focusedSessionId`) and pass the plain string in here.
+ */
+export function focusedPaneScope(focusedSessionId: string | undefined, root: ParentNode = document): ParentNode {
+  if (focusedSessionId === undefined) return root
+  for (const pane of Array.from(root.querySelectorAll<HTMLElement>(SESSION_PANE_SELECTOR))) {
+    if (pane.dataset.sessionPane === focusedSessionId) return pane
+  }
+  return root
+}
+
+/** Locate the editable composer element inside one DOM scope (a pane, or
+ * `document` for the fallback case), or `null` when no composer seat /
+ * editable child is present in that scope. */
+export function locateComposerInput(scope: ParentNode): HTMLElement | null {
+  const seat = scope.querySelector(COMPOSER_SELECTOR)
+  const target = seat?.querySelector(COMPOSER_EDITABLE_SELECTOR)
+  return target instanceof HTMLElement ? target : null
+}
+
+/** DOM-only selection facts. Session identity and node state are verified by selection-controller. */
+export interface ConversationRangeCapture {
+  readonly row: HTMLElement
+  readonly range: Range
+  readonly focusScope: ParentNode
+  readonly paneSessionId: string | undefined
+  readonly nodeKey: string
+  readonly nodeKind: string
+  readonly text: string
+  readonly startOffset: number
+  readonly endOffset: number
+  readonly rect: { x: number; y: number; width: number; height: number }
+}
+
+function elementAt(node: Node): Element | null {
+  return node instanceof Element ? node : node.parentElement
+}
+
+function normalizedVisibleText(text: string): string {
+  return text.replace(/\r\n?/g, '\n')
+}
+
+function elementIsVisible(element: Element, boundary: Element): boolean {
+  let current: Element | null = element
+  while (current !== null) {
+    if (current.hasAttribute('hidden') || current.getAttribute('aria-hidden') === 'true') return false
+    const style = current.ownerDocument.defaultView?.getComputedStyle(current)
+    if (style?.display === 'none' || style?.visibility === 'hidden' || style?.visibility === 'collapse') return false
+    if (current === boundary) break
+    current = current.parentElement
+  }
+  return current === boundary
+}
+
+function eligibleTextNodes(row: HTMLElement): Text[] {
+  const nodes: Text[] = []
+  const showText = row.ownerDocument.defaultView?.NodeFilter.SHOW_TEXT ?? 4
+  const walker = row.ownerDocument.createTreeWalker(row, showText)
+  let current = walker.nextNode()
+  while (current !== null) {
+    if (current instanceof Text) {
+      const parent = current.parentElement
+      const control = parent?.closest(SELECTION_CONTROL_SELECTOR) ?? null
+      if (parent !== null && (control === null || !row.contains(control)) && elementIsVisible(parent, row)) nodes.push(current)
+    }
+    current = walker.nextNode()
+  }
+  return nodes
+}
+
+function intersectsControl(range: Range, row: HTMLElement): boolean {
+  for (const control of Array.from(row.querySelectorAll(SELECTION_CONTROL_SELECTOR))) {
+    try {
+      if (range.intersectsNode(control)) return true
+    } catch {
+      return true
+    }
+  }
+  return false
+}
+
+function rowIsStreaming(row: HTMLElement): boolean {
+  if (row.getAttribute('data-streaming') === 'true') return true
+  return row.querySelector('[data-streaming="true"]') !== null
+}
+
+/**
+ * Resolve a browser Range inside one verified business row. This function is
+ * deliberately strict: unsupported DOM endpoints fail closed instead of
+ * guessing offsets or falling back to the document's first conversation.
+ */
+export function captureConversationRange(range: Range, maxBytes: number): ConversationRangeCapture | null {
+  if (range.collapsed || !(range.startContainer instanceof Text) || !(range.endContainer instanceof Text)) return null
+  const startElement = elementAt(range.startContainer)
+  const endElement = elementAt(range.endContainer)
+  const startRow = startElement?.closest<HTMLElement>(BUSINESS_ROW_SELECTOR) ?? null
+  const endRow = endElement?.closest<HTMLElement>(BUSINESS_ROW_SELECTOR) ?? null
+  if (startRow === null || startRow !== endRow || !startRow.isConnected || rowIsStreaming(startRow)) return null
+
+  const startFlow = startElement?.closest<HTMLElement>(CHAT_FLOW_SELECTOR) ?? null
+  const endFlow = endElement?.closest<HTMLElement>(CHAT_FLOW_SELECTOR) ?? null
+  if (startFlow === null || startFlow !== endFlow || intersectsControl(range, startRow)) return null
+
+  const startPane = startElement?.closest<HTMLElement>(SESSION_PANE_SELECTOR) ?? null
+  const endPane = endElement?.closest<HTMLElement>(SESSION_PANE_SELECTOR) ?? null
+  if (startPane !== endPane) return null
+  const paneSessionId = startPane?.dataset.sessionPane
+  if (startPane !== null && (paneSessionId === undefined || paneSessionId.length === 0)) return null
+
+  const nodeKey = startRow.dataset.chatFlowKey
+  const nodeKind = startRow.dataset.chatFlowKind
+  if (nodeKey === undefined || nodeKey.length === 0 || nodeKind === undefined || nodeKind.length === 0) return null
+  if (!elementIsVisible(startRow, startRow)) return null
+
+  const nodes = eligibleTextNodes(startRow)
+  const startIndex = nodes.indexOf(range.startContainer)
+  const endIndex = nodes.indexOf(range.endContainer)
+  if (startIndex < 0 || endIndex < startIndex) return null
+  if (range.startOffset < 0 || range.startOffset > range.startContainer.data.length) return null
+  if (range.endOffset < 0 || range.endOffset > range.endContainer.data.length) return null
+
+  let cursor = 0
+  let startOffset = -1
+  let endOffset = -1
+  let rowText = ''
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index]!
+    const normalized = normalizedVisibleText(node.data)
+    if (index === startIndex) startOffset = cursor + normalizedVisibleText(node.data.slice(0, range.startOffset)).length
+    if (index === endIndex) endOffset = cursor + normalizedVisibleText(node.data.slice(0, range.endOffset)).length
+    rowText += normalized
+    cursor += normalized.length
+  }
+  if (startOffset < 0 || endOffset <= startOffset) return null
+  const text = rowText.slice(startOffset, endOffset)
+  if (new TextEncoder().encode(text).byteLength > maxBytes) return null
+
+  const rect = typeof range.getBoundingClientRect === 'function'
+    ? range.getBoundingClientRect()
+    : { x: 0, y: 0, width: 0, height: 0 }
+  const focusScope = startPane ?? startRow.closest<HTMLElement>('.ConversationRoot_root[data-phase]') ?? startFlow
+  return {
+    row: startRow,
+    range: range.cloneRange(),
+    focusScope,
+    paneSessionId,
+    nodeKey,
+    nodeKind,
+    text,
+    startOffset,
+    endOffset,
+    rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+  }
+}
+
+/**
+ * Write text into a composer input the React-controlled way (adapter,
+ * tracked in issue #1 proposal 4 alongside `focusComposer` — no public
+ * composer/draft-write API exists in the harness rc; the one public API this
+ * repo did find, `dsh-client-ui-conversation`'s `SessionInput.setDraft`, only
+ * writes the draft text with no "focus the composer" verb of its own, so it
+ * would still need this same DOM marker for focus anyway — not currently a
+ * live consumer of this function, but kept here as the sanctioned adapter
+ * seam (ADR-0001) for the next feature that needs to write into the composer).
+ *
+ * Assigning `.value` directly is a no-op from React's perspective: React
+ * replaces the DOM property's own setter with a tracked one so it can
+ * detect the change; a plain assignment through the *original* prototype
+ * setter still lands the browser-visible value, but React's fiber never
+ * learns about it, and the next render can stomp the typed text right back
+ * to whatever React thinks the value still is. Grabbing the prototype's
+ * *native* setter (before React's override) and calling it directly writes
+ * the DOM value bypassing that tracked shortcut, then dispatching a real
+ * `input` event is what actually notifies React's synthetic-event listener
+ * — the same signal a real keystroke produces. `contenteditable` has no
+ * `.value` at all, so `textContent` + the same `input` event is the
+ * parallel path for that shape.
+ */
+export function setComposerValue(target: HTMLElement, text: string): void {
+  if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) {
+    const proto = target instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set
+    setter?.call(target, text)
+  } else {
+    target.textContent = text
+  }
+  target.dispatchEvent(new Event('input', { bubbles: true }))
+}
 
 /** Locate the conversation scrollport within one pane-owned DOM scope. */
 export function locateScrollport(root: ParentNode = document): HTMLElement | null {

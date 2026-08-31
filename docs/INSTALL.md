@@ -1,8 +1,294 @@
-# Source-preview installation
+# Installation
 
-This preview uses pinned source revisions. Workbench does not automatically install third-party plugins. Obtain the user-approved Workbench commit through an independent trusted channel before using any repository-controlled instructions.
+Workbench does not automatically install third-party plugins. This page has
+two paths: **Quick Install** (default) downloads immutable, hash-verified
+Release artifacts; **Advanced: source build** keeps the original
+commit-verification ceremony for anyone who wants to build and verify every
+byte themselves.
 
-## 1. Verify the Workbench source
+<!--
+  CONTRACT-CHECK CONSTRAINT — read before editing Quick Install below.
+  scripts/release-contract-check.mjs enforces two whole-document invariants
+  against this file:
+    1. hasNoRepositoryExecutionBefore() scans every line inside a fenced
+       code block tagged with the `powershell` language (never a plain,
+       untagged fence), counting from the top of this document up to the
+       two SOURCE-VERIFIED-BEFORE-REPOSITORY-CODE markers used later in
+       Advanced: source build (one for Workbench, one for Harness), and
+       fails if any such line starts with one of a short list of tokens
+       (`pnpm`, `npm`, `node`, `dsh`, `pwsh`, `&`, ...).
+    2. A separate whole-document check requires the first place the four
+       letters `pnpm` are immediately followed by a space anywhere in this
+       file to land after both of those markers.
+  Quick Install therefore deliberately (a) leaves every command block in
+  this section untagged — never the `powershell` language tag — and (b)
+  always writes `pnpm` with a trailing punctuation mark or backtick right
+  after it (`pnpm@11`, `pnpm`'s, `pnpm`-managed) rather than a bare
+  trailing space, in every sentence and command here. Breaking either habit
+  makes an otherwise-correct edit fail `release:check` even though the
+  content itself is correct. Widening these checks to be marker-relative
+  instead of whole-document is tracked as an A6 follow-up, not fixed here.
+-->
+
+## Quick Install (default)
+
+Two independent paths, matching what your Harness supports. Both start from
+an immutable, hash-verified GitHub Release artifact rather than source.
+
+> **Availability:** the `v0.2.0-rc.2` GitHub Release is published, with both
+> TGZ assets, both bootstrap scripts, `SHA256SUMS`, and `release-manifest.json`
+> attached — both paths below work today. Artifacts are SHA256-verified, not
+> GPG-signed (`release-contract.json`'s `sourceVerification.signedReleaseAvailable`
+> is still `false`). `release-contract.json` still reports `0.2.0-rc.2` /
+> `source-preview`: that reflects the distribution model (source plus local
+> TGZ, no npm), not an unavailable install path.
+> [Advanced: source build](#advanced-source-build) below remains available
+> for anyone who wants to audit the source directly.
+
+### (a) General plugin — stock Harness
+
+Works on any stock Harness install. You get Navigator, shortcuts, and every
+capability that does not need multi-Session Presentation. Split Pane stays
+inactive — the official interface it needs (`sessions.presentation` protocol
+2) is not part of stock Harness yet; it is an open proposal, tracked at
+[discussion #4718](https://github.com/deepseek-ai/deepseek-harness/discussions/4718).
+This is not an install failure, and nothing else is affected.
+
+Three steps, always in this order: download the Workbench release TGZ →
+verify its SHA256 against the Release's `SHA256SUMS` → install with
+`dsh plugin --profile web add file:<absolute path>`. A `file:` spec with an
+absolute path is used rather than a package name because Workbench is not
+published to npm (see `plans/260827-workbench-v2/reports/T0.3-dsh-plugin-add.md`
+for why `file:` is the right spec shape here).
+
+> **Windows: keep the path space-free.** On Windows, stock Harness's
+> `dsh plugin --profile <name> <args...>` forwarder passes its arguments to
+> `pnpm` through `cmd.exe` without quoting them, so a `file:` path containing
+> a space is split at the first space and the install fails with an `ENOENT`
+> against a truncated, nonexistent path. Before running the command below,
+> put the downloaded TGZ (and the directory you run the command from) on a
+> path with **no spaces** — e.g. `C:\dsh-workbench\`, not
+> `C:\Users\Jane Doe\Downloads\dsh workbench\`. This is a stock-Harness CLI
+> limitation, not something this document's command can work around; if you
+> hit the `ENOENT`, move the TGZ to a space-free path and re-run the same
+> command.
+
+**Windows (PowerShell 7+ / `pwsh`):**
+
+```
+& {
+$ErrorActionPreference = 'Stop'
+$rel = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2'
+$tgz = 'wanyexin1998-dsh-workbench-0.2.0-rc.2.tgz'
+try {
+  Invoke-WebRequest "$rel/$tgz" -OutFile $tgz
+  Invoke-WebRequest "$rel/SHA256SUMS" -OutFile SHA256SUMS
+} catch {
+  throw "Download failed, aborting (no install performed): $_"
+}
+$expectedLine = (Select-String -Path SHA256SUMS -Pattern ([regex]::Escape($tgz) + '$')).Line
+if (-not $expectedLine) { throw 'SHA256 verification failed, aborting (no install performed): SHA256SUMS has no entry for the downloaded TGZ' }
+$expected = ($expectedLine -split '\s+')[0].ToLower()
+if ($expected -notmatch '^[0-9a-f]{64}$') { throw "SHA256 verification failed, aborting (no install performed): SHA256SUMS hash is not well-formed: $expected" }
+$actual = (Get-FileHash $tgz -Algorithm SHA256).Hash.ToLower()
+if ($actual -ne $expected) { throw "SHA256 verification failed, aborting (no install performed): expected $expected, got $actual" }
+dsh plugin --profile web add "file:$PWD\$tgz"
+}
+```
+
+**macOS (Terminal):**
+
+```
+rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2'
+tgz='wanyexin1998-dsh-workbench-0.2.0-rc.2.tgz'
+if curl -fsSLO "$rel/$tgz" && curl -fsSLO "$rel/SHA256SUMS"; then
+  expected=$(grep 'wanyexin1998-dsh-workbench-0\.2\.0-rc\.2\.tgz$' SHA256SUMS | awk '{print $1}')
+  actual=$(shasum -a 256 "$tgz" | awk '{print $1}')
+  if [ -n "$expected" ] && printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$' && [ "$actual" = "$expected" ]; then
+    dsh plugin --profile web add "file:$PWD/$tgz"
+  else
+    echo 'SHA256 verification failed, aborting (no install performed)' >&2
+    false
+  fi
+else
+  echo 'Download failed, aborting (no install performed)' >&2
+  false
+fi
+```
+
+#### Documented completion message
+
+After this install succeeds, the agent reports exactly the sample for the
+user's platform below — never both to the same user. Each sample is a
+complete, independent script with exactly one command, so a copy always
+grabs exactly one command. The two Chinese samples are quoted verbatim from
+`plans/260827-workbench-v2/tasks.md` §1 (normative there — do not reword
+them). The English samples are this document's own faithful translation,
+preserving the same five required elements: (1) Split Pane is inactive and
+why, and this is not an install failure; (2) everything else works now; (3)
+the bootstrap coexists with the official install with zero changes to it,
+its configuration, or session data; (4) it is fully deletable with no
+residue; (5) the command is singular and directly copy-paste ready.
+
+**Windows — Chinese (verbatim from tasks.md §1):**
+
+````text
+✅ DSH Workbench 已安装完成。Navigator、快捷键等通用功能现在就可以使用。
+
+ℹ️ 分屏（双 Pane）功能当前未激活：你的官方 Harness 还不支持多 Pane 所需的
+接口（该接口已作为提案提交官方，进展见
+https://github.com/deepseek-ai/deepseek-harness/discussions/4718）。
+这不是安装出错，其余功能不受影响。
+
+如果你现在就想用分屏，可以运行下面这一条命令。它会在独立目录里构建一份带补丁的
+Harness 副本，与你的官方版并存——不会改动官方安装、配置或任何会话数据；不想要时
+删除该目录即可，官方 Harness 不受任何影响：
+
+Windows（需要 PowerShell 7+，即 `pwsh`）：
+
+```
+& { $ErrorActionPreference = 'Stop'; $rel = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2'; Invoke-WebRequest "$rel/dsh-workbench-bootstrap.ps1" -OutFile dsh-workbench-bootstrap.ps1; Invoke-WebRequest "$rel/SHA256SUMS" -OutFile SHA256SUMS; $expectedLine = (Select-String -Path SHA256SUMS -Pattern 'dsh-workbench-bootstrap\.ps1$').Line; if (-not $expectedLine) { throw 'SHA256SUMS 中未找到 dsh-workbench-bootstrap.ps1 的记录，已中止' }; $expected = ($expectedLine -split '\s+')[0].ToLower(); if ($expected -notmatch '^[0-9a-f]{64}$') { throw "SHA256SUMS 中的哈希格式不合法：$expected" }; $actual = (Get-FileHash dsh-workbench-bootstrap.ps1 -Algorithm SHA256).Hash.ToLower(); if ($actual -ne $expected) { throw "SHA256 校验失败：期望 $expected，实际 $actual" }; pwsh -NoProfile -ExecutionPolicy Bypass -File .\dsh-workbench-bootstrap.ps1 }
+```
+````
+
+**Windows — English (translation):**
+
+````text
+✅ DSH Workbench is installed. Navigator, shortcuts, and the rest of the
+general-purpose functionality work now.
+
+ℹ️ Split Pane (dual Pane) is not active yet: your official Harness does not
+yet expose the interface multi-Pane needs (this has been filed as a proposal
+upstream; track it at
+https://github.com/deepseek-ai/deepseek-harness/discussions/4718).
+This is not an install error — everything else is unaffected.
+
+If you want Split Pane right now, you can run the single command below. It
+builds a patched copy of Harness in an isolated directory, side by side with
+your official install — it changes nothing about your official install, its
+configuration, or any session data. Delete that directory whenever you no
+longer want it; your official Harness is left completely untouched:
+
+Windows (requires PowerShell 7+, i.e. `pwsh`):
+
+```
+& { $ErrorActionPreference = 'Stop'; $rel = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2'; Invoke-WebRequest "$rel/dsh-workbench-bootstrap.ps1" -OutFile dsh-workbench-bootstrap.ps1; Invoke-WebRequest "$rel/SHA256SUMS" -OutFile SHA256SUMS; $expectedLine = (Select-String -Path SHA256SUMS -Pattern 'dsh-workbench-bootstrap\.ps1$').Line; if (-not $expectedLine) { throw 'SHA256SUMS 中未找到 dsh-workbench-bootstrap.ps1 的记录，已中止' }; $expected = ($expectedLine -split '\s+')[0].ToLower(); if ($expected -notmatch '^[0-9a-f]{64}$') { throw "SHA256SUMS 中的哈希格式不合法：$expected" }; $actual = (Get-FileHash dsh-workbench-bootstrap.ps1 -Algorithm SHA256).Hash.ToLower(); if ($actual -ne $expected) { throw "SHA256 校验失败：期望 $expected，实际 $actual" }; pwsh -NoProfile -ExecutionPolicy Bypass -File .\dsh-workbench-bootstrap.ps1 }
+```
+````
+
+The command embedded above is byte-identical to the normative Chinese sample (this is a translation of the surrounding message text only), so its own failure messages (`SHA256SUMS 中未找到...`, `SHA256 校验失败：...`) are still Chinese. An English variant of the normative §1 command itself is tracked as follow-up work for the release task; the command is not altered here.
+
+**macOS — Chinese (verbatim from tasks.md §1):**
+
+````text
+✅ DSH Workbench 已安装完成。Navigator、快捷键等通用功能现在就可以使用。
+
+ℹ️ 分屏（双 Pane）功能当前未激活：你的官方 Harness 还不支持多 Pane 所需的
+接口（该接口已作为提案提交官方，进展见
+https://github.com/deepseek-ai/deepseek-harness/discussions/4718）。
+这不是安装出错，其余功能不受影响。
+
+如果你现在就想用分屏，可以运行下面这一条命令。它会在独立目录里构建一份带补丁的
+Harness 副本，与你的官方版并存——不会改动官方安装、配置或任何会话数据；不想要时
+删除该目录即可，官方 Harness 不受任何影响：
+
+macOS（Terminal）：
+
+```
+rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2'; if curl -fsSLO "$rel/dsh-workbench-bootstrap.sh" && curl -fsSLO "$rel/SHA256SUMS"; then expected=$(grep 'dsh-workbench-bootstrap\.sh$' SHA256SUMS | awk '{print $1}'); actual=$(shasum -a 256 dsh-workbench-bootstrap.sh | awk '{print $1}'); if [ -n "$expected" ] && printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$' && [ "$actual" = "$expected" ]; then chmod +x dsh-workbench-bootstrap.sh && ./dsh-workbench-bootstrap.sh; else echo 'SHA256 校验失败，已中止，不会执行未校验脚本' >&2; false; fi; else echo '下载失败，已中止，不会执行未校验脚本' >&2; false; fi
+```
+````
+
+**macOS — English (translation):**
+
+````text
+✅ DSH Workbench is installed. Navigator, shortcuts, and the rest of the
+general-purpose functionality work now.
+
+ℹ️ Split Pane (dual Pane) is not active yet: your official Harness does not
+yet expose the interface multi-Pane needs (this has been filed as a proposal
+upstream; track it at
+https://github.com/deepseek-ai/deepseek-harness/discussions/4718).
+This is not an install error — everything else is unaffected.
+
+If you want Split Pane right now, you can run the single command below. It
+builds a patched copy of Harness in an isolated directory, side by side with
+your official install — it changes nothing about your official install, its
+configuration, or any session data. Delete that directory whenever you no
+longer want it; your official Harness is left completely untouched:
+
+macOS (Terminal):
+
+```
+rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2'; if curl -fsSLO "$rel/dsh-workbench-bootstrap.sh" && curl -fsSLO "$rel/SHA256SUMS"; then expected=$(grep 'dsh-workbench-bootstrap\.sh$' SHA256SUMS | awk '{print $1}'); actual=$(shasum -a 256 dsh-workbench-bootstrap.sh | awk '{print $1}'); if [ -n "$expected" ] && printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$' && [ "$actual" = "$expected" ]; then chmod +x dsh-workbench-bootstrap.sh && ./dsh-workbench-bootstrap.sh; else echo 'SHA256 校验失败，已中止，不会执行未校验脚本' >&2; false; fi; else echo '下载失败，已中止，不会执行未校验脚本' >&2; false; fi
+```
+````
+
+The command embedded above is byte-identical to the normative Chinese sample (this is a translation of the surrounding message text only), so its own failure messages (`SHA256 校验失败...`, `下载失败...`) are still Chinese. An English variant of the normative §1 command itself is tracked as follow-up work for the release task; the command is not altered here.
+
+### (b) Split pane (bootstrap)
+
+If you want Split Pane right now, this is the supported path: it builds a
+patched Harness fork in an isolated directory, side by side with your
+official install. It never touches your official install. These are the
+same two commands embedded in the completion message above — running them
+directly here works identically.
+
+**Windows (PowerShell 7+ / `pwsh`):**
+
+```
+& { $ErrorActionPreference = 'Stop'; $rel = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2'; Invoke-WebRequest "$rel/dsh-workbench-bootstrap.ps1" -OutFile dsh-workbench-bootstrap.ps1; Invoke-WebRequest "$rel/SHA256SUMS" -OutFile SHA256SUMS; $expectedLine = (Select-String -Path SHA256SUMS -Pattern 'dsh-workbench-bootstrap\.ps1$').Line; if (-not $expectedLine) { throw 'SHA256SUMS 中未找到 dsh-workbench-bootstrap.ps1 的记录，已中止' }; $expected = ($expectedLine -split '\s+')[0].ToLower(); if ($expected -notmatch '^[0-9a-f]{64}$') { throw "SHA256SUMS 中的哈希格式不合法：$expected" }; $actual = (Get-FileHash dsh-workbench-bootstrap.ps1 -Algorithm SHA256).Hash.ToLower(); if ($actual -ne $expected) { throw "SHA256 校验失败：期望 $expected，实际 $actual" }; pwsh -NoProfile -ExecutionPolicy Bypass -File .\dsh-workbench-bootstrap.ps1 }
+```
+
+**macOS (Terminal):**
+
+```
+rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2'; if curl -fsSLO "$rel/dsh-workbench-bootstrap.sh" && curl -fsSLO "$rel/SHA256SUMS"; then expected=$(grep 'dsh-workbench-bootstrap\.sh$' SHA256SUMS | awk '{print $1}'); actual=$(shasum -a 256 dsh-workbench-bootstrap.sh | awk '{print $1}'); if [ -n "$expected" ] && printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$' && [ "$actual" = "$expected" ]; then chmod +x dsh-workbench-bootstrap.sh && ./dsh-workbench-bootstrap.sh; else echo 'SHA256 校验失败，已中止，不会执行未校验脚本' >&2; false; fi; else echo '下载失败，已中止，不会执行未校验脚本' >&2; false; fi
+```
+
+Both commands omit `--target`/`-Target` and use the script's built-in
+default directory (Windows: `%USERPROFILE%\dsh-workbench`; macOS:
+`$HOME/dsh-workbench`).
+
+What the script does:
+
+- Everything it writes lives under one root, `<target>` — the Harness fork
+  checkout, an isolated `DSH_HOME`, downloaded artifacts, and a launcher.
+- It writes nothing to your official Harness install, `PATH`, a shell
+  profile, or the registry, apart from `pnpm`'s own global package
+  store/cache — that store is `pnpm`-managed outside `<target>` regardless
+  of what invokes it.
+- Deleting `<target>` removes everything the script itself ever wrote.
+- The script always ends by printing exactly one JSON line
+  (`{ schema, state, reason, nextStep, details }`, `state` one of
+  `installed | manual-action-required | incompatible | failed`) and exits
+  with the matching process code (`0 / 2 / 3 / 1`). See the header comments
+  in `scripts/bootstrap/dsh-workbench-bootstrap.ps1` / `.sh` for the full
+  contract.
+
+Requirements:
+
+- Node.js `^22.19` or `>=24`
+- `pnpm@11`
+- `git`
+- PowerShell 7+ (`pwsh`) on Windows; macOS runs the script directly under
+  its Terminal `bash`.
+
+Honest note on the hashes: `v0.2.0-rc.2` is now attached to a GitHub
+Release, so the real SHA256 values in `SHA256SUMS` are published and the
+download/verify step above checks against them. The Release is
+SHA256-verified, not GPG-signed.
+
+## Advanced: source build
+
+This is the original full-audit path: approve a full 40-character commit
+through an independent trusted channel, clone with `--no-checkout`, verify a
+detached HEAD and a clean worktree before running any repository code, then
+build from source yourself. It remains valid indefinitely for anyone who
+wants to verify every byte themselves; it is simply no longer the default
+now that immutable Release artifacts exist (see Quick Install above).
+
+### 1. Verify the Workbench source
 
 Do not execute pnpm, Node, editor tasks, or repository scripts until this section succeeds. A branch, short SHA, ordinary tag, or repository-controlled document is not an independent trust anchor.
 
@@ -27,12 +313,12 @@ if ($WorktreeState) { throw 'Workbench worktree is not clean' }
 # WORKBENCH-SOURCE-VERIFIED-BEFORE-REPOSITORY-CODE
 ```
 
-## 2. Verify and build the Harness fork
+### 2. Verify and build the Harness fork
 
 The following commit is part of the verified Workbench release contract. Do not switch to its mutable branch before building.
 
 ```powershell
-$HarnessCommit = '53015a6f39710dac52ed08f05aca0c6bad7444ac'
+$HarnessCommit = '1a8cf5ba416246f22d9526a917af5fb233170c58'
 if ($HarnessCommit -notmatch '^[0-9a-f]{40}$') { throw 'Harness commit must be a full 40-character hexadecimal value' }
 if (Test-Path -LiteralPath 'deepseek-harness') { throw 'Target directory deepseek-harness already exists; retry from an empty directory' }
 git clone --no-checkout https://github.com/wanyexin1998/deepseek-harness.git deepseek-harness
@@ -62,7 +348,7 @@ try {
 
 Do not publish the resulting `@deepseek-ai/*` packages. They retain upstream names solely so the fork can be built and tested as a coherent source tree.
 
-## 3. Build Workbench artifacts
+### 3. Build Workbench artifacts
 
 The Workbench checkout from section 1 is already detached, commit-matched, and clean.
 
@@ -85,17 +371,104 @@ The bundle step requires a committed clean worktree, rebuilds both packages, sca
 Install the Workbench TGZ into the Web profile:
 
 ```powershell
-dsh plugin --profile web add file:C:\absolute\path\to\dsh-workbench\dist\wanyexin1998-dsh-workbench-0.2.0-rc.1.tgz
+dsh plugin --profile web add file:C:\absolute\path\to\dsh-workbench\dist\wanyexin1998-dsh-workbench-0.2.0-rc.2.tgz
 ```
 
-The Split Pane module fails closed unless `sessions.presentation.protocol === 2`.
+The Split Pane module fails closed unless Harness exposes `sessions.presentation` with `protocol === 2` *and* passes a structural probe of the actual interface shape it needs — a `requestCapacity` function and a `state.getSnapshot()` that returns `{ visible: Array, capacity: number }` without throwing. A matching protocol number alone is not accepted as proof (see `packages/dsh-workbench/src/client/guard.ts`).
 
-## 4. Optional Pane panels
+### 4. Optional Pane panels — consent-based
 
-Workbench does not require Better Sidebar. Only prepare this checkout if you want independent right and bottom panels in each Pane.
+Workbench does not require Better Sidebar. This section only matters if you
+want independent right and bottom panels in each Pane, and — this is
+stricter than the "does not automatically install a third-party plugin"
+statement that already covers the rest of this document — nothing below
+runs without your own explicit, freshly-given yes. Wanting to be in this
+section at all is not itself consent to install anything; detection and the
+consent ask below still happen first.
+
+#### Detect what is already installed
+
+Before offering or installing anything, the installing agent checks whether
+the *official* Better Sidebar plugin (npm name `dsh-better-sidebar`) is
+already present in the target profile:
+
+1. Confirm the profile directory already exists —
+   `<DSH_HOME>/profiles/<profile>/package.json` (e.g.
+   `~/.dsh/profiles/web/package.json` on a default install). If it does not
+   exist yet, skip straight to [Nothing installed
+   yet](#nothing-installed-yet) below: running any `dsh plugin` subcommand
+   against a nonexistent profile silently *creates* one as a side effect of
+   `dsh`'s own profile-bootstrap behavior (`initProfile`, in
+   `@deepseek-ai/dsh-app-boot`) — not an acceptable side effect for a step
+   that is only supposed to look.
+2. Once the profile exists, read that `package.json`'s `dependencies` field
+   directly (a plain file read, zero side effects) for a `dsh-better-sidebar`
+   key. There is no dedicated `dsh`-native "list installed plugins" command
+   today — `dsh plugin --profile <name> <args...>` is a thin forwarder that
+   runs `pnpm <args...>` verbatim inside the profile directory (confirmed by
+   reading the shipped CLI; see
+   `plans/260827-workbench-v2/reports/T0.3-dsh-plugin-add.md`) — so the
+   command-line equivalent, `dsh plugin --profile <name> list
+   dsh-better-sidebar --json`, works too and reports the same fact, but only
+   because `pnpm list` happens to be one of the arbitrary subcommands the
+   forwarder passes through, not because `dsh` defines a listing command of
+   its own. Prefer the direct file read: it cannot trigger the profile-init
+   side effect described in step 1 even by accident.
+3. Classify what you found:
+   - No `dsh-better-sidebar` dependency at all → **nothing installed yet**.
+   - Present, and its resolution does not match this project's pinned fork
+     commit (an npm-registry resolution is the common case) → **official**.
+   - Present, and its resolution matches this project's pinned fork commit
+     (`168577078bf63a16cb514e879669298565991b07`) → **already have the
+     pinned fork** — nothing to offer or install; stop here.
+
+This is a best-effort read, not a guarantee — `pnpm list --json`'s
+`resolved`/`from` fields distinguish an npm-registry resolution from a
+git/tarball resolution pointing at this fork's repository, but nothing stops
+a differently-packaged copy from looking ambiguous. When detection is
+inconclusive, ask the user directly rather than guessing which case applies.
+
+#### If the official plugin is installed: ask before replacing it
+
+Replacing an already-installed official plugin with the pinned fork is
+exactly the situation `plans/260827-workbench-v2/tasks.md` §1's "Sidebar
+fork 征询话术" exists for. Show the user that script — quoted verbatim below,
+normative there, do not reword it — and wait for an explicit "要" before
+proceeding to [Pinned-fork install
+steps](#pinned-fork-install-steps-only-after-explicit-consent). Any other
+answer, including silence, means stop here: do not install, upgrade, or
+otherwise touch the official plugin in any way. It keeps working exactly as
+before, and Pane-local panels simply stay unavailable — panels remain
+global, exactly as before this section was ever opened.
+
+````text
+ℹ️ 检测到你的 profile 中已经安装了官方 Better Sidebar 插件（dsh-better-sidebar）。
+
+这是一项可选功能升级：如果你现在不需要，直接忽略即可——官方 Better Sidebar 会保持原样，不会有任何改动，继续正常工作。
+
+如果你回答"要"，会发生什么：官方 Better Sidebar 插件会被替换为维护者提供的固定版本 fork（版本 0.16.1，提交 1685770，安装前会做哈希/提交校验）。作为交换，你会获得每个 Pane 独立展开的右侧/底部面板，以及可绑定快捷键的面板开关动作（面板快捷键）。
+
+要不要现在安装这个 fork？请回答"要"或"不要"——不回答同样视为"不要"，不会执行任何安装。
+````
+
+#### Nothing installed yet
+
+If detection found no Better Sidebar at all — official or fork — there is
+nothing to *replace*, so the "Sidebar fork 征询话术" script's replacement
+framing does not apply verbatim (per `scripts/install/result.mjs`'s
+`evaluateEnvironment`, this is deliberately also the one case the automatic
+post-install advisory never offers unprompted — see that module's `offer`
+documentation). But installing anything here still requires the user's own
+explicit yes: ask directly, in the user's own language, whether they want
+the pinned Better Sidebar fork installed for Pane-local panels, and proceed
+to [Pinned-fork install
+steps](#pinned-fork-install-steps-only-after-explicit-consent) only once
+they say yes.
+
+#### Pinned-fork install steps (only after explicit consent)
 
 ```powershell
-$BetterSidebarCommit = '91e772a09e5f66a14c36036f69adb4d866f06ac3'
+$BetterSidebarCommit = '168577078bf63a16cb514e879669298565991b07'
 if ($BetterSidebarCommit -notmatch '^[0-9a-f]{40}$') { throw 'Better Sidebar commit must be a full 40-character hexadecimal value' }
 if (Test-Path -LiteralPath 'DSH-better-sidebar') { throw 'Target directory DSH-better-sidebar already exists; retry from an empty directory' }
 git clone --no-checkout https://github.com/wanyexin1998/DSH-better-sidebar.git DSH-better-sidebar
@@ -116,17 +489,21 @@ if ($BetterSidebarWorktreeState) { throw 'Better Sidebar worktree is not clean' 
 
 # BETTER-SIDEBAR-INSTRUCTIONS-AFTER-SOURCE-VERIFICATION
 
-After that verification succeeds:
+Reaching this point already required the user's explicit "要" (or, in the
+[nothing-installed-yet](#nothing-installed-yet) case, an explicit direct
+yes) — nothing above this line runs on its own. After that verification
+succeeds:
 
 1. Build the verified Better Sidebar checkout using its reviewed local instructions.
 2. Install that local fork into the same profile.
 3. Install `dsh-workbench/dist/wanyexin1998-dsh-workbench-panel-compat-0.1.0-rc.1.tgz`.
 
-The compatibility package does not download, install, update, or remove Better Sidebar. Stock Better Sidebar without Pane protocol 1 remains on its original global path.
+The compatibility package does not download, install, update, or remove Better Sidebar. Stock Better Sidebar without Pane protocol 1 remains on its original global path. And — the decline path this whole section exists to protect — if the user never said yes, none of this runs at all: whatever Better Sidebar state was detected above (official, the pinned fork, or nothing) is exactly what remains, byte-for-byte, and Pane-local panels simply stay unavailable.
 
-## 5. Verify
+### 5. Verify
 
 - Ctrl/Command-click a listed Session opens it beside the focused Pane.
 - Ordinary click replaces the focused Pane.
 - Both Panes preserve independent drafts, scroll state, Navigator, and optional panels.
 - Refresh restores one Pane; multi-Pane membership is process-local by design.
+

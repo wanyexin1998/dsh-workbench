@@ -43,4 +43,19 @@ describe('bindingReport', () => {
     const report = bindingReport('a1', null, {}, new Map(), 'mac')
     expect(report.display).toBe('—')
   })
+
+  // MEDIUM 2 (Opus review, round 2 of native-actions-pivot): reviewer's claim
+  // was "the reserved table only warns on RECORDED bindings, not defaults."
+  // Verified false at THIS layer: `chordSpec = overrides[actionId] ??
+  // defaultSpec` (line 49 above) unifies override and default BEFORE
+  // `isBrowserReserved` ever runs — there is no separate "was this an
+  // override" branch to suppress on. Pinned here with workbench.session.new's
+  // actual production defaultChord ('Primary+N', kept as the maintainer's
+  // explicit choice — see its doc comment in shortcuts.tsx) and an EMPTY
+  // overrides object, so this specifically exercises the default-only path
+  // the reviewer flagged, not the already-covered override path above.
+  it('flags a browser-reserved DEFAULT chord even with no override present (MEDIUM 2)', () => {
+    const report = bindingReport('workbench.session.new', 'Primary+N', {}, new Map(), 'other')
+    expect(report.browserReservedNote).toBe('reserved.note.newWindow')
+  })
 })
