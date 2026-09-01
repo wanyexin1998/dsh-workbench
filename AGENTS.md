@@ -28,4 +28,14 @@ Run package-focused tests while developing; run `pnpm release:check` before any 
 - Focus changes never open, close, mount, or unmount Pane panels.
 - Workbench adds no Host filesystem, subprocess, credential, or arbitrary network permission, with one exception: the Host entry seeds the bundled `chat` agent preset into `$DSH_HOME/.agent-presets/` (create-only, never overwrite, never re-create after user deletion — see `docs/PRODUCT_CONTRACT.md` "Chat preset seeding").
 - Never commit credentials, private Session content, proprietary paths, personal machine paths, or company identity data.
-- Keep comments and public docs in English, except that `README.md` is the default Simplified Chinese landing page, `README_EN.md` is its English counterpart, and localized product dictionaries contain their target language.
+- Code comments are written in Simplified Chinese. This repository has one
+  maintainer, who reads Chinese, and comments earn their keep by being read —
+  a rule that sends them through a translation nobody asked for makes them
+  worse. Load-bearing reasoning (why a gate is shaped this way, which
+  contrast ratio a token was chosen for, what a guard is defending against)
+  belongs in the comment, in Chinese, next to the code it explains.
+- Public documentation is English, with two deliberate exceptions: `README.md`
+  is the Simplified Chinese landing page and `README_EN.md` is its English
+  counterpart, and localized product dictionaries carry their target language.
+  Anything a stranger reads before installing — `docs/`, release notes,
+  commit messages — stays English.
