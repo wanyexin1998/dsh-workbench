@@ -17,8 +17,8 @@
 
 import {
   BUSINESS_ROW_SELECTOR, QUOTE_HIGHLIGHT_ACTIVE_NAME, QUOTE_HIGHLIGHT_NAME,
-  captureConversationRange, findBusinessRow, resolveRowRange,
-  type QuoteBand,
+  QUOTE_HIGHLIGHT_TINT_NAME, captureConversationRange, findBusinessRow, resolveRowRange,
+  tintableSubRanges, type QuoteBand,
 } from './conversation-dom.js'
 import { MAX_SELECTION_BYTES } from './selection-contract.js'
 import type { SelectionAggregateItem } from './selection-reference.js'
@@ -42,6 +42,12 @@ export type QuoteAnchorState = 'anchored' | 'offscreen' | 'unmeasured' | 'detach
 export interface QuoteAnchor {
   readonly row: HTMLElement
   readonly range: Range
+  /**
+   * 可以铺底色的子 Range（`tintableSubRanges`）。**在解析期一次造好**，
+   * 测量帧只收集不重建 —— 否则每帧都是新对象，`samePublication` 的身份判据
+   * 立刻失效，滚动时又变回每帧一次 `new Highlight()`。
+   */
+  readonly tinted: readonly Range[]
 }
 
 /**
@@ -68,7 +74,7 @@ export function resolveQuoteAnchor(item: SelectionAggregateItem, scope: ParentNo
   // 原文被编辑过时偏移还在、文本已变 —— 绝不重新吸附到别的片段，宁可不画。
   if (capture.text !== item.text) return null
   if (capture.paneSessionId !== undefined && capture.paneSessionId !== item.parentSessionId) return null
-  return { row: capture.row, range }
+  return { row: capture.row, range, tinted: tintableSubRanges(range, capture.row) }
 }
 
 /* ── 重解析闸门 ────────────────────────────────────────────────────────── */
@@ -174,6 +180,8 @@ export function cssHighlightPainter(): QuoteHighlightPainter | null {
 export interface QuotePublication {
   readonly ranges: readonly Range[]
   readonly active: readonly Range[]
+  /** 只铺底色那一份。`ranges` 的子集（按覆盖的文字算），不是它的别名。 */
+  readonly tinted: readonly Range[]
 }
 
 /**
@@ -195,15 +203,20 @@ export function createQuoteHighlightRegistry(painter: QuoteHighlightPainter | nu
     if (painter === null) return
     const ranges: Range[] = []
     const active: Range[] = []
+    const tinted: Range[] = []
     for (const publication of owners.values()) {
       ranges.push(...publication.ranges)
       active.push(...publication.active)
+      tinted.push(...publication.tinted)
     }
     if (ranges.length === 0) painter.delete(QUOTE_HIGHLIGHT_NAME)
     else painter.set(QUOTE_HIGHLIGHT_NAME, ranges, 0)
     // emphasis 走第二个条目 + priority 1，叠在基础色带之上。
     if (active.length === 0) painter.delete(QUOTE_HIGHLIGHT_ACTIVE_NAME)
     else painter.set(QUOTE_HIGHLIGHT_ACTIVE_NAME, active, 1)
+    // 底色走第三个条目 + priority 0：它与下划线设的是不相交的属性，谁在上都一样。
+    if (tinted.length === 0) painter.delete(QUOTE_HIGHLIGHT_TINT_NAME)
+    else painter.set(QUOTE_HIGHLIGHT_TINT_NAME, tinted, 0)
   }
   return {
     publish(ownerId, publication) {
@@ -348,6 +361,57 @@ function avoidTakenBadges(
     current = { top: nextTop, left: point.left }
   }
   return current
+}
+
+/* ── 胶囊 / 卡片几何（纯函数） ──────────────────────────────────────────── */
+
+/** 浮层与引用末行之间、以及与可见带边缘之间的最小间隙。 */
+const QUOTE_CARD_GAP = 6
+
+export interface QuoteCardPlacement {
+  readonly top: number
+  readonly left: number
+  /** true = 下方塞不下，整块翻到引用上方。 */
+  readonly above: boolean
+}
+
+/**
+ * 胶囊 / 评论卡片的落点。
+ *
+ * 与 `placeSelectionToolbar` **刻意分开**，不是重复：那个首选**上方**、水平
+ * 居中并靠 `translateX(-50%)` 落位；这里首选**下方**（截图里卡片从被引用段落
+ * 向下展开）、左缘对齐正文列左缘。两条规则都相反，改那一个会动到它现有的 5
+ * 条测试，而两个函数各自都只有十几行。
+ *
+ * 钳制的优先级与 `placeSelectionToolbar` 一致：**先保证可见**。带子矮到上下
+ * 都塞不下时宁可压住引用原文，也不能让卡片整块滚出可见带——用户看不到正在
+ * 打字的输入框，比输入框贴着原文糟糕得多。带子量不出来（高 ≤ 0）时不钳，
+ * 与 `placeSelectionToolbar` 的 `viewport.height > 0` 门槛同形。
+ */
+export function placeQuoteCard(
+  lastRect: { readonly top: number; readonly bottom: number },
+  rowRect: { readonly left: number },
+  size: { readonly width: number; readonly height: number },
+  band: QuoteBand,
+): QuoteCardPlacement {
+  const below = lastRect.bottom + QUOTE_CARD_GAP
+  const aboveTop = lastRect.top - QUOTE_CARD_GAP - size.height
+  const measured = band.bottom > band.top
+  // 下方塞得下就用下方；塞不下才看上方；两边都塞不下仍取下方，再由钳制兜住。
+  // 带子量不出来时**一律**用下方：一条高为 0 的带子说"还没布局"，拿它当
+  // "下方没空间"的证据，会让卡片在首帧就无缘无故翻到原文上方去。
+  const above = measured
+    && below + size.height > band.bottom - QUOTE_CARD_GAP
+    && aboveTop >= band.top + QUOTE_CARD_GAP
+  const rawTop = above ? aboveTop : below
+  const top = measured
+    ? Math.min(Math.max(rawTop, band.top), Math.max(band.top, band.bottom - size.height))
+    : rawTop
+  const wide = band.right > band.left
+  const left = wide
+    ? Math.min(Math.max(rowRect.left, band.left), Math.max(band.left, band.right - size.width))
+    : rowRect.left
+  return { top, left, above }
 }
 
 /**

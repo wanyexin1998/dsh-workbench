@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   anchorRectsFromCache, createHumanAnchorCache, detectConversationDom,
   captureConversationRange, ensureQuoteHighlightStyles, findBusinessRow,
-  locateConversationRoot, locateScrollport, resolveRowRange,
+  locateConversationRoot, locateScrollport, quoteBand, resolveRowRange, tintableSubRanges,
 } from './conversation-dom.js'
 import { MAX_SELECTION_BYTES } from './selection-contract.js'
 
@@ -363,10 +363,38 @@ describe('resolveRowRange (the inverse of captureConversationRange)', () => {
     const rebuilt = resolveRowRange(row, 6, 10)
     expect(rebuilt?.toString()).toBe('beta')
   })
+
+  it('does not let a control WRAPPING the row swallow the whole row', () => {
+    // 判据一直是「控件在**行内部**」（原写法 `row.contains(closest(...))`）。
+    // 行外面的祖先控件——宿主把整条消息包进一个 [role="button"] 的历史列表就是
+    // 这样——一个字都不该被排除，否则整行突然不可引用。
+    const { flow, row } = selectionRow('left', 'node-1')
+    const wrapper = document.createElement('div')
+    wrapper.setAttribute('role', 'button')
+    flow.replaceChild(wrapper, row)
+    wrapper.appendChild(row)
+    row.append(document.createTextNode('alpha beta'))
+    expect(resolveRowRange(row, 6, 10)?.toString()).toBe('beta')
+  })
+
+  it('skips text hidden by an ancestor, so the offsets stay in the visible coordinate system', () => {
+    // elementIsVisible 要一路走到 row。漏掉祖先那一层，GHOST 会被算进行文本，
+    // 偏移整体右移，重解析出来的就是另一段字。
+    // 藏的是**祖父**、直接父元素完全正常 —— 只看文本节点自己那一层的实现会
+    // 一路放行，这条正是冲着那种实现写的。
+    const { row } = selectionRow('left', 'node-1')
+    const ghost = document.createElement('div')
+    ghost.style.display = 'none'
+    const inner = document.createElement('span')
+    inner.textContent = 'GHOST'
+    ghost.appendChild(inner)
+    row.append(document.createTextNode('alpha '), ghost, document.createTextNode('beta'))
+    expect(resolveRowRange(row, 6, 10)?.toString()).toBe('beta')
+  })
 })
 
 describe('ensureQuoteHighlightStyles', () => {
-  it('injects one scoped style tag carrying both highlight rules and the placeholder rule', () => {
+  it('injects one scoped style tag carrying all three highlight rules and the placeholder rule', () => {
     ensureQuoteHighlightStyles()
     ensureQuoteHighlightStyles()
     const tags = document.head.querySelectorAll('[data-dsh-nux-styles="quote-highlight"]')
@@ -374,17 +402,177 @@ describe('ensureQuoteHighlightStyles', () => {
     const css = tags[0]!.textContent ?? ''
     expect(css).toContain('::highlight(dsh-nux-quote){')
     expect(css).toContain('::highlight(dsh-nux-quote-active){')
-    // 下划线是唯一的可辨识载体（浅 4.25:1）。
+    // 下划线是可辨识载体（浅 4.23:1）。底色只有 1.18 / 1.78，是装饰。
     expect(css).toContain('text-decoration-color:var(--dsw-alias-state-business-primary,#4176e6)')
-    // 绝不铺底：`::highlight()` 的 background-color 会盖掉元素自己的背景，代码块
-    // 里的 shiki 语法色（深 constant 6.95:1 → 4.13:1）和 DiffBlock 的增删行
-    // （深 error 5.23:1 → 3.11:1）会因此掉破 4.5:1。
-    expect(css).not.toContain('background-color')
+    // 底色只出现在**第三个**条目里。前两条一个字都不许碰 background —— 它们收的
+    // 是全部 Range，铺上去就会盖掉代码块 / Diff 自带的背景（深色 shiki constant
+    // 6.95:1 → 4.13:1、DiffBlock error 5.23:1 → 3.11:1，都掉破 4.5）。
+    const [base, active, tint] = css.split('::highlight(').slice(1)
+    expect(base).not.toContain('background-color')
+    expect(active).not.toContain('background-color')
+    expect(tint).toContain('dsh-nux-quote-tint')
+    expect(tint).toContain('background-color:var(--dsw-alias-state-business-tertiary,#e4edfd)')
+    // 底色不随 active 变，所以条目名是 3 个而不是 4 个。
+    expect(css.split('::highlight(').length - 1).toBe(3)
     // emphasis 只加粗下划线，不换色。
     expect(css).toContain('text-decoration-thickness:3px')
     // placeholder 是真文字，要过 4.5:1 —— label-tertiary 浅色只有 3.71，不够。
     expect(css).toContain('[data-dsh-quote-comment]::placeholder{color:var(--dsw-alias-label-secondary,#61666b)')
     // 每个 token 都带 fallback：规则里不允许出现无兜底的 var()。
     expect(css.match(/var\(--[a-z0-9-]+\)/g)).toBeNull()
+  })
+})
+
+/**
+ * 底色分流。判据是**元素自己画不画背景**，不是一串 `pre, code, [data-read] …`
+ * 抑制选择器——后者漏一个就回归，而且那是把宿主私有结构抄进样式表。
+ */
+describe('tintableSubRanges', () => {
+  afterEach(() => { document.body.innerHTML = '' })
+
+  function row(): HTMLElement {
+    const el = document.createElement('article')
+    el.dataset.chatAnchorKey = 'anchor-n1'
+    el.dataset.chatFlowKey = 'n1'
+    el.dataset.chatFlowKind = 'user'
+    document.body.appendChild(el)
+    return el
+  }
+
+  it('tints exactly the quoted slice of plain prose', () => {
+    const el = row()
+    const text = document.createTextNode('alpha beta gamma')
+    el.appendChild(text)
+    const range = document.createRange()
+    range.setStart(text, 6)
+    range.setEnd(text, 10)
+    expect(tintableSubRanges(range, el).map((sub) => sub.toString())).toEqual(['beta'])
+  })
+
+  it('refuses to tint text sitting on a surface that paints its own background', () => {
+    // 代码块 / ReadBlock / DiffBlock 的文字颜色是照那块底色调的。给它铺一层淡蓝，
+    // shiki 的语法色就掉到一个谁也没审过的底色上（深色 constant 6.95:1 → 4.13:1）。
+    const el = row()
+    const code = document.createElement('code')
+    code.style.backgroundColor = 'rgb(249, 250, 251)'
+    const text = document.createTextNode('const x = 1')
+    code.appendChild(text)
+    el.appendChild(code)
+    const range = document.createRange()
+    range.selectNodeContents(text)
+    expect(tintableSubRanges(range, el)).toEqual([])
+  })
+
+  it('splits one quote that crosses prose and a self-painted surface into two sub-ranges', () => {
+    const el = row()
+    const head = document.createTextNode('see ')
+    const code = document.createElement('code')
+    code.style.backgroundColor = 'rgb(249, 250, 251)'
+    code.appendChild(document.createTextNode('flush()'))
+    const tail = document.createTextNode(' below')
+    el.append(head, code, tail)
+    const range = document.createRange()
+    range.setStart(head, 0)
+    range.setEnd(tail, 6)
+    // 引用本体（高亮的下划线）仍然是完整一条；只有底色被拆开。
+    expect(range.toString()).toBe('see flush() below')
+    expect(tintableSubRanges(range, el).map((sub) => sub.toString())).toEqual(['see ', ' below'])
+  })
+
+  it('counts a background-image (gradient) as self-painted too', () => {
+    const el = row()
+    const banner = document.createElement('span')
+    banner.style.backgroundImage = 'linear-gradient(rgb(255, 0, 0), rgb(0, 0, 255))'
+    const text = document.createTextNode('gradient')
+    banner.appendChild(text)
+    el.appendChild(banner)
+    const range = document.createRange()
+    range.selectNodeContents(text)
+    expect(tintableSubRanges(range, el)).toEqual([])
+  })
+
+  it('treats a fully transparent background-color as no background at all', () => {
+    // 宿主里绝大多数容器的计算值就是 `rgba(0, 0, 0, 0)`。把它当成"有底色"会让
+    // 底色一次都铺不出来。
+    const el = row()
+    const wrapper = document.createElement('span')
+    wrapper.style.backgroundColor = 'rgba(0, 0, 0, 0)'
+    const text = document.createTextNode('still prose')
+    wrapper.appendChild(text)
+    el.appendChild(wrapper)
+    const range = document.createRange()
+    range.selectNodeContents(text)
+    expect(tintableSubRanges(range, el).map((sub) => sub.toString())).toEqual(['still prose'])
+  })
+
+  it('counts a semi-transparent background as painted too', () => {
+    // 宿主的高亮行 / 选中态用的就是 alpha 在 0 与 1 之间的底色。把它当"没底色"
+    // 会让淡蓝直接合到那块半透明底上，颜色谁也没审过。
+    const el = row()
+    const marked = document.createElement('span')
+    marked.style.backgroundColor = 'rgba(34, 197, 94, 0.1)'
+    const text = document.createTextNode('added line')
+    marked.appendChild(text)
+    el.appendChild(marked)
+    const range = document.createRange()
+    range.selectNodeContents(text)
+    expect(tintableSubRanges(range, el)).toEqual([])
+  })
+
+  it('leaves a DiffBlock alone: the card paints, the +/- lines only recolour text', () => {
+    // DiffBlock 的真实结构（ui-primitives/src/DiffBlock.module.css）：只有外层
+    // .block 画 markdown-code-block 底，.del/.add 仅换字色。所以判据必须一路
+    // 走到那层外壳，只看叶子节点会把整块 diff 铺成淡蓝：深色 error 5.23:1 →
+    // 3.11:1、success 7.55:1 → 4.49:1，两条都掉破 4.5。
+    const el = row()
+    const block = document.createElement('div')
+    block.style.backgroundColor = 'rgb(27, 27, 28)'
+    const del = document.createElement('div')
+    del.style.color = 'rgb(242, 90, 90)'
+    del.appendChild(document.createTextNode('- old line'))
+    const add = document.createElement('div')
+    add.style.color = 'rgb(34, 197, 94)'
+    add.appendChild(document.createTextNode('+ new line'))
+    block.append(del, add)
+    el.appendChild(block)
+    const range = document.createRange()
+    range.setStart(del.firstChild!, 0)
+    range.setEnd(add.firstChild!, 10)
+    expect(range.toString()).toBe('- old line+ new line')
+    expect(tintableSubRanges(range, el)).toEqual([])
+  })
+
+  it('walks all the way up to the row, so a painted ancestor also suppresses the tint', () => {
+    const el = row()
+    const block = document.createElement('div')
+    block.style.backgroundColor = 'rgb(27, 27, 28)'
+    const inner = document.createElement('span')
+    const text = document.createTextNode('nested')
+    inner.appendChild(text)
+    block.appendChild(inner)
+    el.appendChild(block)
+    const range = document.createRange()
+    range.selectNodeContents(text)
+    expect(tintableSubRanges(range, el)).toEqual([])
+  })
+})
+
+describe('quoteBand', () => {
+  afterEach(() => { document.body.innerHTML = '' })
+
+  it('reports the left edge too, and keeps the right edge clear of the scrollbar gutter', () => {
+    // 徽标永远靠右，所以带子原本只说 top/bottom/right。胶囊和卡片是有宽度的
+    // 盒子，水平钳制两侧都要用 —— 少了 left，窄 Pane 上卡片会挂到正文列左边
+    // 的视口外面去。
+    const scrollport = document.createElement('div')
+    scrollport.setAttribute('data-conversation-scroll', '')
+    document.body.appendChild(scrollport)
+    scrollport.getBoundingClientRect = () => ({
+      top: 100, bottom: 600, left: 40, right: 800, width: 760, height: 500, x: 40, y: 100,
+      toJSON: () => ({}),
+    }) as DOMRect
+    Object.defineProperty(scrollport, 'offsetWidth', { configurable: true, value: 760 })
+    Object.defineProperty(scrollport, 'clientWidth', { configurable: true, value: 745 })
+    expect(quoteBand(scrollport)).toEqual({ top: 100, bottom: 600, left: 40, right: 785 })
   })
 })

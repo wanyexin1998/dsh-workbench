@@ -4,7 +4,7 @@ import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { QUOTE_HIGHLIGHT_ACTIVE_NAME, QUOTE_HIGHLIGHT_NAME } from './conversation-dom.js'
 import { createQuoteHighlightRegistry, type QuoteHighlightPainter } from './quote-highlight.js'
-import { useQuoteAnchors, type QuoteAnchorSnapshot } from './quote-overlay.js'
+import { QuoteBadge, useQuoteAnchors, type QuoteAnchorSnapshot } from './quote-overlay.js'
 import type { SelectionAggregateItem } from './selection-reference.js'
 
 // 重解析次数是这一层唯一说得清的性能指标，所以直接数 resolveQuoteAnchor 的调用
@@ -132,16 +132,20 @@ async function settle(): Promise<void> {
 
 /* ── 探针 ──────────────────────────────────────────────────────────────── */
 
-let latest: QuoteAnchorSnapshot = { states: new Map(), badges: [] }
+let latest: QuoteAnchorSnapshot = { states: new Map(), badges: [], openAnchor: null }
+let renders = 0
 
 function Probe(props: {
   items: readonly SelectionAggregateItem[]
   revision: string
   registry: ReturnType<typeof createQuoteHighlightRegistry>
+  openItemId?: string | null
 }) {
+  renders += 1
   latest = useQuoteAnchors({
     items: props.items, revision: props.revision, sessionId: 'left',
-    activeItemId: null, ownerId: 'left', registry: props.registry,
+    activeItemId: null, openItemId: props.openItemId ?? null,
+    ownerId: 'left', registry: props.registry,
   })
   return null
 }
@@ -157,6 +161,7 @@ describe('useQuoteAnchors', () => {
     }
     installFramePump()
     counters.resolve = 0
+    renders = 0
     dom = buildConversation()
   })
 
@@ -167,10 +172,12 @@ describe('useQuoteAnchors', () => {
     document.body.innerHTML = ''
   })
 
-  function mount(items: readonly SelectionAggregateItem[] = [item()]) {
+  function mount(items: readonly SelectionAggregateItem[] = [item()], openItemId: string | null = null) {
     const painter = fakePainter()
     const registry = createQuoteHighlightRegistry(painter)
-    const view = render(<Probe items={items} revision="r1" registry={registry} />)
+    const view = render(
+      <Probe items={items} revision="r1" registry={registry} openItemId={openItemId} />,
+    )
     runFrames()
     return { painter, registry, view }
   }
@@ -254,6 +261,53 @@ describe('useQuoteAnchors', () => {
     expect(latest.badges.length).toBe(1)
   })
 
+  it('carries the open quote’s geometry so the card can follow the scroll with no new observer', () => {
+    // 胶囊 / 卡片的滚动跟随**必须**挂在这里已有的 viewTick 上。新增第二个
+    // ResizeObserver / MutationObserver / scroll 监听会直接推翻上一轮"滚动只重量、
+    // 不重解析"的成果，所以几何由测量帧顺手带出来（它本来就在量这两个矩形）。
+    bandOf(dom.scrollport)
+    rowRight(dom.quoted, 700)
+    stubClientRects([{ top: 300, bottom: 320, right: 690 }])
+    mount([item()], 'q1')
+    expect(latest.openAnchor).toMatchObject({ itemId: 'q1', top: 300, bottom: 320, inBand: true })
+    expect(latest.openAnchor!.band).toMatchObject({ top: 100, bottom: 600, left: 0, right: 800 })
+  })
+
+  it('makes an open card cost ZERO extra renders per scroll frame', async () => {
+    // sameSnapshot 必须把 openAnchor 一起比。漏掉它 = 每个滚动帧都产出一个新
+    // 快照对象 → 在 viewTick 那次重渲染之上再多一次 → 卡片自己的尺寸测量
+    // useLayoutEffect 与它互相激发。判据取"开着卡片 vs 没开卡片，每帧的渲染
+    // 次数相同"，因为 viewTick 本身每帧就要重渲染一次，绝对次数说明不了问题。
+    bandOf(dom.scrollport)
+    rowRight(dom.quoted, 700)
+    stubClientRects([{ top: 300, bottom: 320, right: 690 }])
+
+    const scrollTwenty = async () => {
+      const before = renders
+      for (let frame = 0; frame < 20; frame += 1) {
+        dom.scrollport.dispatchEvent(new Event('scroll'))
+        await settle()
+      }
+      return renders - before
+    }
+
+    mount([item()])
+    const closed = await scrollTwenty()
+    cleanup()
+    mount([item()], 'q1')
+    expect(latest.openAnchor).not.toBeNull()
+    const open = await scrollTwenty()
+    expect(open).toBe(closed)
+
+    // 几何真的动了才重渲染。
+    const before = renders
+    stubClientRects([{ top: 200, bottom: 220, right: 690 }])
+    dom.scrollport.dispatchEvent(new Event('scroll'))
+    await settle()
+    expect(renders).toBeGreaterThan(before)
+    expect(latest.openAnchor).toMatchObject({ top: 200, bottom: 220 })
+  })
+
   it('re-publishes as soon as the ranges really change', async () => {
     bandOf(dom.scrollport)
     stubClientRects([{ top: 300, bottom: 320, right: 690 }])
@@ -272,7 +326,8 @@ describe('useQuoteAnchors', () => {
     const { painter, registry } = mount([])
     expect(registry.size).toBe(1)
     const writes = painter.calls.length + painter.deletes.length
-    expect(writes).toBe(2)
+    // 三个条目名（基础 / active / 底色）各撤一次。
+    expect(writes).toBe(3)
     for (let frame = 0; frame < 10; frame += 1) {
       dom.scrollport.dispatchEvent(new Event('scroll'))
       await settle()
@@ -323,5 +378,81 @@ describe('useQuoteAnchors', () => {
     const [first, second] = latest.badges
     expect(first!.top).toBe(second!.top)
     expect(first!.left).not.toBe(second!.left)
+  })
+})
+/**
+ * 徽标的外观契约。
+ *
+ * 这里断言的每一条都是无障碍算过的数，不是审美：同一个 `QuoteBadge` 这一轮进了
+ * **四个**表面（正文层 bg-base、代码块 markdown-code-block、胶囊与引用列表行
+ * 的 bg-layer-3），而徽标底 `deepseek-600 #4868b2` 对深色 bg-layer-3 #353638
+ * 只有 **2.25:1**，撑不起 WCAG 1.4.11 要求的 3:1 非文本边界。
+ * 描边（label-secondary，浅 #61666b / 深 #cfd3d6）才是那条边界（完整
+ * 四表面 × 双主题 × 三态推导见 quote-overlay.tsx 里 QuoteBadge 上方的注释）：
+ *   正文层 bg-base                浅 5.80 / 5.21 / 4.84   深 12.11 / 9.81 / 8.04
+ *   代码块 markdown-code-block    浅 5.55 / 4.99 / 4.63   深 11.43 / 9.10 / 7.44
+ *   胶囊/列表 bg-layer-3          浅 5.80 / 5.21 / 4.84   深  8.03 / 6.26 / 5.18
+ * 最低 4.63:1（浅色代码块面 × pressed），四表面 × 两主题 × 三交互态全过。
+ * 删掉它 = 深色下胶囊/列表里的徽标没有边界，所以它必须有一条测试守着。
+ */
+describe('QuoteBadge', () => {
+  afterEach(cleanup)
+
+  function badge(state: 'anchored' | 'detached', emphasis = false): HTMLElement {
+    render(<QuoteBadge label="1" state={state} emphasis={emphasis} />)
+    return document.querySelector<HTMLElement>('[data-dsh-quote-badge]')!
+  }
+
+  it('carries the 1.4.11 boundary as a solid stroke, not as the fill', () => {
+    const style = badge('anchored').getAttribute('style') ?? ''
+    expect(style).toContain('1px solid var(--dsw-alias-label-secondary, #61666b)')
+    // 底仍然是实心蓝 + 白字（5.39:1，与表面无关——底不透明）。
+    expect(style).toContain('var(--dsw-static-deepseek-600, #4868b2)')
+    expect(style).toContain('var(--dsw-static-neutral-bluish-00, #fff)')
+  })
+
+  it('keeps the box identical across resting, emphasis and detached (zero layout shift)', () => {
+    // 三态都必须是 1px 描边、同样的 min-width/height/padding。emphasis 只换
+    // box-shadow 的颜色 —— 换成 border 变粗就是每次 hover 都推一次布局。
+    const metrics = (el: HTMLElement) => {
+      const style = el.getAttribute('style') ?? ''
+      return [
+        /border: 1px (solid|dashed)/.test(style),
+        style.includes('min-width: 16px'), style.includes('height: 16px'),
+        style.includes('padding: 0px 4px'), style.includes('box-sizing: border-box'),
+      ]
+    }
+    const resting = metrics(badge('anchored'))
+    cleanup()
+    const strong = metrics(badge('anchored', true))
+    cleanup()
+    const gone = metrics(badge('detached'))
+    expect(resting).toEqual([true, true, true, true, true])
+    expect(strong).toEqual(resting)
+    expect(gone).toEqual(resting)
+  })
+
+  it('draws emphasis as a TWO-layer ring, page colour first', () => {
+    // 单层不行：`state-business-primary #4176e6` 的环直接画在徽标底 #4868b2 上
+    // 只有 **1.27:1**，等于没画。内环取页面色把两者隔开，外环才有东西可比
+    // （内环/徽标底 浅 5.39 深 3.39；外环/页面 浅 4.23 深 6.86）。
+    const style = badge('anchored', true).getAttribute('style') ?? ''
+    const inner = style.indexOf('2px var(--dsw-alias-bg-base, #fff)')
+    const outer = style.indexOf('4px var(--dsw-alias-state-business-primary, #4176e6)')
+    expect(inner).toBeGreaterThan(-1)
+    expect(outer).toBeGreaterThan(inner)
+  })
+
+  it('writes the same two-layer structure transparent when resting', () => {
+    // 静息态若写 `none`，emphasis 一开一关就是 4px 的布局跳动。
+    const style = badge('anchored').getAttribute('style') ?? ''
+    expect(style).toContain('0 0 0 2px transparent, 0 0 0 4px transparent')
+  })
+
+  it('marks a detached quote with the dashed, unfilled variant', () => {
+    const style = badge('detached').getAttribute('style') ?? ''
+    expect(style).toContain('1px dashed var(--dsw-alias-label-tertiary, #81858c)')
+    expect(style).toContain('background: transparent')
+    expect(style).not.toContain('#4868b2')
   })
 })

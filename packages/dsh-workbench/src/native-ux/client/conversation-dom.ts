@@ -70,28 +70,90 @@ function normalizedVisibleText(text: string): string {
   return text.replace(/\r\n?/g, '\n')
 }
 
-function elementIsVisible(element: Element, boundary: Element): boolean {
+/** 这一层自己藏没藏起来 —— **不看**祖先。 */
+function selfIsVisible(element: Element, view: Window | null): boolean {
+  if (element.hasAttribute('hidden') || element.getAttribute('aria-hidden') === 'true') return false
+  const style = view?.getComputedStyle(element)
+  return style?.display !== 'none' && style?.visibility !== 'hidden' && style?.visibility !== 'collapse'
+}
+
+/**
+ * `element` 到 `boundary`（含）这一路上有没有被藏起来；走到顶都没碰到
+ * `boundary` = 它根本不在里面，同样是 false。
+ *
+ * `memo` 是**一次遍历之内**的答案表，只在边界固定时有效（`eligibleTextNodes`
+ * 的边界恒为 row）。没有它，一行里每个文本节点都要把自己到 row 的整条祖先链
+ * 重走一遍 `getComputedStyle`，而代码块里**每个 shiki token 都是一个文本节点**、
+ * 整条链被成百上千个 token 共用 —— 那是这一族函数里最贵的一步。
+ *
+ * 实测（jsdom，一条 400 个文本节点的行 = 40 段正文 + 40 行 × 6 token 的代码块，
+ * 数的是一次 `resolveQuoteAnchor` 里 `getComputedStyle` 的调用次数，确定性指标）：
+ *   本函数 + `insideRowControl` + `insidePaintedSurface` 三张表一起上
+ *   4083 次 → 1089 次；墙钟中位数 530ms → 300ms。
+ * 表的生命周期只有这一次遍历，所以不存在"DOM 变了缓存没失效"这回事。
+ */
+function elementIsVisible(element: Element, boundary: Element, memo?: Map<Element, boolean>): boolean {
+  const view = element.ownerDocument.defaultView
+  // chain 里的每一层都是"自己没藏起来、且还没走到 boundary"，所以它们的答案
+  // 与最终 answer 逐字相同 —— 一次填完，下一个文本节点直接命中。
+  const chain: Element[] = []
+  let answer: boolean | null = null
   let current: Element | null = element
   while (current !== null) {
-    if (current.hasAttribute('hidden') || current.getAttribute('aria-hidden') === 'true') return false
-    const style = current.ownerDocument.defaultView?.getComputedStyle(current)
-    if (style?.display === 'none' || style?.visibility === 'hidden' || style?.visibility === 'collapse') return false
-    if (current === boundary) break
+    const cached = memo?.get(current)
+    if (cached !== undefined) { answer = cached; break }
+    chain.push(current)
+    if (!selfIsVisible(current, view)) { answer = false; break }
+    if (current === boundary) { answer = true; break }
     current = current.parentElement
   }
-  return current === boundary
+  const resolved = answer ?? false
+  if (memo !== undefined) for (const link of chain) memo.set(link, resolved)
+  return resolved
+}
+
+/**
+ * 这个元素在不在**本行内部**的某个控件里（控件内的文字一律不可选）。
+ *
+ * 手写这条向上走的链，而不是 `element.closest(SELECTION_CONTROL_SELECTOR)`：
+ * `closest` 每次都要拿那串 14 个选择器在整条祖先链上逐层匹配一遍，而一行里
+ * 上千个文本节点共用同一条链。带 memo 的走法把它压成"每个元素一次 `matches`"。
+ *
+ * 走到 `row`（含）就停：`row` 之上的匹配落在行外面，原来的判据
+ * （`control !== null && row.contains(control)`）对它恒为 false，与"没有控件"
+ * 等价，继续往上走只是白花钱。
+ */
+function insideRowControl(element: Element, row: HTMLElement, memo: Map<Element, boolean>): boolean {
+  const chain: Element[] = []
+  let answer: boolean | null = null
+  let current: Element | null = element
+  while (current !== null) {
+    const cached = memo.get(current)
+    if (cached !== undefined) { answer = cached; break }
+    chain.push(current)
+    if (current.matches(SELECTION_CONTROL_SELECTOR)) { answer = true; break }
+    if (current === row) { answer = false; break }
+    current = current.parentElement
+  }
+  const resolved = answer ?? false
+  for (const link of chain) memo.set(link, resolved)
+  return resolved
 }
 
 function eligibleTextNodes(row: HTMLElement): Text[] {
   const nodes: Text[] = []
   const showText = row.ownerDocument.defaultView?.NodeFilter.SHOW_TEXT ?? 4
   const walker = row.ownerDocument.createTreeWalker(row, showText)
+  // 两张表都只活到本次遍历结束。同一个父元素通常挂着好几个文本节点，代码块里
+  // 更是整条祖先链被成百上千个 token 共用。
+  const visible = new Map<Element, boolean>()
+  const controlled = new Map<Element, boolean>()
   let current = walker.nextNode()
   while (current !== null) {
     if (current instanceof Text) {
       const parent = current.parentElement
-      const control = parent?.closest(SELECTION_CONTROL_SELECTOR) ?? null
-      if (parent !== null && (control === null || !row.contains(control)) && elementIsVisible(parent, row)) nodes.push(current)
+      if (parent !== null && !insideRowControl(parent, row, controlled)
+        && elementIsVisible(parent, row, visible)) nodes.push(current)
     }
     current = walker.nextNode()
   }
@@ -264,6 +326,128 @@ export function resolveRowRange(row: HTMLElement, startOffset: number, endOffset
   return range.collapsed ? null : range
 }
 
+/* ── 底色分流 ──────────────────────────────────────────────────────────── */
+
+/**
+ * 这个元素自己画不画背景。
+ *
+ * `background-color` 的 alpha > 0，或者有 `background-image`（渐变也算），
+ * 都表示"这块文字坐在一块自备的底色上"。解析不出来的写法（具名色、hex——
+ * 计算值里不会出现，但引擎/测试替身可能给）一律**当作有底色**：多留一块不铺，
+ * 比错铺一块安全。
+ */
+function paintsOwnBackground(style: CSSStyleDeclaration): boolean {
+  const image = style.backgroundImage
+  if (image !== '' && image !== 'none') return true
+  const color = style.backgroundColor.trim()
+  if (color === '' || color === 'transparent') return false
+  const match = /^rgba?\(([^)]*)\)$/.exec(color)
+  if (match === null) return true
+  // `rgba(0, 0, 0, 0)` 与 `rgb(0 0 0 / 0%)` 两种写法都要认。
+  const parts = match[1]!.replace(/[,/]/g, ' ').trim().split(/\s+/)
+  if (parts.length < 4) return true
+  return Number.parseFloat(parts[3]!) !== 0
+}
+
+/**
+ * 从 `node` 向上走到 `row`（含）为止，有没有任何一层自己画背景。
+ *
+ * `memo` 与 `elementIsVisible` 那张表同理，只活一次遍历：代码块里每个 shiki
+ * token 都是一个文本节点，而它们共用同一条祖先链（token span → 行 span → pre），
+ * 不缓存就是把同一串 `getComputedStyle` 按 token 数重放一遍。
+ */
+function insidePaintedSurface(node: Node, row: HTMLElement, memo: Map<Element, boolean>): boolean {
+  const view = row.ownerDocument.defaultView
+  if (view === null || view === undefined) return true
+  // chain 里的每一层都是"自己不画背景、且还没走到 row"，答案与 resolved 相同。
+  const chain: Element[] = []
+  let answer: boolean | null = null
+  let current: Element | null = elementAt(node)
+  while (current !== null) {
+    const cached = memo.get(current)
+    if (cached !== undefined) { answer = cached; break }
+    chain.push(current)
+    if (paintsOwnBackground(view.getComputedStyle(current))) { answer = true; break }
+    if (current === row) { answer = false; break }
+    current = current.parentElement
+  }
+  const resolved = answer ?? false
+  for (const link of chain) memo.set(link, resolved)
+  return resolved
+}
+
+/**
+ * 把一条引用 Range 拆成「可以安全铺底色」的子 Range。
+ *
+ * 为什么需要它：`::highlight()` 的 `background-color` **盖掉元素自己的背景**，
+ * 而宿主里有一整族「自带背景、文字颜色是照那块背景调的」表面——代码块里的
+ * shiki 语法色、ReadBlock、DiffBlock 的增删行。给它们铺一层淡蓝，文字就掉到
+ * 一个谁也没审过的底色上（实测数据见 QUOTE_HIGHLIGHT_CSS 的注释）。
+ *
+ * 拆分判据是**元素自己画不画背景**，而不是一串 `pre, code, [data-read] …`
+ * 选择器：后者漏一个就回归，而且那是把宿主私有结构抄进样式表。判据由
+ * `getComputedStyle` 现场读出，宿主新增哪种自绘表面都自动落在正确一侧。
+ *
+ * 宿主 DOM 全程只读：TreeWalker 遍历 + getComputedStyle + createRange。
+ *
+ * **它是本行的第三遍 `eligibleTextNodes`。** 一次 `resolveQuoteAnchor` 里，
+ * `resolveRowRange`、`captureConversationRange`、这里各扫一遍同一行，三份结果
+ * 逐字相同。真正的复用缝在 `resolveQuoteAnchor`（quote-highlight.ts）——它是唯一
+ * 同时看得见这三步的地方，把节点表算一次往下传即可，这三个函数各加一个可选参数
+ * 就够；也只有那里能保证三步之间 DOM 没动过。在这一层用模块级缓存做不到那个
+ * 保证（没有可靠的失效信号），所以不做。
+ *
+ * 眼下的代价由上面那三张 memo 表压住：整条流水线的 `getComputedStyle` 从
+ * 4083 次降到 1089 次，比加上底色**之前**的两遍（2721 次）还低 60%。
+ * 真去掉第三遍还能再省约三分之一，那是一次独立的、跨文件的改动。
+ */
+export function tintableSubRanges(range: Range, row: HTMLElement): Range[] {
+  const doc = row.ownerDocument
+  const painted = new Map<Element, boolean>()
+  const out: Range[] = []
+  let start: { node: Text; offset: number } | null = null
+  let end: { node: Text; offset: number } | null = null
+  const flush = () => {
+    if (start === null || end === null) return
+    const sub = doc.createRange()
+    try {
+      sub.setStart(start.node, start.offset)
+      sub.setEnd(end.node, end.offset)
+      if (!sub.collapsed) out.push(sub)
+    } catch {
+      // 端点不可用就丢掉这一段：少铺一块底色，不是错误。
+    }
+    start = null
+    end = null
+  }
+  for (const node of eligibleTextNodes(row)) {
+    let touches = false
+    try {
+      touches = range.intersectsNode(node)
+    } catch {
+      touches = false
+    }
+    if (!touches) {
+      flush()
+      continue
+    }
+    const from = node === range.startContainer ? range.startOffset : 0
+    const to = node === range.endContainer ? range.endOffset : node.length
+    if (to <= from) {
+      flush()
+      continue
+    }
+    if (insidePaintedSurface(node, row, painted)) {
+      flush()
+      continue
+    }
+    start ??= { node, offset: from }
+    end = { node, offset: to }
+  }
+  flush()
+  return out
+}
+
 /**
  * Write text into a composer input the React-controlled way (adapter,
  * tracked in issue #1 proposal 4 alongside `focusComposer` — no public
@@ -332,13 +516,16 @@ export function railInset(scrollport: HTMLElement, rect: { right: number }, base
 export interface QuoteBand {
   readonly top: number
   readonly bottom: number
+  /** 左缘。徽标只需要右缘（它永远靠右），但胶囊/卡片是有宽度的盒子，
+   * 水平钳制两侧都要用，所以带子必须把左缘也说出来。 */
+  readonly left: number
   readonly right: number
 }
 
 export function quoteBand(scrollport: HTMLElement): QuoteBand {
   const rect = scrollport.getBoundingClientRect()
   const scrollbarWidth = Math.max(0, scrollport.offsetWidth - scrollport.clientWidth)
-  return { top: rect.top, bottom: rect.bottom, right: rect.right - scrollbarWidth }
+  return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right - scrollbarWidth }
 }
 
 /**
@@ -488,11 +675,15 @@ export function ensureHighlightStyles(): void {
  */
 export const QUOTE_HIGHLIGHT_NAME = 'dsh-nux-quote'
 export const QUOTE_HIGHLIGHT_ACTIVE_NAME = 'dsh-nux-quote-active'
+/** 第三个条目：**只**铺淡蓝底色，且只发布不落在自绘背景里的子 Range
+ * （`tintableSubRanges`）。与上面两条设的是不相交的属性，叠加没有冲突。 */
+export const QUOTE_HIGHLIGHT_TINT_NAME = 'dsh-nux-quote-tint'
 
 /**
- * 就地高亮的样式：**只有下划线，没有底色**。
+ * 就地高亮的样式：下划线（全部引用）+ 淡蓝底色（**只**铺在自己不画背景的
+ * 文字上，见 `tintableSubRanges` 与下面第三个条目）。
  *
- * 下划线用 `state-business-primary`——浅 4.25:1 / 深 7.15:1（对 `bg-base`），
+ * 下划线用 `state-business-primary`——浅 4.23:1 / 深 6.86:1（对 `bg-base`），
  * 两套主题都远过 3:1，它是高亮的可辨识载体（也是 WCAG 1.4.1 "不仅靠颜色"
  * 里那个形状线索）。
  *
@@ -511,13 +702,14 @@ export const QUOTE_HIGHLIGHT_ACTIVE_NAME = 'dsh-nux-quote-active'
  *   DiffBlock 深色 state-error-primary 5.23:1 → 3.11:1、success 7.55:1 → 4.49:1
  * 这不是「代码块特例」，是「凡宿主自带背景的表面都中招」。所以不写一串
  * `pre / code / [data-read] / [data-diff] …` 的抑制选择器（漏一个就回归，而且
- * 那是把宿主私有结构抄进样式表），直接不铺底：**我们不再改任何宿主文字的背景**，
- * 这一类回归按构造消失。
+ * 那是把宿主私有结构抄进样式表）。
  *
- * 代价是那条色带，而它本来就几乎不可见：`state-business-tertiary` 对 `bg-base`
- * 浅色 1.19:1、深色 1.85:1。换句话说，去掉的是 1.19:1 的提示，留下的是 4.25:1
- * 的提示。base/active 两态的区分也不受影响——两条规则原本用的是**同一个**底色，
- * 区分一直只在下划线粗细（2px / 3px）。
+ * 底色回来了，但走的是**按元素自己画不画背景分流**这条路（`tintableSubRanges`）：
+ * 判据现场从 `getComputedStyle` 读，宿主新增哪种自绘表面都自动落在正确一侧，
+ * 上面那一串回归按构造消失。底色只发给第三个条目名，前两条一个字都没动。
+ *
+ * base/active 两态的区分仍然只在下划线粗细（2px / 3px）——底色不随 active 变，
+ * 所以条目名是 3 个而不是 4 个。
  *
  * 不写 `color`：正文颜色交给宿主，我们既不铺底也不改字色，文字对比度恒等于
  * 宿主自己的基线。
@@ -537,6 +729,17 @@ const QUOTE_HIGHLIGHT_CSS = [
   'text-decoration-color:var(--dsw-alias-state-business-primary,#4176e6);',
   'text-decoration-thickness:3px;',
   'text-underline-offset:2px}',
+  // 淡蓝底。**只**发给不落在自绘背景里的子 Range（`tintableSubRanges`），
+  // 所以上面那段「凡宿主自带背景的表面都中招」的回归按构造不会发生：代码块 /
+  // Diff / 行内 code 里的文字根本不在这个条目里。
+  // 对比度（底色 state-business-tertiary 浅 #e4edfd / 深 #34415b）：
+  //   label-primary 正文 / 底色    浅 16.05:1  深 9.79:1   （要 4.5）
+  //   label-secondary / 底色       浅  4.92:1  深 6.79:1   （要 4.5）
+  // 底色对页面 bg-base 只有 1.19 / 1.78 —— 它是装饰，可辨识载体仍是上面那条
+  // 4.23 / 6.86 的下划线（也是 WCAG 1.4.1「不仅靠颜色」的形状线索），所以两者
+  // 必须同时存在，底色不能取代下划线。
+  `::highlight(${QUOTE_HIGHLIGHT_TINT_NAME}){`,
+  'background-color:var(--dsw-alias-state-business-tertiary,#e4edfd)}',
   // 引用区评论框的 placeholder 色。`::placeholder` 和 `::highlight()` 一样是
   // 伪元素，没有内联等价物 —— 这是本包保持纯内联样式的唯一两处例外，两者共用
   // 同一张已注入的样式表。UA 默认的 placeholder 色在浅色主题下过不了 4.5:1

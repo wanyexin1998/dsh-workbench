@@ -15,7 +15,7 @@ import {
   type SelectionAggregateV1, type SelectionMutationResult,
 } from './selection-reference.js'
 import type { SideChatActions, SideChatResult } from './side-chat-actions.js'
-import { zh } from '../../client/dictionaries.js'
+import { en, zh } from '../../client/dictionaries.js'
 
 const t = (key: string, vars?: Record<string, string>) => key === 'selection.side.partial'
   ? `${key} ${vars?.childId ?? ''}`.trim()
@@ -509,20 +509,26 @@ function snapshotOf(aggregate: SelectionAggregateV1) {
 /** 记录每次 publish 的 registry 假体：断言"发布了哪几条 Range"不需要浏览器。 */
 function recordingRegistry() {
   const published: Array<{
-    ownerId: string; ranges: number; active: number; activeTexts: string[]; texts: string[]; objects: readonly Range[]
+    ownerId: string; ranges: number; active: number; tinted: number
+    activeTexts: string[]; texts: string[]; tintedTexts: string[]; objects: readonly Range[]
   }> = []
   const withdrawn: string[] = []
   return {
     published,
     withdrawn,
     registry: {
-      publish: (ownerId: string, publication: { ranges: readonly Range[]; active: readonly Range[] }) => {
+      publish: (
+        ownerId: string,
+        publication: { ranges: readonly Range[]; active: readonly Range[]; tinted: readonly Range[] },
+      ) => {
         published.push({
           ownerId,
           ranges: publication.ranges.length,
           active: publication.active.length,
+          tinted: publication.tinted.length,
           activeTexts: publication.active.map((range) => range.toString()),
           texts: publication.ranges.map((range) => range.toString()),
+          tintedTexts: publication.tinted.map((range) => range.toString()),
           objects: publication.ranges,
         })
       },
@@ -560,8 +566,8 @@ const twoItems = aggregateOf([
 
 describe('SelectionDock', () => {
   afterEach(() => {
-    // cleanup() 必须先跑：徽标图层 portal 在 document.body 上，先 innerHTML=''
-    // 会把 React 还持有的 portal 节点抽走，随后的卸载就抛
+    // cleanup() 必须先跑：徽标 / 胶囊 / 卡片图层都 portal 在 document.body 上，
+    // 先 innerHTML='' 会把 React 还持有的 portal 节点抽走，随后的卸载就抛
     // NotFoundError。文件级的 afterEach(cleanup) 在这之后跑，重复调用是幂等的。
     cleanup()
     uninstallRangeRects()
@@ -569,147 +575,348 @@ describe('SelectionDock', () => {
     vi.restoreAllMocks()
   })
 
-  it('edits comments and removes ordered aggregate items through injected actions', () => {
-    const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
-    const removeItem = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
-    renderDock(twoItems, { updateComment, removeItem })
+  /** 打开第 n 条引用的卡片：走 chip → 引用列表 → 该行「编辑」。这条路径在**任何**
+   * 锚点状态下都存在，所以状态机测试全部走它，不依赖正文徽标画没画出来。 */
+  function openChipList() {
+    fireEvent.click(screen.getByRole('button', { name: /^查看 \d+ 条引用$/ }))
+  }
 
-    const comment = screen.getByLabelText('对引用 1 的评论：first')
-    fireEvent.change(comment, { target: { value: 'important' } })
-    fireEvent.blur(comment)
-    expect(updateComment).toHaveBeenCalledWith('one', 'important')
-    fireEvent.click(screen.getByRole('button', { name: '删除引用 2：second' }))
-    expect(removeItem).toHaveBeenCalledWith('two')
-  })
+  /** 「编辑」按钮的可访问名现在是 aria-labelledby 拼出来的三段（动作 + 摘要 +
+   * 评论），所以按前缀匹配。全名由专门那条测试逐字断言。 */
+  function editRow(ordinal: string): HTMLElement {
+    return screen.getByRole('button', { name: new RegExp(`^编辑第 ${ordinal} 条引用的评论 `) })
+  }
 
-  it('moves the visible count into the section name and drops the title row', () => {
+  function openCard(ordinal: string) {
+    openChipList()
+    fireEvent.click(editRow(ordinal))
+  }
+
+  function card(): HTMLElement {
+    return screen.getByRole('dialog')
+  }
+
+  function commentBox(name: string): HTMLTextAreaElement {
+    return screen.getByLabelText(name) as HTMLTextAreaElement
+  }
+
+  it('replaces the row list with one chip that carries the count', () => {
     renderDock(twoItems)
-    const section = screen.getByLabelText('选区引用（2 条）')
-    // 标题行、卡片外框、原文预览、竖条全部不再渲染。
-    expect(section.textContent).not.toContain('(2)')
-    expect(section.textContent).not.toContain('first')
-    // 原文不再作为可见文本重复渲染，但视觉用户仍要有一条拿到它的途径：
-    // 整行的 title（见 'keeps a pointer route…'）。可见 = 无，可达 = 有。
-    expect(screen.getByTitle('first').getAttribute('data-dsh-selection-dock-row')).toBe('one')
-    expect(section.style.border).toBe('')
-    expect(section.style.background).toBe('')
+    const chip = screen.getByRole('button', { name: '查看 2 条引用' })
+    expect(chip.textContent).toBe(zh['selection.chip.label'].replace('{count}', '2'))
+    expect(chip.getAttribute('aria-expanded')).toBe('false')
+    // 行列表没了：composer 上方不再有任何评论输入框。
+    expect(document.querySelector('[data-dsh-selection-dock-row]')).toBeNull()
+    expect(screen.queryByRole('textbox')).toBeNull()
+    // 原文也不再作为可见文本重复渲染。
+    expect(screen.getByLabelText('选区引用（2 条）').textContent).not.toContain('first')
   })
 
-  it('numbers badges by aggregate array index, never by document position', () => {
-    // 编号必须等于 quoteItemLabel(copy, index + 1) 发给模型的编号；按文档位置
-    // 重排会让用户看到的编号与模型读到的错位。这里把两条引用的行在 DOM 里
-    // 倒序放置，编号仍必须是 1、2。
-    installRangeRects()
-    // 视觉顺序与数组顺序**相反**：first 在下(300)、second 在上(200)。按文档/位置
-    // 排序的实现会把编号排成 second=1、first=2，与 quoteItemLabel(copy, index+1)
-    // 发给模型的编号错位。
-    rangeRects.set('first', [{ top: 300, bottom: 316 }])
-    rangeRects.set('second', [{ top: 200, bottom: 216 }])
-    mountConversation('s', [{ nodeKey: 'n2', text: 'second' }, { nodeKey: 'n1', text: 'first' }])
+  it('lists every quote behind the chip, whatever the anchor state is', () => {
+    // 列表的数据源是 aggregate（草稿里的 JSON），不是 DOM —— 这是"原文滚出视口
+    // 之后仍能够到它"的**唯一保证路径**。这里两条引用都是 detached（没挂宿主
+    // DOM），正文侧一个徽标都没有，列表照样两行。
     renderDock(twoItems)
-    const overlay = document.querySelectorAll<HTMLElement>('[data-dsh-quote-badge-anchor]')
-    expect(Array.from(overlay, (node) => node.dataset.dshQuoteBadgeAnchor)).toEqual(['one', 'two'])
-    expect(Array.from(overlay, (node) => node.textContent)).toEqual(['1', '2'])
-    // 编号 1 落在下面那一行（top 300），编号 2 落在上面那一行（top 200）。
-    expect(Array.from(overlay, (node) => node.style.top)).toEqual(['300px', '200px'])
-  })
-
-  it('publishes one range per resolved quote and withdraws them on unmount', () => {
-    installRangeRects()
-    rangeRects.set('first', [{ top: 200, bottom: 216 }])
-    rangeRects.set('second', [{ top: 300, bottom: 316 }])
-    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }, { nodeKey: 'n2', text: 'second' }])
-    const recorder = recordingRegistry()
-    const view = renderDock(twoItems, { highlights: recorder.registry })
-    const last = recorder.published[recorder.published.length - 1]!
-    expect(last.ranges).toBe(2)
-    expect(last.texts).toEqual(['first', 'second'])
-    expect(last.active).toBe(0)
-    view.unmount()
-    expect(recorder.withdrawn).toContain(last.ownerId)
-  })
-
-  it('never publishes a quote whose row is gone, and says so without revoking the reference', () => {
-    // 锚点找不到 → detached。色带与正文徽标消失，但引用本身不失效：
-    // 发送时序列化的是捕获时冻结的 item.text，与 DOM 无关。
-    const recorder = recordingRegistry()
-    renderDock(twoItems, { highlights: recorder.registry })
-    expect(recorder.published[recorder.published.length - 1]!.ranges).toBe(0)
     expect(document.querySelectorAll('[data-dsh-quote-badge-anchor]').length).toBe(0)
-    // 引用区那一行还在，删除入口也还在（删除不能依赖锚点活着）。
-    expect(screen.getByLabelText('对引用 1 的评论：first')).toBeTruthy()
-    expect(screen.getByRole('button', { name: '删除引用 1：first' })).toBeTruthy()
+    openChipList()
+    const rows = document.querySelectorAll('[data-dsh-quote-list-row]')
+    expect(rows.length).toBe(2)
+    expect(editRow('1')).toBeTruthy()
+    // 删除入口不依赖锚点活着。
+    expect(screen.getByRole('button', { name: '删除引用 2：second' })).toBeTruthy()
+    // 摘要 + 评论摘要在行里可见；没有评论时说"未添加评论"，不留空。
+    expect(rows[0]!.textContent).toContain('first')
+    expect(rows[0]!.textContent).toContain(zh['selection.comment.empty'])
+    // 四态说明走 aria-describedby，绝不设 aria-live。
     const state = document.getElementById('dsh-quote-state-one')!
     expect(state.textContent).toBe(zh['selection.anchor.detached'])
-    expect(screen.getByLabelText('对引用 1 的评论：first').getAttribute('aria-describedby')).toBe('dsh-quote-state-one')
-    // 状态说明绝不设 aria-live —— 滚动会让 anchored ⇄ offscreen 频繁翻转。
     expect(state.getAttribute('aria-live')).toBeNull()
-    expect(document.querySelector('[data-dsh-quote-badge="detached"]')).toBeTruthy()
   })
 
-  it('keeps the colour band but hides the overlay badge for a quote scrolled out of the band', () => {
+  /* ── 草稿不能丢：三条核心状态机测试 ─────────────────────────────────── */
+
+  it('NEVER writes the draft when the user presses Cancel, and rolls back to the last saved value', () => {
+    // 杀法：把卡片级 focusout 判据换回 textarea 自己的 onBlur —— 鼠标按在「取消」
+    // 上会**先**让 textarea blur，于是"先提交再回退"，两次写 aggregate；第二次
+    // 撞上 CAS stale-draft 时不想要的文字就永久留在了草稿里。
+    const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
+    renderDock(twoItems, { updateComment })
+    openCard('1')
+    const box = commentBox('对引用 1 的评论：first')
+    fireEvent.change(box, { target: { value: '不该被保存' } })
+    const cancel = screen.getByRole('button', { name: '取消编辑第 1 条引用的评论' })
+    // 真实的事件顺序：指针按下 → textarea 失焦（relatedTarget 是取消按钮）→ click。
+    fireEvent.pointerDown(cancel)
+    fireEvent.focusOut(box, { relatedTarget: cancel })
+    fireEvent.click(cancel)
+    expect(updateComment).not.toHaveBeenCalled()
+    // 卡片收起成胶囊；重新展开时回到上次保存值（空串），不是那段被丢弃的文字。
+    expect(screen.queryByRole('dialog')).toBeNull()
+    openCard('1')
+    expect(commentBox('对引用 1 的评论：first').value).toBe('')
+  })
+
+  it('saves the draft when focus leaves the whole card (Tab out), exactly once', () => {
+    const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
+    renderDock(twoItems, { updateComment })
+    openCard('1')
+    const box = commentBox('对引用 1 的评论：first')
+    fireEvent.change(box, { target: { value: '要保存的评论' } })
+    // Tab 出整张卡片：relatedTarget 是卡片外的元素。
+    const chip = screen.getByRole('button', { name: '查看 2 条引用' })
+    fireEvent.focusOut(box, { relatedTarget: chip })
+    expect(updateComment).toHaveBeenCalledTimes(1)
+    expect(updateComment).toHaveBeenCalledWith('one', '要保存的评论')
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('does nothing when relatedTarget is null (window blur), and saves on an outside pointerdown instead', () => {
+    // relatedTarget === null 一律不动作：窗口失焦、点到不可聚焦的空白都会给 null。
+    // 真正的"点了外面"由独立的 capture 阶段 pointerdown 负责 —— 它同样走保存。
+    const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
+    renderDock(twoItems, { updateComment })
+    openCard('1')
+    const box = commentBox('对引用 1 的评论：first')
+    fireEvent.change(box, { target: { value: '窗口失焦时还在打的字' } })
+    fireEvent.focusOut(box, { relatedTarget: null })
+    expect(updateComment).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).not.toBeNull()
+    fireEvent.pointerDown(document.body)
+    expect(updateComment).toHaveBeenCalledTimes(1)
+    expect(updateComment).toHaveBeenCalledWith('one', '窗口失焦时还在打的字')
+  })
+
+  it('keeps the card open WITH the text when the aggregate write loses the CAS race', () => {
+    // updateSelectionComment 会返回 {ok:false, reason:'stale-draft'}。旧代码只
+    // notify 一声就算完，用户打的字随着输入框一起消失。卡片必须留在原地、留住
+    // 文字，并把错误显示在自己身上。
+    const updateComment = vi.fn(() => ({ ok: false as const, reason: 'stale-draft' as const }))
+    renderDock(twoItems, { updateComment })
+    openCard('1')
+    const box = commentBox('对引用 1 的评论：first')
+    fireEvent.change(box, { target: { value: '珍贵的草稿' } })
+    fireEvent.pointerDown(document.body)
+    expect(updateComment).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).not.toBeNull()
+    expect(commentBox('对引用 1 的评论：first').value).toBe('珍贵的草稿')
+    expect(screen.getByRole('alert').textContent).toBe(zh['selection.error.draftChanged'])
+  })
+
+  it('treats Esc as save-and-collapse, and stops it from reaching the host', () => {
+    const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
+    const hostEscape = vi.fn()
+    document.addEventListener('keydown', hostEscape)
+    try {
+      renderDock(twoItems, { updateComment })
+      openCard('1')
+      const box = commentBox('对引用 1 的评论：first')
+      fireEvent.change(box, { target: { value: 'esc 不该销毁我打的字' } })
+      fireEvent.keyDown(box, { key: 'Escape' })
+      expect(updateComment).toHaveBeenCalledWith('one', 'esc 不该销毁我打的字')
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(hostEscape).not.toHaveBeenCalled()
+    } finally {
+      document.removeEventListener('keydown', hostEscape)
+    }
+  })
+
+  it('commits a pending draft on unmount instead of dropping it', () => {
+    const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
+    const view = renderDock(twoItems, { updateComment })
+    openCard('1')
+    fireEvent.change(commentBox('对引用 1 的评论：first'), { target: { value: '关 Pane 前打的字' } })
+    view.unmount()
+    expect(updateComment).toHaveBeenCalledWith('one', '关 Pane 前打的字')
+  })
+
+  it('keeps Enter as a newline and reserves the chord for saving', () => {
+    const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
+    renderDock(twoItems, { updateComment })
+    openCard('1')
+    const box = commentBox('对引用 1 的评论：first')
+    fireEvent.change(box, { target: { value: '第一行' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(updateComment).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).not.toBeNull()
+    fireEvent.keyDown(box, { key: 'Enter', ctrlKey: true })
+    expect(updateComment).toHaveBeenCalledWith('one', '第一行')
+  })
+
+  it('weakens Save only while there is genuinely nothing to store, and keeps it tabbable', () => {
+    const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
+    renderDock(twoItems, { updateComment })
+    openCard('1')
+    const save = screen.getByRole('button', { name: '保存第 1 条引用的评论' })
+    // aria-disabled 而不是 disabled：保持可 Tab 到，屏读能听到禁用的原因。
+    expect(save.getAttribute('aria-disabled')).toBe('true')
+    expect((save as HTMLButtonElement).disabled).toBe(false)
+    expect(document.getElementById(save.getAttribute('aria-describedby')!)!.textContent)
+      .toBe(zh['selection.comment.saveEmpty'])
+    expect(save.style.cursor).toBe('not-allowed')
+    fireEvent.click(save)
+    expect(updateComment).not.toHaveBeenCalled()
+    fireEvent.change(commentBox('对引用 1 的评论：first'), { target: { value: '有内容了' } })
+    const enabled = screen.getByRole('button', { name: '保存第 1 条引用的评论' })
+    expect(enabled.getAttribute('aria-disabled')).toBeNull()
+    fireEvent.click(enabled)
+    expect(updateComment).toHaveBeenCalledWith('one', '有内容了')
+  })
+
+  it('keeps Save usable when the user clears a comment they had already stored', () => {
+    // 「草稿为空 = 禁用」若写成无条件判据，用户就再也没有显式入口去删掉一条
+    // 已保存的评论。
+    const withComment = aggregateOf([{ ...twoItems.items[0]!, comment: '旧评论' }])
+    const updateComment = vi.fn(() => ({ ok: true as const, aggregate: withComment }))
+    renderDock(withComment, { updateComment })
+    openCard('1')
+    const box = commentBox('对引用 1 的评论：first')
+    expect(box.value).toBe('旧评论')
+    fireEvent.change(box, { target: { value: '' } })
+    const save = screen.getByRole('button', { name: '保存第 1 条引用的评论' })
+    expect(save.getAttribute('aria-disabled')).toBeNull()
+    fireEvent.click(save)
+    expect(updateComment).toHaveBeenCalledWith('one', '')
+  })
+
+  it('saves the previous card exactly once when the user switches quotes', () => {
+    // 「切换到另一条」这条路径上，保存**只能**由卡片自己的 capture 阶段
+    // pointerdown 负责，openCard 不许再补一次。
+    //
+    // 杀法：在 openCard 里加回那段兜底
+    //   `if (ui.kind === 'card' && ui.itemId !== itemId && ui.draft !== ui.baseline)
+    //      updateComment(ui.itemId, ui.draft)`
+    // —— 它不可达（pointerdown 已经把 ui 变成 capsule 了），可一旦可达就会写第二
+    // 次：setUi 换掉 itemId → 卡片 key 变化 → 旧卡片卸载 → 卸载清理里 settled 仍
+    // 是 false、draft !== baseline 仍成立 → 第二次 commit，且那个闭包成功后会
+    // setUi({kind:'capsule', itemId:'one'})，把刚打开的第 2 张卡片打回第 1 条的胶囊。
+    // 所以这条测试同时钉住"只写一次"和"落在第 2 条上"。
+    const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
+    renderDock(twoItems, { updateComment })
+    openCard('1')
+    fireEvent.change(commentBox('对引用 1 的评论：first'), { target: { value: '第一条的评论' } })
+
+    // 真实事件顺序：chip 上的 pointerdown（卡片外，capture 先跑）→ click 开列表
+    // → 点第 2 行的「编辑」。
+    const chip = screen.getByRole('button', { name: '查看 2 条引用' })
+    fireEvent.pointerDown(chip)
+    expect(updateComment).toHaveBeenCalledTimes(1)
+    expect(updateComment).toHaveBeenCalledWith('one', '第一条的评论')
+
+    fireEvent.click(chip)
+    fireEvent.click(editRow('2'))
+
+    // 第 1 条一共只被写了一次；打开的确实是第 2 条，且带的是它自己的空基线。
+    expect(updateComment).toHaveBeenCalledTimes(1)
+    const second = commentBox('对引用 2 的评论：second')
+    expect(second.value).toBe('')
+    expect(card().getAttribute('aria-label')).toBe('第 2 条引用的评论：second')
+  })
+
+  /* ── 可达性闭包 ─────────────────────────────────────────────────────── */
+
+  it('reaches a detached quote through the chip when the body draws no badge at all', () => {
+    // 行没了 → 正文侧无徽标 → chip 列表仍有该行 → 激活后卡片打开（锚在 chip
+    // 上方）、焦点在 textarea。detached 时不 reveal（没有可滚的行），「跳到原文」
+    // 也随之禁用。
+    renderDock(twoItems)
+    expect(document.querySelectorAll('[data-dsh-quote-badge-anchor]').length).toBe(0)
+    openCard('1')
+    const dialog = card()
+    expect(dialog.getAttribute('aria-label')).toBe('第 1 条引用的评论：first')
+    expect(document.activeElement).toBe(commentBox('对引用 1 的评论：first'))
+    expect(screen.getByRole('button', { name: '跳到引用 1 的原文' }).getAttribute('aria-disabled')).toBe('true')
+    expect(document.getElementById(commentBox('对引用 1 的评论：first').getAttribute('aria-describedby')!)!.textContent)
+      .toBe(zh['selection.anchor.detached'])
+  })
+
+  it('scrolls an off-screen quote back into view when its list row is activated', async () => {
     installRangeRects()
     // 可见带是 [100, 600)；这一条的末行整个在带子上方。
     rangeRects.set('first', [{ top: 20, bottom: 36 }])
-    rangeRects.set('second', [{ top: 300, bottom: 316 }])
-    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }, { nodeKey: 'n2', text: 'second' }])
-    const recorder = recordingRegistry()
-    renderDock(twoItems, { highlights: recorder.registry })
-    // 色带两条都发布了（滚过去自然看见），徽标只剩带内那一条。
-    expect(recorder.published[recorder.published.length - 1]!.ranges).toBe(2)
-    const anchors = Array.from(
-      document.querySelectorAll<HTMLElement>('[data-dsh-quote-badge-anchor]'),
-      (node) => node.dataset.dshQuoteBadgeAnchor,
-    )
-    expect(anchors).toEqual(['two'])
-    expect(document.getElementById('dsh-quote-state-one')!.textContent).toBe(zh['selection.anchor.offscreen'])
-    expect(document.getElementById('dsh-quote-state-two')!.textContent).toBe('')
-  })
-
-  it('refuses to anchor a quote that belongs to another pane', () => {
-    installRangeRects()
-    rangeRects.set('first', [{ top: 200, bottom: 216 }])
-    mountConversation('other', [{ nodeKey: 'n1', text: 'first' }])
-    const recorder = recordingRegistry()
-    render(<SelectionDock
-      sessionId="other"
-      session={{ sessionId: 'other' }}
-      input={snapshotOf(aggregateOf([twoItems.items[0]!]))}
-      updateComment={vi.fn(() => ({ ok: true as const, aggregate: twoItems }))}
-      removeItem={vi.fn(() => ({ ok: true as const, aggregate: twoItems }))}
-      highlights={recorder.registry}
-      t={zhTranslate}
-    />)
-    // item.parentSessionId 是 's'，这个坞是 'other' 的 —— 不许画进别的 Pane。
-    expect(recorder.published[recorder.published.length - 1]!.ranges).toBe(0)
-  })
-
-  it('still refuses a foreign-session quote on a host with no pane markers at all', () => {
-    // 没有 [data-session-pane] 时 captureConversationRange 的 paneSessionId 是
-    // undefined，那一层判据（与 #validateActive 同写法）放行；此时唯一挡住
-    // "画进别的会话"的就是图层自己的 parentSessionId 闸门。
-    installRangeRects()
-    rangeRects.set('first', [{ top: 200, bottom: 216 }])
-    mountConversation('other', [{ nodeKey: 'n1', text: 'first' }], { paneMarker: false })
-    const recorder = recordingRegistry()
-    render(<SelectionDock
-      sessionId="other"
-      session={{ sessionId: 'other' }}
-      input={snapshotOf(aggregateOf([twoItems.items[0]!]))}
-      updateComment={vi.fn(() => ({ ok: true as const, aggregate: twoItems }))}
-      removeItem={vi.fn(() => ({ ok: true as const, aggregate: twoItems }))}
-      highlights={recorder.registry}
-      t={zhTranslate}
-    />)
-    expect(recorder.published[recorder.published.length - 1]!.ranges).toBe(0)
+    const { elements } = mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
+    const scrollIntoView = vi.fn()
+    elements.get('n1')!.scrollIntoView = scrollIntoView
+    renderDock(aggregateOf([twoItems.items[0]!]))
+    // 正文侧不画徽标（末行滚出了可见带），但 chip 列表照样有这一行。
     expect(document.querySelectorAll('[data-dsh-quote-badge-anchor]').length).toBe(0)
+    openChipList()
+    expect(document.getElementById('dsh-quote-state-one')!.textContent).toBe(zh['selection.anchor.offscreen'])
+    fireEvent.click(editRow('1'))
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledTimes(1))
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(document.activeElement).toBe(commentBox('对引用 1 的评论：first'))
+  })
+
+  it('returns focus to the chip when the list is dismissed with Esc', () => {
+    renderDock(twoItems)
+    openChipList()
+    expect(document.activeElement).toBe(editRow('1'))
+    fireEvent.keyDown(screen.getByRole('group', { name: zh['selection.list.label'] }), { key: 'Escape' })
+    expect(screen.queryByRole('group', { name: zh['selection.list.label'] })).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '查看 2 条引用' }))
+  })
+
+  it('removes a quote from the list without needing a live anchor', () => {
+    const removeItem = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
+    renderDock(twoItems, { removeItem })
+    openChipList()
+    const x = screen.getByRole('button', { name: '删除引用 2：second' })
+    // 第一次只是上膛（见 useArmedDelete），第二次才真删。
+    fireEvent.click(x)
+    expect(removeItem).not.toHaveBeenCalled()
+    fireEvent.click(x)
+    expect(removeItem).toHaveBeenCalledWith('two')
+    expect(document.querySelector('[data-dsh-quote-announce]')!.textContent)
+      .toBe('已删除引用 2')
+  })
+
+  /* ── 性能护栏（守住上一轮的成果） ──────────────────────────────────── */
+
+  it('does not re-resolve a single range while the user types into the card', async () => {
+    // 卡片 portal 在 document.body：打字产生的 characterData 结构上不可能落进
+    // 任何已锚定行，`quoteMutationsMatter` 那道闸门连一个 tick 都不会排。
+    installRangeRects()
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
+    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
+    const recorder = recordingRegistry()
+    renderDock(aggregateOf([twoItems.items[0]!]), { highlights: recorder.registry })
+    openCard('1')
+    const before = recorder.published[recorder.published.length - 1]!.objects[0]!
+    const box = commentBox('对引用 1 的评论：first')
+    for (let index = 0; index < 30; index += 1) {
+      fireEvent.change(box, { target: { value: 'x'.repeat(index + 1) } })
+    }
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 40)) })
+    // 同一个 Range 对象 = 一次重解析都没发生。
+    expect(recorder.published[recorder.published.length - 1]!.objects[0]).toBe(before)
+    expect(commentBox('对引用 1 的评论：first').value).toBe('x'.repeat(30))
+  })
+
+  it('publishes all three highlight entries once and leaves them alone across scroll frames', async () => {
+    // 底色分流把 publication 从 2 个数组变成 3 个。子 Range 必须在**解析期**一次
+    // 造好并存进 ResolvedQuote —— 在测量帧里现造的话对象身份每帧都变，滚动时
+    // 又回到每帧一次 new Highlight()。
+    installRangeRects()
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
+    const { scrollport } = mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
+    const recorder = recordingRegistry()
+    renderDock(aggregateOf([twoItems.items[0]!]), { highlights: recorder.registry })
+    const first = recorder.published[recorder.published.length - 1]!
+    expect(first.ranges).toBe(1)
+    expect(first.tinted).toBe(1)
+    const publishes = recorder.published.length
+    for (let frame = 0; frame < 30; frame += 1) {
+      await act(async () => {
+        scrollport.dispatchEvent(new Event('scroll'))
+        await new Promise((resolve) => setTimeout(resolve, 2))
+      })
+    }
+    expect(recorder.published.length).toBe(publishes)
   })
 
   it('re-measures the badge on scroll without re-resolving the range', async () => {
-    // 设计里最贵的一条约束：滚动**只**重算徽标矩形。重解析要走
-    // eligibleTextNodes（每个文本节点一次 getComputedStyle），挂到滚动上会在
-    // 流式输出时每帧做几千次样式重算。"同一个 Range 对象"是这件事唯一能从外面
-    // 观测到的证据。
+    // 设计里最贵的一条约束：滚动**只**重算徽标矩形。"同一个 Range 对象"是这件事
+    // 唯一能从外面观测到的证据。
     installRangeRects()
     rangeRects.set('first', [{ top: 200, bottom: 216 }])
     const { scrollport } = mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
@@ -728,9 +935,98 @@ describe('SelectionDock', () => {
     expect(after.objects[0]).toBe(before)
   })
 
+  /* ── 既有不变量（图层身份、pane 闸门、观察器纪律） ───────────────── */
+
+  it('numbers badges by aggregate array index, never by document position', () => {
+    installRangeRects()
+    rangeRects.set('first', [{ top: 300, bottom: 316 }])
+    rangeRects.set('second', [{ top: 200, bottom: 216 }])
+    mountConversation('s', [{ nodeKey: 'n2', text: 'second' }, { nodeKey: 'n1', text: 'first' }])
+    renderDock(twoItems)
+    const overlay = document.querySelectorAll<HTMLElement>('[data-dsh-quote-badge-anchor]')
+    expect(Array.from(overlay, (node) => node.dataset.dshQuoteBadgeAnchor)).toEqual(['one', 'two'])
+    expect(Array.from(overlay, (node) => node.textContent)).toEqual(['1', '2'])
+    expect(Array.from(overlay, (node) => node.style.top)).toEqual(['300px', '200px'])
+  })
+
+  it('publishes one range per resolved quote and withdraws them on unmount', () => {
+    installRangeRects()
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
+    rangeRects.set('second', [{ top: 300, bottom: 316 }])
+    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }, { nodeKey: 'n2', text: 'second' }])
+    const recorder = recordingRegistry()
+    const view = renderDock(twoItems, { highlights: recorder.registry })
+    const last = recorder.published[recorder.published.length - 1]!
+    expect(last.ranges).toBe(2)
+    expect(last.texts).toEqual(['first', 'second'])
+    expect(last.active).toBe(0)
+    view.unmount()
+    expect(recorder.withdrawn).toContain(last.ownerId)
+  })
+
+  it('never publishes a quote whose row is gone, without revoking the reference', () => {
+    const recorder = recordingRegistry()
+    renderDock(twoItems, { highlights: recorder.registry })
+    expect(recorder.published[recorder.published.length - 1]!.ranges).toBe(0)
+    expect(document.querySelectorAll('[data-dsh-quote-badge-anchor]').length).toBe(0)
+    // 引用本身不失效：chip 仍报 2 条，列表里两行都能编辑能删除。
+    expect(screen.getByRole('button', { name: '查看 2 条引用' })).toBeTruthy()
+    openChipList()
+    expect(screen.getByRole('button', { name: '删除引用 1：first' })).toBeTruthy()
+    expect(document.querySelector('[data-dsh-quote-badge="detached"]')).toBeTruthy()
+  })
+
+  it('keeps the colour band but hides the overlay badge for a quote scrolled out of the band', () => {
+    installRangeRects()
+    rangeRects.set('first', [{ top: 20, bottom: 36 }])
+    rangeRects.set('second', [{ top: 300, bottom: 316 }])
+    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }, { nodeKey: 'n2', text: 'second' }])
+    const recorder = recordingRegistry()
+    renderDock(twoItems, { highlights: recorder.registry })
+    expect(recorder.published[recorder.published.length - 1]!.ranges).toBe(2)
+    const anchors = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-dsh-quote-badge-anchor]'),
+      (node) => node.dataset.dshQuoteBadgeAnchor,
+    )
+    expect(anchors).toEqual(['two'])
+  })
+
+  it('refuses to anchor a quote that belongs to another pane', () => {
+    installRangeRects()
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
+    mountConversation('other', [{ nodeKey: 'n1', text: 'first' }])
+    const recorder = recordingRegistry()
+    render(<SelectionDock
+      sessionId="other"
+      session={{ sessionId: 'other' }}
+      input={snapshotOf(aggregateOf([twoItems.items[0]!]))}
+      updateComment={vi.fn(() => ({ ok: true as const, aggregate: twoItems }))}
+      removeItem={vi.fn(() => ({ ok: true as const, aggregate: twoItems }))}
+      highlights={recorder.registry}
+      t={zhTranslate}
+    />)
+    expect(recorder.published[recorder.published.length - 1]!.ranges).toBe(0)
+  })
+
+  it('still refuses a foreign-session quote on a host with no pane markers at all', () => {
+    installRangeRects()
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
+    mountConversation('other', [{ nodeKey: 'n1', text: 'first' }], { paneMarker: false })
+    const recorder = recordingRegistry()
+    render(<SelectionDock
+      sessionId="other"
+      session={{ sessionId: 'other' }}
+      input={snapshotOf(aggregateOf([twoItems.items[0]!]))}
+      updateComment={vi.fn(() => ({ ok: true as const, aggregate: twoItems }))}
+      removeItem={vi.fn(() => ({ ok: true as const, aggregate: twoItems }))}
+      highlights={recorder.registry}
+      t={zhTranslate}
+    />)
+    expect(recorder.published[recorder.published.length - 1]!.ranges).toBe(0)
+    expect(document.querySelectorAll('[data-dsh-quote-badge-anchor]').length).toBe(0)
+  })
+
   it('re-resolves after the host swaps the quoted row text node', async () => {
-    // 宿主重渲染会让持有的 Range 静默塌缩（isConnected 仍是 true）。图层必须
-    // 从身份重解析出一条**新**的 Range，而不是继续画一条死的。
     installRangeRects()
     rangeRects.set('first', [{ top: 200, bottom: 216 }])
     const { elements } = mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
@@ -753,9 +1049,6 @@ describe('SelectionDock', () => {
   })
 
   it('re-resolves on a size change (wrapping moves) but not on a plain scroll', async () => {
-    // jsdom 没有 ResizeObserver（navigator.test.tsx:20 已有 stub 先例），所以
-    // 这条路径必须自己造观察器才能测到。判据仍是 Range 的对象身份：尺寸变化
-    // 必须换出一条**新**的（换行位置变了，旧 Range 的行矩形已经不对）。
     installRangeRects()
     rangeRects.set('first', [{ top: 200, bottom: 216 }])
     const observers: Array<() => void> = []
@@ -783,11 +1076,7 @@ describe('SelectionDock', () => {
     }
   })
 
-  it('reports detached rather than a stale anchor on a host with no structural observer', async () => {
-    // 降级宿主：既没有 [data-session-pane] 也没有 [data-conversation-scroll]，
-    // 于是 focusedPaneScope 退回 document、观察器无处可挂（GA-031：绝不因此
-    // 去挂 document.body）。这时缓存的 Range 可能已被宿主重渲染悄悄塌缩，而
-    // 没有任何结构信号会来重解析 —— 测量帧必须自己认出这一点。
+  it('reports detached rather than a stale anchor on a host with no structural observer', () => {
     installRangeRects()
     rangeRects.set('first', [{ top: 200, bottom: 216 }])
     const flow = document.createElement('div')
@@ -805,16 +1094,17 @@ describe('SelectionDock', () => {
     expect(recorder.published[recorder.published.length - 1]!.ranges).toBe(1)
 
     row.replaceChild(document.createTextNode('first'), row.firstChild!)
-    // 只触发"测量"这一条路径（活跃项变化），不触发重解析。
-    fireEvent.focus(screen.getByLabelText('对引用 1 的评论：first'))
+    // 只触发"测量"这一条路径（打开项变化），不触发重解析 —— 这个宿主上没有
+    // 任何结构信号会来重解析，测量帧必须自己认出塌缩的 Range。
+    openCard('1')
     expect(recorder.published[recorder.published.length - 1]!.ranges).toBe(0)
-    expect(document.getElementById('dsh-quote-state-one')!.textContent).toBe(zh['selection.anchor.detached'])
+    expect(document.getElementById('dsh-quote-card-state-one')!.textContent)
+      .toBe(zh['selection.anchor.detached'])
+    // 原文没了 —— 「跳到原文」随之禁用，但引用本身照旧有效、照旧能编辑。
+    expect(screen.getByRole('button', { name: '跳到引用 1 的原文' }).getAttribute('aria-disabled')).toBe('true')
   })
 
   it('never observes document.body, even with no pane and no scrollport (GA-031)', () => {
-    // navigator.tsx:102 那段注释把这条教训写死了：观察器绝不长期挂在 body。
-    // 找不到会话根 / 滚动容器 / pane 时宁可不装观察器 —— 功能降级（靠 ref 变化
-    // 与 resize 兜底），而不是换来一个全局观察器。
     const observe = vi.spyOn(MutationObserver.prototype, 'observe')
     const flow = document.createElement('div')
     flow.dataset.chatFlow = ''
@@ -829,137 +1119,7 @@ describe('SelectionDock', () => {
     expect(observe.mock.calls.some(([target]) => target === document.body)).toBe(false)
   })
 
-  it('emphasises the matching range while a comment box is focused', () => {
-    installRangeRects()
-    rangeRects.set('first', [{ top: 200, bottom: 216 }])
-    rangeRects.set('second', [{ top: 300, bottom: 316 }])
-    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }, { nodeKey: 'n2', text: 'second' }])
-    const recorder = recordingRegistry()
-    renderDock(twoItems, { highlights: recorder.registry })
-    expect(recorder.published[recorder.published.length - 1]!.active).toBe(0)
-    fireEvent.focus(screen.getByLabelText('对引用 2 的评论：second'))
-    expect(recorder.published[recorder.published.length - 1]!.active).toBe(1)
-    fireEvent.blur(screen.getByLabelText('对引用 2 的评论：second'))
-    expect(recorder.published[recorder.published.length - 1]!.active).toBe(0)
-  })
-
-  it('hides the overlay layer from assistive tech and keeps its badges unfocusable', () => {
-    installRangeRects()
-    rangeRects.set('first', [{ top: 200, bottom: 216 }])
-    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
-    renderDock(aggregateOf([twoItems.items[0]!]))
-    const layer = document.querySelector<HTMLElement>('[data-dsh-quote-overlay]')!
-    expect(layer.getAttribute('aria-hidden')).toBe('true')
-    expect(layer.getAttribute('role')).toBe('presentation')
-    // aria-hidden 容器里放可聚焦控件 = 能 Tab 到但读不出来的黑洞。
-    expect(layer.querySelectorAll('button, [tabindex]').length).toBe(0)
-    // 0×0 的定位盒，绝不铺满屏幕拦截宿主的指针事件。
-    expect(layer.style.width).toBe('0px')
-    expect(layer.style.height).toBe('0px')
-    expect(layer.style.zIndex).toBe('899')
-  })
-
-  it('keeps the icon-only remove control reachable and focus-ringed', () => {
-    renderDock(aggregateOf([twoItems.items[0]!]))
-    const remove = screen.getByRole('button', { name: '删除引用 1：first' })
-    expect(remove.textContent).toBe('')
-    expect(remove.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
-    expect(remove.style.outlineOffset).toBe('2px')
-    fireEvent.focusIn(remove)
-    expect(remove.getAttribute('style')).toContain(`outline: 2px solid ${FOCUS_RING_COLOR}`)
-  })
-
-  it('gives the resting comment input a boundary-contrast-safe border, not the low-contrast divider token', () => {
-    // border-l2（旧 token）合成到 bg-base 上浅色只有约 1.25:1，远低于 WCAG 1.4.11
-    // 对 UI 组件边界要求的 3:1（见 selection-actions.tsx 里输入框 border 那段注释
-    // 的计算过程）。静息态应是 label-tertiary（浅 3.71:1 / 深 8.54:1 起步），
-    // 聚焦态才跳到 business-primary。
-    renderDock(aggregateOf([twoItems.items[0]!]))
-    const comment = screen.getByLabelText('对引用 1 的评论：first') as HTMLInputElement
-    expect(comment.getAttribute('style')).toContain('var(--dsw-alias-label-tertiary, #81858c)')
-    expect(comment.getAttribute('style')).not.toContain('var(--dsw-alias-border-l2')
-    expect(comment.placeholder).toBe(zh['selection.comment.placeholder'])
-    fireEvent.focus(comment)
-    expect(comment.getAttribute('style')).toContain('var(--dsw-alias-state-business-primary, #4176e6)')
-    fireEvent.blur(comment)
-    expect(comment.getAttribute('style')).toContain('var(--dsw-alias-label-tertiary, #81858c)')
-  })
-
-  it('caps the dock height so a long quote list cannot push the composer off screen', () => {
-    const many = aggregateOf(Array.from({ length: 8 }, (_, index) => ({
-      id: `item-${index}`, parentSessionId: 's', nodeKey: `n${index}`, nodeKind: 'user',
-      atSeq: index, text: `quote ${index}`, startOffset: 0, endOffset: 7,
-    })))
-    renderDock(many)
-    const list = screen.getByLabelText('选区引用（8 条）').firstElementChild as HTMLElement
-    expect(list.style.overflowY).toBe('auto')
-    expect(list.style.maxHeight).toBe('136px')
-  })
-
-  it('keeps a pointer route to the quoted text even when no body badge is drawn', () => {
-    // 重写后引用区只剩数字徽标 + 空评论框，而正文侧徽标在 offscreen / detached
-    // 时**根本不渲染** —— 那两档里视觉用户没有任何途径知道第 N 条引用的是哪句
-    // 话，屏读用户反而更全（摘要在评论框的可访问名里）。整行的 title 是补回来的
-    // 那条途径：三种锚点状态下都在，且不把厚重的原文预览搬回来。
-    renderDock(twoItems)
-    expect(document.querySelectorAll('[data-dsh-quote-badge-anchor]').length).toBe(0)
-    const row = document.querySelector<HTMLElement>('[data-dsh-selection-dock-row="one"]')!
-    expect(row.title).toBe('first')
-    expect(row.textContent).not.toContain('first')
-    // 这个 div 没有 role、没有可访问名 —— title 不会给 AT 造出第二处复读。
-    expect(row.getAttribute('role')).toBeNull()
-    expect(row.getAttribute('aria-label')).toBeNull()
-  })
-
-  it('folds and clips the row title through the same excerpt rule as the accessible names', () => {
-    renderDock(aggregateOf([{ ...twoItems.items[0]!, text: `line
-${'a'.repeat(60)}` }]))
-    const row = document.querySelector<HTMLElement>('[data-dsh-selection-dock-row="one"]')!
-    expect(row.title).toBe(`line ${'a'.repeat(35)}…`)
-    // 同一份摘要也进了评论框的可访问名 —— 两条途径给的是同一句话。
-    expect(screen.getByLabelText(`对引用 1 的评论：${row.title}`)).toBeTruthy()
-  })
-
-  it('exposes "jump to the source" as a real button, not a mouse-only aria-hidden span', () => {
-    // 旧写法是 `<span aria-hidden="true" onClick>`：不可聚焦、对 AT 隐藏、无 role,
-    // 等于把「滚动到被引用段落」做成纯鼠标能力。
-    renderDock(aggregateOf([twoItems.items[0]!]))
-    const jump = screen.getByRole('button', { name: '跳到引用 1 的原文' })
-    expect(jump.tagName).toBe('BUTTON')
-    expect(jump.getAttribute('aria-hidden')).toBeNull()
-    expect(jump.closest('[aria-hidden="true"]')).toBeNull()
-    // 外观仍由同一个 QuoteBadge 画，按钮只加语义 / 命中区 / 焦点环。
-    expect(jump.querySelector('[data-dsh-quote-badge]')).toBeTruthy()
-    // 环画在徽标外面（徽标自己的描边就是 business-primary，内缩会糊成一团）。
-    expect(jump.style.outlineOffset).toBe('2px')
-    fireEvent.focusIn(jump)
-    expect(jump.getAttribute('style')).toContain(`outline: 2px solid ${FOCUS_RING_COLOR}`)
-    // 外侧 4px 的环要有容身之处：滚动容器（overflowY:auto 会在 padding box 上裁切）
-    // 左右各留 4px。
-    const list = screen.getByLabelText('选区引用（1 条）').firstElementChild as HTMLElement
-    expect(list.style.padding).toBe('2px 4px')
-  })
-
-  it('gives the comment input the same focus ring the buttons use, not a 1.14:1 border swap', () => {
-    // 旧写法 outline:none，聚焦的唯一信号是 border 从 label-tertiary 换成
-    // business-primary —— 两色互比浅 1.14:1 / 深 1.25:1，远低于「焦点态相对未
-    // 聚焦态 3:1」。换成同一套 FOCUS_RING 后，环相对未聚焦时的同一批像素（卡面）
-    // 浅 4.23:1 / 深 5.24:1。
-    renderDock(aggregateOf([twoItems.items[0]!]))
-    const comment = screen.getByLabelText('对引用 1 的评论：first') as HTMLInputElement
-    expect(comment.getAttribute('style')).toContain('outline: none')
-    fireEvent.focus(comment)
-    expect(comment.getAttribute('style')).toContain(`outline: 2px solid ${FOCUS_RING_COLOR}`)
-    // 这里偏移取负：输入框高 32px 正好占满行，行距只有 2px，外侧环会压到相邻行
-    // 并被滚动容器的上下缘裁掉；内缩后环整条落在 bg-base 的填充里（4.23 / 6.86）。
-    expect(comment.style.outlineOffset).toBe('-2px')
-    fireEvent.blur(comment)
-    expect(comment.getAttribute('style')).toContain('outline: none')
-  })
-
-  it('lets the emphasis fall back to the focused row when the pointer leaves another row', () => {
-    // hover 与 focus 曾经共用一个 activeItemId，而行的 onMouseLeave 是无条件清空：
-    // 鼠标划过第 2 行再移开，会把第 1 行（键盘正聚焦）的强调一起抹掉。
+  it('emphasises the matching range while its body badge is hovered', () => {
     installRangeRects()
     rangeRects.set('first', [{ top: 200, bottom: 216 }])
     rangeRects.set('second', [{ top: 300, bottom: 316 }])
@@ -967,36 +1127,599 @@ ${'a'.repeat(60)}` }]))
     const recorder = recordingRegistry()
     renderDock(twoItems, { highlights: recorder.registry })
     const active = () => recorder.published[recorder.published.length - 1]!.activeTexts
-    fireEvent.focus(screen.getByLabelText('对引用 1 的评论：first'))
-    expect(active()).toEqual(['first'])
-    const rowTwo = document.querySelector<HTMLElement>('[data-dsh-selection-dock-row="two"]')!
-    // 指针是即时的直接操作：停在哪一行哪一行亮。
-    fireEvent.mouseEnter(rowTwo)
+    expect(active()).toEqual([])
+    const badge = document.querySelector<HTMLElement>('[data-dsh-quote-badge-anchor="two"]')!
+    fireEvent.mouseEnter(badge)
     expect(active()).toEqual(['second'])
-    // 松开后回落到键盘聚焦的那一行 —— 旧实现在这里变成 []。
-    fireEvent.mouseLeave(rowTwo)
-    expect(active()).toEqual(['first'])
+    fireEvent.mouseLeave(badge)
+    expect(active()).toEqual([])
   })
 
-  it('emphasises the row while its jump button holds keyboard focus', () => {
+  /* ── 视觉 / 无障碍规格 ──────────────────────────────────────────────── */
+
+  it('draws the body badge as a solid blue pill with white digits, ringed twice when emphasised', () => {
+    // 旧外观是「淡底 + 深蓝字 + 单层蓝环」。参考图要的是实心蓝白字，而单层
+    // #4176e6 环画在 #4868b2 徽标底上只有 1.26:1，等于没画 —— 必须双层。
     installRangeRects()
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
+    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
+    const recorder = recordingRegistry()
+    renderDock(aggregateOf([twoItems.items[0]!]), { highlights: recorder.registry })
+    const anchor = document.querySelector<HTMLElement>('[data-dsh-quote-badge-anchor="one"]')!
+    const badge = anchor.querySelector<HTMLElement>('[data-dsh-quote-badge]')!
+    expect(badge.getAttribute('style')).toContain('background: var(--dsw-static-deepseek-600, #4868b2)')
+    expect(badge.getAttribute('style')).toContain('color: var(--dsw-static-neutral-bluish-00, #fff)')
+    // 静息态写同样结构但两层都透明 —— 盒子尺寸恒定，切换零布局位移。
+    expect(badge.style.boxShadow).toBe('0 0 0 2px transparent, 0 0 0 4px transparent')
+    fireEvent.mouseEnter(anchor)
+    const hot = document.querySelector<HTMLElement>('[data-dsh-quote-badge-anchor="one"] [data-dsh-quote-badge]')!
+    expect(hot.style.boxShadow)
+      .toBe('0 0 0 2px var(--dsw-alias-bg-base, #fff), 0 0 0 4px var(--dsw-alias-state-business-primary, #4176e6)')
+  })
+
+  it('leaves the host conversation byte-identical across a whole quote lifecycle', async () => {
+    // 本轮最硬的一条约束：**绝不 patch 宿主 DOM** —— 不写属性、不改内容、不插入
+    // 或移动节点、不动 class/style。高亮只把 Range 交给浏览器（registry），徽标 /
+    // 胶囊 / 卡片全是 portal 在 document.body 上的自有图层。
+    //
+    // 杀法：往 anchor.row 上写任何一个属性（`row.setAttribute('data-x','1')`）、
+    // 或把徽标 append 进宿主行里，这条断言立刻红。
+    // 这一条走的是 **anchored** 路径（不触发 reveal）；reveal 那条单独由下一条
+    // 测试盯着。
+    installRangeRects()
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
+    const { pane, scrollport } = mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
+    const before = pane.outerHTML
+
+    const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
+    renderDock(aggregateOf([twoItems.items[0]!]), { updateComment })
+    expect(pane.outerHTML, '渲染引用图层就改了宿主').toBe(before)
+
+    // 悬停徽标（emphasis）→ 打开卡片 → 打字 → 保存 → 滚动若干帧。
+    fireEvent.mouseEnter(document.querySelector<HTMLElement>('[data-dsh-quote-badge-anchor="one"]')!)
+    fireEvent.click(document.querySelector<HTMLElement>('[data-dsh-quote-badge-anchor="one"]')!)
+    openCard('1')
+    fireEvent.change(commentBox('对引用 1 的评论：first'), { target: { value: '一条评论' } })
+    fireEvent.pointerDown(document.body)
+    for (let frame = 0; frame < 3; frame += 1) {
+      await act(async () => {
+        scrollport.dispatchEvent(new Event('scroll'))
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      })
+    }
+    expect(updateComment).toHaveBeenCalledWith('one', '一条评论')
+    expect(pane.outerHTML, '一整轮引用生命周期之后宿主被改了').toBe(before)
+  })
+
+  it('scrolls a quote back into view without writing a single host attribute', async () => {
+    // reveal 是本特性里**唯一**碰得到宿主锚点的调用：`revealNode` 默认会往锚点写
+    // `data-dsh-nux-reveal` 做高亮。我们自己的色带已经是视觉反馈，所以传
+    // `highlight: false`。
+    //
+    // 杀法：把 reveal() 的 `{ highlight: false }` 改回 `true` —— 宿主行上就会多出
+    // 一个 `data-dsh-nux-reveal` 属性，这条断言红。
+    installRangeRects()
+    rangeRects.set('first', [{ top: 20, bottom: 36 }])
+    const { pane, elements } = mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
+    elements.get('n1')!.scrollIntoView = vi.fn()
+    const before = pane.outerHTML
+
+    renderDock(aggregateOf([twoItems.items[0]!]))
+    openChipList()
+    fireEvent.click(editRow('1'))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy())
+    // reveal 真的跑过了（滚回视野），而宿主一个属性都没多。
+    expect(elements.get('n1')!.scrollIntoView).toHaveBeenCalled()
+    expect(pane.outerHTML, 'reveal 往宿主写了属性').toBe(before)
+  })
+
+  it('keeps every portal layer clear of assistive tech except the card itself', () => {
+    installRangeRects()
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
+    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
+    renderDock(aggregateOf([twoItems.items[0]!]))
+    const badges = document.querySelector<HTMLElement>('[data-dsh-quote-overlay]')!
+    expect(badges.getAttribute('aria-hidden')).toBe('true')
+    expect(badges.getAttribute('role')).toBe('presentation')
+    // aria-hidden 容器里放可聚焦控件 = 能 Tab 到但读不出来的黑洞。
+    expect(badges.querySelectorAll('button, [tabindex]').length).toBe(0)
+    // 0×0 的定位盒，绝不铺满屏幕拦截宿主的指针事件；徽标降到 897（卡片之下）。
+    expect(badges.style.width).toBe('0px')
+    expect(badges.style.height).toBe('0px')
+    expect(badges.style.zIndex).toBe('897')
+
+    // 胶囊层同理：纯指针预览，一个可聚焦控件都没有。
+    fireEvent.click(document.querySelector<HTMLElement>('[data-dsh-quote-badge-anchor="one"]')!)
+    const dialog = card()
+    expect(dialog.closest('[aria-hidden="true"]')).toBeNull()
+    expect(dialog.getAttribute('aria-modal')).toBe('false')
+    expect(dialog.style.zIndex).toBe('899')
+  })
+
+  it('lays the card out in DOM order matching the screenshot, with the trash on the left', () => {
+    renderDock(twoItems)
+    openCard('1')
+    const names = Array.from(card().querySelectorAll('textarea, button'), (node) => (
+      node.tagName === 'TEXTAREA' ? 'textarea' : node.getAttribute('aria-label')
+    ))
+    expect(names).toEqual([
+      'textarea',
+      '删除引用 1：first',
+      '跳到引用 1 的原文',
+      '取消编辑第 1 条引用的评论',
+      '保存第 1 条引用的评论',
+    ])
+  })
+
+  it('announces discrete results, and keeps the anchor states out of the live region', () => {
+    const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
+    renderDock(twoItems, { updateComment })
+    const live = document.querySelector<HTMLElement>('[data-dsh-quote-announce]')!
+    expect(live.getAttribute('role')).toBe('status')
+    expect(live.getAttribute('aria-live')).toBe('polite')
+    expect(live.textContent).toBe('')
+    openCard('1')
+    fireEvent.change(commentBox('对引用 1 的评论：first'), { target: { value: '存下来' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存第 1 条引用的评论' }))
+    expect(live.textContent).toBe('已保存第 1 条引用的评论')
+    // 锚点四态绝不进 live region：滚动会让 anchored ⇄ offscreen 高频翻转。
+    openChipList()
+    expect(document.getElementById('dsh-quote-state-one')!.getAttribute('aria-live')).toBeNull()
+  })
+
+  it('re-announces a live-region result even when the text is byte-identical to the last one', () => {
+    // React 的 setState 对基础类型走 Object.is 比较：新值跟当前值逐字节相同时
+    // 直接跳过这次更新，连 live region 的文本节点都不会被碰一下。连续两次保存
+    // 同一条引用（编辑→保存→再编辑→再保存，很常见的操作序列）播报文字逐字节
+    // 相同——第二次对屏读用户是彻底的静音，而不是"没有变化"：用户确实又保存
+    // 了一次，只是这次凑巧读出来的文案和上一次一样。删除侧的"连续删除总落在
+    // 同一序号上"、新增侧的"已添加引用 N，共 M 条"凑巧重复，都是同一个根因。
+    // 杀法：把 announce() 换回直接 setAnnouncement(text)。
+    const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
+    renderDock(twoItems, { updateComment })
+    const live = document.querySelector<HTMLElement>('[data-dsh-quote-announce]')!
+
+    openCard('1')
+    fireEvent.change(commentBox('对引用 1 的评论：first'), { target: { value: '第一版评论' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存第 1 条引用的评论' }))
+    const first = live.textContent
+    expect(first).toBe('已保存第 1 条引用的评论')
+
+    // 测试替身不真的把新评论写回 items（updateComment 只是个 spy），所以重新
+    // 打开第 1 条时 baseline 仍是空串——再存一次同样是"值变了 → 调
+    // updateComment → 成功 → 播报"，两次播报的文案逐字节相同，且中间没有任何
+    // 别的播报打断，是最干净的"连续两次相同播报"复现。
+    openCard('1')
+    fireEvent.change(commentBox('对引用 1 的评论：first'), { target: { value: '第二版评论' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存第 1 条引用的评论' }))
+    const second = live.textContent
+
+    expect(second, '连续两次相同播报之间 DOM 必须有真实变更，否则屏读不会念第二次').not.toBe(first)
+    // 内容本身（去掉强制变更用的零宽字符）仍然是同一句话，不是被写坏了。
+    expect(second!.replace(/​/g, '')).toBe('已保存第 1 条引用的评论')
+  })
+
+  it('floats a capsule beside a freshly added quote without stealing focus', () => {
+    installRangeRects()
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
     rangeRects.set('second', [{ top: 300, bottom: 316 }])
     mountConversation('s', [{ nodeKey: 'n1', text: 'first' }, { nodeKey: 'n2', text: 'second' }])
-    const recorder = recordingRegistry()
-    renderDock(twoItems, { highlights: recorder.registry })
-    const jump = screen.getByRole('button', { name: '跳到引用 2 的原文' })
-    fireEvent.focusIn(jump)
-    expect(recorder.published[recorder.published.length - 1]!.activeTexts).toEqual(['second'])
-    fireEvent.focusOut(jump)
-    expect(recorder.published[recorder.published.length - 1]!.activeTexts).toEqual([])
+    const view = renderDock(aggregateOf([twoItems.items[0]!]))
+    expect(document.querySelector('[data-dsh-quote-capsule]')).toBeNull()
+    view.rerender(<SelectionDock
+      sessionId="s"
+      session={{ sessionId: 's' }}
+      input={snapshotOf(twoItems)}
+      updateComment={vi.fn(() => ({ ok: true as const, aggregate: twoItems }))}
+      removeItem={vi.fn(() => ({ ok: true as const, aggregate: twoItems }))}
+      t={zhTranslate}
+    />)
+    const capsule = document.querySelector<HTMLElement>('[data-dsh-quote-capsule]')!
+    expect(capsule.dataset.dshQuoteCapsule).toBe('2')
+    expect(capsule.textContent).toContain(zh['selection.comment.placeholder'])
+    // 不抢焦点：焦点留在 composer（这里是 body），卡片也没有展开。
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(document.body)
+    expect(document.querySelector('[data-dsh-quote-announce]')!.textContent).toBe('已添加引用 2，共 2 条')
+    // 胶囊层不吃焦点：aria-hidden 容器里放可聚焦控件 = 能 Tab 到但读不出来。
+    const layer = document.querySelector<HTMLElement>('[data-dsh-quote-capsule-layer]')!
+    expect(layer.getAttribute('aria-hidden')).toBe('true')
+    expect(layer.getAttribute('role')).toBe('presentation')
+    expect(layer.querySelectorAll('button, a, input, textarea, [tabindex]').length).toBe(0)
+    expect(layer.style.zIndex).toBe('898')
+    // 点胶囊直接展开卡片。
+    fireEvent.click(capsule)
+    expect(card().getAttribute('aria-label')).toBe('第 2 条引用的评论：second')
   })
 
-  it('shows the badge even for a single quote', () => {
-    // 与 codec 的行为**故意不同**：createSelectionReferenceCodec 在 items.length === 1
-    // 时不加「引用 1：」——那是给模型看的序列化取舍，不该外溢到 UI。徽标是引用区
-    // 与正文的唯一连接，N=1 时也必须在。
-    renderDock(aggregateOf([twoItems.items[0]!]))
-    expect(screen.getByLabelText('选区引用（1 条）').textContent).toContain('1')
+  it('gives the card textarea the same focus ring the rest of the feature uses', () => {
+    renderDock(twoItems)
+    openCard('1')
+    const box = commentBox('对引用 1 的评论：first')
+    expect(box.tagName).toBe('TEXTAREA')
+    // placeholder 走已注入的 [data-dsh-quote-comment]::placeholder 规则，
+    // textarea 直接继承那条属性选择器，不需要新注入。
+    expect(box.getAttribute('data-dsh-quote-comment')).not.toBeNull()
+    expect(box.placeholder).toBe(zh['selection.comment.placeholder'])
+    fireEvent.focus(box)
+    expect(box.getAttribute('style')).toContain(`outline: 2px solid ${FOCUS_RING_COLOR}`)
+    expect(box.style.outlineOffset).toBe('-2px')
+    fireEvent.blur(box)
+    expect(box.getAttribute('style')).toContain('outline: none')
+    // 静息描边用 label-tertiary（浅 3.71 / 深 8.54），不是 1.25:1 的 border-l2。
+    expect(box.getAttribute('style')).toContain('var(--dsw-alias-label-tertiary, #81858c)')
+    expect(box.getAttribute('style')).not.toContain('var(--dsw-alias-border-l2')
+  })
+
+  it('separates the floating surfaces with a border that survives dark mode', () => {
+    // SURFACE_FLOATING 的 border-inverted 深色合成后是 #414244，对页面 #151517
+    // 只有 1.81:1。这三层压在正文上，边界一弱正文就糊进浮层。
+    renderDock(twoItems)
+    openCard('1')
+    const dialog = card()
+    expect(dialog.getAttribute('style')).toContain('border: 1px solid var(--dsw-alias-label-tertiary, #81858c)')
+    expect(dialog.getAttribute('style')).toContain('background: var(--dsw-alias-bg-layer-3, #fff)')
+    // 浅色下所有 bg-* 层都是纯白 —— 阴影和描边必须同时在。
+    expect(dialog.style.boxShadow).not.toBe('')
+  })
+
+  /* ── 本轮修复 ───────────────────────────────────────────────────────── */
+
+  /** 不经 renderDock：这一组要自己控制「草稿里连 occurrence 都还没有」这个起点。 */
+  function dockProps(aggregate: SelectionAggregateV1, overrides: {
+    updateComment?: (itemId: string, comment: string) => SelectionMutationResult
+    removeItem?: (itemId: string) => SelectionMutationResult
+  } = {}) {
+    return {
+      sessionId: 's',
+      session: { sessionId: 's' },
+      updateComment: overrides.updateComment ?? vi.fn(() => ({ ok: true as const, aggregate })),
+      removeItem: overrides.removeItem ?? vi.fn(() => ({ ok: true as const, aggregate })),
+      t: zhTranslate,
+    }
+  }
+
+  const EMPTY_INPUT = { draft: '', draftRev: 1, occurrences: [] }
+
+  it('floats a capsule and announces for the FIRST quote, not only from the second on', () => {
+    // 杀法：把哨兵写回 `seen.current = ids.length === 0 ? null : new Set(ids)` +
+    // `if (previous === null) return` —— 「0 条」与「首次渲染」编码成同一个值，
+    // 0→1 这个真实的新增被整个吞掉：第一条引用没有胶囊（本轮 UI 的主入口）、
+    // 也没有播报。
+    installRangeRects()
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
+    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
+    const one = aggregateOf([twoItems.items[0]!])
+    const props = dockProps(one)
+    // 起点：草稿里一条引用都没有，坞整个不渲染。
+    const view = render(<SelectionDock {...props} input={EMPTY_INPUT} />)
+    expect(document.querySelector('[data-dsh-quote-capsule]')).toBeNull()
+
+    view.rerender(<SelectionDock {...props} input={snapshotOf(one)} />)
+    const capsule = document.querySelector<HTMLElement>('[data-dsh-quote-capsule]')
+    expect(capsule, '第一条引用没有浮出胶囊').not.toBeNull()
+    expect(capsule!.dataset.dshQuoteCapsule).toBe('1')
+    expect(document.querySelector('[data-dsh-quote-announce]')!.textContent)
+      .toBe('已添加引用 1，共 1 条')
+  })
+
+  it('writes the saved comment on the capsule and only falls back to the placeholder without one', () => {
+    // 本轮特性的核心目的就是「把批注标在被引段落旁边」。旧写法把 placeholder
+    // 写死传进来，保存完评论后段落旁那枚胶囊仍写着「添加可选评论...」——
+    // 杀法：把 comment 换回 `placeholder={t('selection.comment.placeholder')}`。
+    installRangeRects()
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
+    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
+    const note = '这段的推理跳步了，第二段和第三段之间缺一个前提'
+    const commented = aggregateOf([{ ...twoItems.items[0]!, comment: note }])
+    const props = dockProps(commented)
+    const view = render(<SelectionDock {...props} input={EMPTY_INPUT} />)
+    view.rerender(<SelectionDock {...props} input={snapshotOf(commented)} />)
+
+    const text = document.querySelector<HTMLElement>('[data-dsh-quote-capsule-text]')!
+    expect(text.dataset.dshQuoteCapsuleText).toBe('comment')
+    expect(text.textContent).toBe(note)
+    // 截断交给 ellipsis，完整值挂 title。
+    expect(text.getAttribute('title')).toBe(note)
+    expect(text.style.textOverflow).toBe('ellipsis')
+    // 已保存内容用更实的前景色：label-primary 浅 18.90:1 / 深 11.57:1。
+    expect(text.getAttribute('style')).toContain('var(--dsw-alias-label-primary, #0f1115)')
+
+    cleanup()
+    const bare = aggregateOf([twoItems.items[0]!])
+    const bareProps = dockProps(bare)
+    const second = render(<SelectionDock {...bareProps} input={EMPTY_INPUT} />)
+    second.rerender(<SelectionDock {...bareProps} input={snapshotOf(bare)} />)
+    const empty = document.querySelector<HTMLElement>('[data-dsh-quote-capsule-text]')!
+    expect(empty.dataset.dshQuoteCapsuleText).toBe('placeholder')
+    expect(empty.textContent).toBe(zh['selection.comment.placeholder'])
+    expect(empty.getAttribute('title')).toBeNull()
+    // 占位符弱一档，但仍过 4.5:1：label-secondary 浅 5.80:1 / 深 8.03:1。
+    expect(empty.getAttribute('style')).toContain('var(--dsw-alias-label-secondary, #61666b)')
+  })
+
+  it('lets a hover on a different quote take the pinned capsule with it, instead of leaving it stuck', async () => {
+    // 与任意一条引用交互过（哪怕只是打开卡片又取消）之后，ui 会钉在 'capsule'
+    // 上——旧代码只有 removeQuote 成功那一条路径会把它写回 'none'，于是这枚钉子
+    // 只进不出：openItemId = ui.kind === 'none' ? peekItemId : ui.itemId 里
+    // `ui.kind` 恒不是 'none'，peekItemId 被彻底挡在公式外面。表现是：之后悬停
+    // 别的引用的徽标，hoveredItemId 照常更新（正文高亮跟着走），但胶囊纹丝不动，
+    // 仍停在被钉住的那条上。
+    // 杀法：把 schedulePeek 里"悬停到另一条时松开钉子"那段删掉（或者把
+    // `setUi({kind:'none'})` 换成什么都不做）——悬停第 2 条徽标时胶囊仍停在
+    // 第 1 条上，下面这条断言就会红。
+    installRangeRects()
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
+    rangeRects.set('second', [{ top: 300, bottom: 316 }])
+    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }, { nodeKey: 'n2', text: 'second' }])
+    renderDock(twoItems)
+
+    // 打开并取消第 1 条的卡片：ui 从 'card' 收起到 'capsule'，钉在条目 1 上
+    // （commitCard 的保存成功路径走的是同一个 collapse()，效果等价）。
+    openCard('1')
+    fireEvent.click(screen.getByRole('button', { name: '取消编辑第 1 条引用的评论' }))
+    const capsule = () => document.querySelector<HTMLElement>('[data-dsh-quote-capsule]')!
+    expect(capsule(), '取消后正文旁应该留着第 1 条的胶囊').not.toBeNull()
+    expect(capsule().dataset.dshQuoteCapsule, '取消后胶囊应该钉在条目 1 上').toBe('1')
+
+    // 悬停第 2 条的正文徽标，等悬停预览的开启延迟（PEEK_OPEN_MS）跑完。
+    await act(async () => {
+      fireEvent.mouseEnter(document.querySelector<HTMLElement>('[data-dsh-quote-badge-anchor="two"]')!)
+      await new Promise((resolve) => setTimeout(resolve, 150))
+    })
+    expect(capsule(), '悬停到另一条引用后胶囊应该换成新的这一条').not.toBeNull()
+    expect(capsule().dataset.dshQuoteCapsule, '悬停到另一条引用后胶囊没有跟过去').toBe('2')
+  })
+
+  it('lets the chip close the list it opened, and keeps aria-expanded honest', () => {
+    // 杀法：删掉 QuoteList capture 监听里那句 `anchor.current?.contains(target)`
+    // —— 点 chip 时先 setListOpen(false)，紧接着 chip 的 click 读到 open=false
+    // 又取反开回来，列表永远关不掉、aria-expanded 一直在说谎。
+    renderDock(twoItems)
+    const chip = screen.getByRole('button', { name: '查看 2 条引用' })
+    fireEvent.pointerDown(chip)
+    fireEvent.click(chip)
+    expect(chip.getAttribute('aria-expanded')).toBe('true')
+    expect(document.querySelectorAll('[data-dsh-quote-list-row]').length).toBe(2)
+
+    // 真实的事件顺序：pointerdown（capture 阶段先跑）→ click。
+    fireEvent.pointerDown(chip)
+    fireEvent.click(chip)
+    expect(chip.getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelectorAll('[data-dsh-quote-list-row]').length).toBe(0)
+  })
+
+  it('hands focus back to the chip on Save / Cancel / Esc instead of dropping it on <body>', () => {
+    // 卡片 portal 在 document.body，收起就是卸载 —— 三条显式路径都得还焦点。
+    const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
+    renderDock(twoItems, { updateComment })
+    const chip = screen.getByRole('button', { name: '查看 2 条引用' })
+
+    openCard('1')
+    fireEvent.change(commentBox('对引用 1 的评论：first'), { target: { value: '存一下' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存第 1 条引用的评论' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement, '保存后焦点掉了').toBe(chip)
+
+    openCard('1')
+    fireEvent.click(screen.getByRole('button', { name: '取消编辑第 1 条引用的评论' }))
+    expect(document.activeElement, '取消后焦点掉了').toBe(chip)
+
+    openCard('1')
+    const box = commentBox('对引用 1 的评论：first')
+    fireEvent.change(box, { target: { value: 'esc 也要还焦点' } })
+    fireEvent.keyDown(box, { key: 'Escape' })
+    expect(document.activeElement, 'Esc 后焦点掉了').toBe(chip)
+
+    // 焦点归还本身会触发一次 focusout —— 落定之后不许借它再提交一遍。
+    expect(updateComment).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the card, the draft and the focus when the delete loses the CAS race', () => {
+    // 杀法：把 removeQuote 换回「先 setUi({kind:'none'}) 再 if (!result.ok) return」，
+    // 并把卡片上的垃圾桶换回 finish(onRemove) —— 卡片卸载 → 卸载清理的「尽力
+    // 提交」被提前置位的 settled 挡掉 → 条目没删掉、用户的字也没了，焦点落 <body>。
+    const removeItem = vi.fn(() => ({ ok: false as const, reason: 'stale-draft' as const }))
+    const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
+    const view = renderDock(twoItems, { removeItem, updateComment })
+    openCard('1')
+    fireEvent.change(commentBox('对引用 1 的评论：first'), { target: { value: '刚打的字' } })
+    const trash = screen.getByRole('button', { name: '删除引用 1：first' })
+    fireEvent.click(trash)
+    fireEvent.click(trash)
+    expect(removeItem).toHaveBeenCalledWith('one')
+
+    // 卡片留在原地、文字留住、错误画在卡片上（与提交失败同款处理）。
+    expect(screen.queryByRole('dialog')).not.toBeNull()
+    expect(commentBox('对引用 1 的评论：first').value).toBe('刚打的字')
+    expect(screen.getByRole('alert').textContent).toBe(zh['selection.error.draftChanged'])
+    // 焦点没掉进 <body>：承载它的元素还在卡片里。
+    expect(card().contains(document.activeElement)).toBe(true)
+    // 第一次按下已经如实播报过"再按一次以删除"；删除本身失败（CAS 竞争），
+    // 所以没有后续的"已删除引用 1"，但 armed 那句不是"没播报"。
+    expect(document.querySelector('[data-dsh-quote-announce]')!.textContent).toBe('再按一次以删除引用 1')
+    // 而且卸载时那段字**仍然**会被尽力提交。
+    view.unmount()
+    expect(updateComment).toHaveBeenCalledWith('one', '刚打的字')
+  })
+
+  it('tells the user to press again before it deletes anything, instead of just toggling aria-pressed', () => {
+    // 删除走 CAS 改写草稿，不进浏览器的文本 undo 栈；而真正的「撤销」在这里做不
+    // 出来（重新插入引用要一个活的 DOM 选区，detached 条目给不出）。所以二次确认。
+    // 杀法：让 useArmedDelete.press 直接 onConfirm() —— 第一次点就删。
+    const removeItem = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
+    renderDock(twoItems, { removeItem })
+    openCard('1')
+    const trash = screen.getByRole('button', { name: '删除引用 1：first' })
+    const live = document.querySelector<HTMLElement>('[data-dsh-quote-announce]')!
+    // 静息态与今天逐字节相同：没有任何常驻装饰，可访问名就是普通的删除说明。
+    expect(trash.getAttribute('aria-pressed')).toBeNull()
+    expect(trash.getAttribute('aria-label')).toBe('删除引用 1：first')
+
+    fireEvent.click(trash)
+    expect(removeItem).not.toHaveBeenCalled()
+    // aria-pressed（「已按下」）套在一个破坏性的一次性动作上是在撒谎——它在
+    // 「删除引用 1」这句上最自然的解读恰恰是「已经删掉了」，与事实相反，所以
+    // 彻底不渲染它；第一次按下改用可访问名 + live region 明说「还没删，
+    // 再按一次才删」。
+    expect(trash.getAttribute('aria-pressed')).toBeNull()
+    expect(trash.getAttribute('aria-label')).toBe('再按一次以删除引用 1')
+    expect(live.textContent).toBe('再按一次以删除引用 1')
+    expect(trash.getAttribute('style')).toContain('inset 0 0 0 1px')
+
+    // 移开指针就解除，armed 不跨交互残留，可访问名退回静息文案。
+    fireEvent.mouseLeave(trash)
+    expect(trash.getAttribute('aria-label')).toBe('删除引用 1：first')
+    fireEvent.click(trash)
+    expect(removeItem).not.toHaveBeenCalled()
+    expect(trash.getAttribute('aria-label')).toBe('再按一次以删除引用 1')
+
+    fireEvent.click(trash)
+    expect(removeItem).toHaveBeenCalledWith('one')
+    expect(live.textContent).toBe('已删除引用 1')
+  })
+
+  it('arms the list row’s X the same way, on the fill its red ring survives in dark mode', () => {
+    // 列表行的 X 与卡片上的垃圾桶共用同一条闸门；armed 的填充**必须**是 danger
+    // 那块，不能是中性的 interactive-bg-active —— 后者深色合成 #515254，红色内描边
+    // #f25a5a 画上去只有 2.37:1，低于 1.4.11 对非文本指示器的 3:1（danger 填充
+    // #513b3d 上是 3.11:1）。杀法：把 armed 那一支换回 interactive-bg-active，
+    // 或让 onClick 直接调 onRemove。
+    const removeItem = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
+    renderDock(twoItems, { removeItem })
+    openChipList()
+    const x = screen.getAllByRole('button', { name: '删除引用 1：first' })[0]!
+    expect(x.getAttribute('aria-pressed')).toBeNull()
+
+    fireEvent.click(x)
+    expect(removeItem).not.toHaveBeenCalled()
+    // 与卡片上的垃圾桶同一条决定：不用 aria-pressed，第一次按下换成
+    // 「再按一次以删除」的可访问名。
+    expect(x.getAttribute('aria-pressed')).toBeNull()
+    expect(x.getAttribute('aria-label')).toBe('再按一次以删除引用 1')
+    const armedStyle = x.getAttribute('style')!
+    expect(armedStyle).toContain('inset 0 0 0 1px')
+    expect(armedStyle).toContain('--dsw-alias-interactive-bg-hover-danger')
+    expect(armedStyle).not.toContain('--dsw-alias-interactive-bg-active')
+
+    fireEvent.click(x)
+    expect(removeItem).toHaveBeenCalledWith('one')
+  })
+
+  it('puts the excerpt and the comment into the list button’s accessible name', () => {
+    // aria-label 会**覆盖**按钮内容，所以旧写法让可见的摘要与评论预览对屏读完全
+    // 不可见 —— 而这份列表正是"原文没了之后唯一的入口"，屏读用户恰恰在这里最需
+    // 要分辨哪条是哪条。杀法：换回 aria-label={t('selection.list.edit', { n })}。
+    const commented = aggregateOf([
+      { ...twoItems.items[0]!, comment: '这条我不同意' },
+      twoItems.items[1]!,
+    ])
+    renderDock(commented)
+    openChipList()
+    expect(screen.getByRole('button', { name: '编辑第 1 条引用的评论 first 这条我不同意' })).toBeTruthy()
+    expect(screen.getByRole('button', {
+      name: `编辑第 2 条引用的评论 second ${zh['selection.comment.empty']}`,
+    })).toBeTruthy()
+    expect(editRow('1').getAttribute('aria-label')).toBeNull()
+  })
+
+  it('truncates a long comment in the edit button’s accessible name instead of reading it in full', () => {
+    // 摘要那半（quoteExcerpt）会截断，评论那半直接渲染原文——视觉上靠
+    // text-overflow 裁掉，但 aria-labelledby 读的是 DOM 里的真实文本节点，
+    // 从没被裁短过。一条长评论会让屏读用户听完一整段才轮到下一个按钮。
+    // 杀法：把 quoteExcerpt(comment) 换回裸的 comment。
+    const longComment = '这条评论真的很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长，用来验证可访问名会不会把整段话都读出来。'
+    expect(longComment.length).toBeGreaterThan(40)
+    const truncated = '这条评论真的很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长…'
+    const commented = aggregateOf([{ ...twoItems.items[0]!, comment: longComment }])
+    renderDock(commented)
+    openChipList()
+    expect(screen.queryByRole('button', {
+      name: `编辑第 1 条引用的评论 first ${longComment}`,
+    }), '可访问名把未截断的整条评论读了出来').toBeNull()
+    expect(screen.getByRole('button', {
+      name: `编辑第 1 条引用的评论 first ${truncated}`,
+    })).toBeTruthy()
+    // 可见文本节点本身也是截断后的那份：视觉与可访问名现在说的是同一句话。
+    expect(document.getElementById('dsh-quote-comment-one')!.textContent).toBe(truncated)
+  })
+
+  it('namespaces the card describedby ids by item so two Panes cannot cross-read', () => {
+    // SelectionDock 是按 session 注册的：双 Pane 下两个实例同时存在，序号生成的
+    // id 逐字节相同，aria-describedby 会解析到文档里靠前的那一个 —— 读成另一个
+    // Pane 的状态。杀法：把 id 换回 `dsh-quote-card-state-${ordinal}`。
+    //
+    // 两张卡片**怎么才能真的同时在场**：打开右边那张时它的 textarea 会抢焦点，
+    // 左边那张随即收到 focusout（relatedTarget 落在卡片外）→ 走「失焦即保存」→
+    // 存成功就收起。所以平时同一时刻只有一张。唯一留住左边那张的是**保存失败**
+    // （CAS 竞争）：本文件既有的不变量是"提交失败不收起、不清 draft"。于是两套
+    // id 同时躺在文档里，这条测试就驱动这条唯一可达的路径。
+    const left = aggregateOf([{ ...twoItems.items[0]!, id: 'left-1', parentSessionId: 'sa' }])
+    const right = aggregateOf([{ ...twoItems.items[1]!, id: 'right-1', parentSessionId: 'sb' }])
+    const leftUpdate = vi.fn(() => ({ ok: false as const, reason: 'stale-draft' as const }))
+    render(
+      <>
+        <SelectionDock
+          sessionId="sa"
+          session={{ sessionId: 'sa' }}
+          input={snapshotOf(left)}
+          updateComment={leftUpdate}
+          removeItem={vi.fn(() => ({ ok: true as const, aggregate: left }))}
+          t={zhTranslate}
+        />
+        <SelectionDock
+          sessionId="sb"
+          session={{ sessionId: 'sb' }}
+          input={snapshotOf(right)}
+          updateComment={vi.fn(() => ({ ok: true as const, aggregate: right }))}
+          removeItem={vi.fn(() => ({ ok: true as const, aggregate: right }))}
+          t={zhTranslate}
+        />
+      </>,
+    )
+    const chips = screen.getAllByRole('button', { name: '查看 1 条引用' })
+    expect(chips.length).toBe(2)
+    fireEvent.click(chips[0]!)
+    fireEvent.click(chips[1]!)
+    const edits = screen.getAllByRole('button', { name: /^编辑第 1 条引用的评论 / })
+    expect(edits.length).toBe(2)
+    fireEvent.click(edits[0]!)
+    // 先打点字：draft === baseline 时 commitCard 早退，根本不调 updateComment，
+    // 左边那张照样收起，两张卡片就凑不齐。
+    fireEvent.change(commentBox('对引用 1 的评论：first'), { target: { value: '左边写了一半' } })
+    fireEvent.click(edits[1]!)
+    expect(leftUpdate).toHaveBeenCalledWith('left-1', '左边写了一半')
+
+    const dialogs = screen.getAllByRole('dialog')
+    expect(dialogs.length).toBe(2)
+    const ids = dialogs.map((node) => node.querySelector('textarea')!.getAttribute('aria-describedby')!)
+    expect(new Set(ids).size, '两个 Pane 的 aria-describedby 目标 id 撞了').toBe(2)
+    for (const id of ids) {
+      expect(document.querySelectorAll(`[id="${id}"]`).length, id).toBe(1)
+    }
+  })
+
+  it('does not let the unmount commit drag the fresh capsule back to the old quote', () => {
+    // 卸载路径上 commit.current 是上一帧的 commitCard 闭包，而这时 ui 已经被
+    // 「新增引用自动浮胶囊」的 effect 换成了第 2 条的胶囊。杀法：把 commitCard
+    // 里的 collapse() 换回无条件 setUi({kind:'capsule', itemId, anchor})。
+    installRangeRects()
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
+    rangeRects.set('second', [{ top: 300, bottom: 316 }])
+    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }, { nodeKey: 'n2', text: 'second' }])
+    const one = aggregateOf([twoItems.items[0]!])
+    const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
+    const props = dockProps(twoItems, { updateComment })
+    const view = render(<SelectionDock {...props} input={snapshotOf(one)} />)
+    openCard('1')
+    fireEvent.change(commentBox('对引用 1 的评论：first'), { target: { value: '第一条的评论' } })
+
+    view.rerender(<SelectionDock {...props} input={snapshotOf(twoItems)} />)
+    // 字没丢（尽力提交照跑）……
+    expect(updateComment).toHaveBeenCalledWith('one', '第一条的评论')
+    // ……但胶囊必须留在刚到货的第 2 条上。
+    const capsule = document.querySelector<HTMLElement>('[data-dsh-quote-capsule]')!
+    expect(capsule.dataset.dshQuoteCapsule, '胶囊被打回了旧条目').toBe('2')
   })
 })
 
@@ -1173,5 +1896,38 @@ describe('applySelectionActions localizes the add-to-conversation projection', (
       encodeSelectionAggregate(aggregate), new AbortController().signal,
     )
     expect(serialized).toContain('Quoting from above:')
+  })
+})
+
+/**
+ * `dictionaries.ts` 的 `en satisfies Record<WorkbenchLocaleKey, string>` 已经在
+ * **编译期**保证了 key 集合相等（多一个也会被 excess-property 检查拦下）。它管
+ * 不到的是插值占位符：中文写 `{count}`、英文写 `{n}` 是能编译通过的，运行时那句
+ * 话就会留着一个没被替换的花括号。这条测试补的正是那个缺口。
+ */
+describe('引用浮层文案（zh/en）', () => {
+  const added = [
+    'selection.chip.label', 'selection.chip.aria', 'selection.list.label', 'selection.list.edit',
+    'selection.card.aria', 'selection.comment.empty',
+    'selection.comment.save', 'selection.comment.saveAria', 'selection.comment.cancel',
+    'selection.comment.cancelAria', 'selection.comment.saveEmpty',
+    'selection.announce.added', 'selection.announce.saved', 'selection.announce.removed',
+  ] as const
+
+  it('ships every new key in both dictionaries with matching placeholders', () => {
+    const placeholders = (text: string) => (text.match(/\{[a-zA-Z]+\}/g) ?? []).sort()
+    for (const key of added) {
+      const zhText = (zh as Record<string, string>)[key]
+      const enText = (en as Record<string, string>)[key]
+      expect(typeof zhText, `zh['${key}']`).toBe('string')
+      expect(typeof enText, `en['${key}']`).toBe('string')
+      expect(zhText!.length, `zh['${key}']`).toBeGreaterThan(0)
+      expect(enText!.length, `en['${key}']`).toBeGreaterThan(0)
+      expect(placeholders(enText!), `placeholders of '${key}'`).toEqual(placeholders(zhText!))
+    }
+  })
+
+  it('keeps the two dictionaries exactly the same size', () => {
+    expect(Object.keys(en).length).toBe(Object.keys(zh).length)
   })
 })

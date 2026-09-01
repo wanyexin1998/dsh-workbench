@@ -2,12 +2,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createQuoteHighlightRegistry, cssHighlightPainter, lastLineRect, placeQuoteBadge,
-  quoteBadgeWidth, quoteBandIsMeasured, quoteExcerpt, quoteMutationsMatter,
+  placeQuoteCard, quoteBadgeWidth, quoteBandIsMeasured, quoteExcerpt, quoteMutationsMatter,
   resolveQuoteAnchor, supportsHighlightApi,
   QUOTE_BADGE_HEIGHT,
   type QuoteHighlightPainter,
 } from './quote-highlight.js'
-import { QUOTE_HIGHLIGHT_ACTIVE_NAME, QUOTE_HIGHLIGHT_NAME } from './conversation-dom.js'
+import {
+  QUOTE_HIGHLIGHT_ACTIVE_NAME, QUOTE_HIGHLIGHT_NAME, QUOTE_HIGHLIGHT_TINT_NAME,
+} from './conversation-dom.js'
 import type { SelectionAggregateItem } from './selection-reference.js'
 
 function selectionRow(sessionId: string | null, key: string, kind = 'user') {
@@ -154,8 +156,8 @@ describe('createQuoteHighlightRegistry', () => {
     const painter = fakePainter()
     const registry = createQuoteHighlightRegistry(painter)
     const [a, b, c] = ranges(3)
-    registry.publish('left', { ranges: [a!, b!], active: [] })
-    registry.publish('right', { ranges: [c!], active: [c!] })
+    registry.publish('left', { ranges: [a!, b!], active: [], tinted: [] })
+    registry.publish('right', { ranges: [c!], active: [c!], tinted: [c!] })
     expect(registry.size).toBe(2)
     const base = painter.calls.filter(([name]) => name === QUOTE_HIGHLIGHT_NAME)
     expect(base[base.length - 1]).toEqual([QUOTE_HIGHLIGHT_NAME, 3, 0])
@@ -163,11 +165,28 @@ describe('createQuoteHighlightRegistry', () => {
     expect(active[active.length - 1]).toEqual([QUOTE_HIGHLIGHT_ACTIVE_NAME, 1, 1])
   })
 
+  it('gives the tint its own entry name so the underline entries never carry a background', () => {
+    // 底色只能发给不落在自绘背景里的子 Range。它与下划线设的是不相交的属性，
+    // 所以是第三个**条目名**，不是把 background 加进前两条。
+    const painter = fakePainter()
+    const registry = createQuoteHighlightRegistry(painter)
+    const [a, b] = ranges(2)
+    registry.publish('left', { ranges: [a!, b!], active: [], tinted: [a!] })
+    const tint = painter.calls.filter(([name]) => name === QUOTE_HIGHLIGHT_TINT_NAME)
+    expect(tint[tint.length - 1]).toEqual([QUOTE_HIGHLIGHT_TINT_NAME, 1, 0])
+    // 整条引用都坐在自绘背景上时（代码块里的引用），底色那一条整个撤掉，
+    // 下划线照旧。
+    registry.publish('left', { ranges: [a!, b!], active: [], tinted: [] })
+    expect(painter.deletes).toContain(QUOTE_HIGHLIGHT_TINT_NAME)
+    const base = painter.calls.filter(([name]) => name === QUOTE_HIGHLIGHT_NAME)
+    expect(base[base.length - 1]).toEqual([QUOTE_HIGHLIGHT_NAME, 2, 0])
+  })
+
   it('deletes the entries instead of setting an empty highlight', () => {
     const painter = fakePainter()
     const registry = createQuoteHighlightRegistry(painter)
     const [a] = ranges(1)
-    registry.publish('left', { ranges: [a!], active: [] })
+    registry.publish('left', { ranges: [a!], active: [], tinted: [] })
     expect(painter.deletes).toContain(QUOTE_HIGHLIGHT_ACTIVE_NAME)
     registry.withdraw('left')
     expect(registry.size).toBe(0)
@@ -177,7 +196,7 @@ describe('createQuoteHighlightRegistry', () => {
   it('is inert without a painter (unsupported host) and never throws', () => {
     const registry = createQuoteHighlightRegistry(null)
     const [a] = ranges(1)
-    expect(() => registry.publish('left', { ranges: [a!], active: [a!] })).not.toThrow()
+    expect(() => registry.publish('left', { ranges: [a!], active: [a!], tinted: [] })).not.toThrow()
     expect(() => registry.withdraw('left')).not.toThrow()
   })
 
@@ -191,7 +210,7 @@ describe('createQuoteHighlightRegistry', () => {
 })
 
 describe('placeQuoteBadge', () => {
-  const band = { top: 100, bottom: 600, right: 800 }
+  const band = { top: 100, bottom: 600, left: 0, right: 800 }
   const badge = { width: 16, height: QUOTE_BADGE_HEIGHT }
 
   it('parks the badge OUTSIDE the text column, never over the row it annotates', () => {
@@ -236,7 +255,7 @@ describe('placeQuoteBadge', () => {
   })
 
   it('returns null when the band has no measured height (geometry unknown)', () => {
-    const nothing = { top: 0, bottom: 0, right: 0 }
+    const nothing = { top: 0, bottom: 0, left: 0, right: 0 }
     expect(placeQuoteBadge({ top: 0, bottom: 16, right: 0 }, { right: 0 }, nothing, badge)).toBeNull()
     expect(quoteBandIsMeasured(nothing)).toBe(false)
     expect(quoteBandIsMeasured(null)).toBe(false)
@@ -357,5 +376,68 @@ describe('quoteBadgeWidth / quoteExcerpt', () => {
     expect(quoteExcerpt('alpha\nbeta')).toBe('alpha beta')
     expect(quoteExcerpt('x'.repeat(60))).toBe(`${'x'.repeat(40)}…`)
     expect(quoteExcerpt('  padded  ')).toBe('padded')
+  })
+})
+
+/**
+ * 胶囊 / 卡片落点。与 `placeSelectionToolbar` 的测试同一形状（表驱动 + 不变量），
+ * 但规则相反：那个首选**上方**并水平居中，这个首选**下方**并左对齐正文列。
+ */
+describe('placeQuoteCard', () => {
+  const band = { top: 100, bottom: 600, left: 40, right: 800 }
+  const card = { width: 320, height: 140 }
+
+  it('opens downward from the quoted line, left-aligned to the text column', () => {
+    // 截图里的卡片就是从被引用段落**向下**展开的。
+    const place = placeQuoteCard({ top: 300, bottom: 320 }, { left: 120 }, card, band)
+    expect(place).toEqual({ top: 326, left: 120, above: false })
+  })
+
+  it('flips above the line when the card cannot fit below it', () => {
+    const place = placeQuoteCard({ top: 500, bottom: 520 }, { left: 120 }, card, band)
+    expect(place.above).toBe(true)
+    expect(place.top).toBe(354)
+    expect(place.top + card.height).toBeLessThanOrEqual(500)
+  })
+
+  it('never lets the card box overlap the quoted line while the band has room', () => {
+    // 「浮层不遮挡被引用的原文」这条不变量的唯一出处。
+    const roomy = { top: 0, bottom: 1000, left: 0, right: 1000 }
+    const lines = [
+      { top: 0, bottom: 20 }, { top: 120, bottom: 160 }, { top: 480, bottom: 500 },
+      { top: 700, bottom: 760 }, { top: 900, bottom: 920 }, { top: 960, bottom: 980 },
+    ]
+    const sizes = [{ width: 240, height: 80 }, { width: 320, height: 140 }, { width: 360, height: 200 }]
+    for (const line of lines) {
+      for (const size of sizes) {
+        const place = placeQuoteCard(line, { left: 100 }, size, roomy)
+        const clear = place.top + size.height <= line.top || place.top >= line.bottom
+        expect({ line, size, top: place.top, clear }).toMatchObject({ clear: true })
+      }
+    }
+  })
+
+  it('keeps the card inside the band even when neither side has room (visibility wins)', () => {
+    // 两条不变量在带子矮到装不下卡片时会冲突。这里与 placeSelectionToolbar 取
+    // 同一优先级：宁可压住原文，也不能让正在打字的输入框整块滚出可见带。
+    const shallow = { top: 100, bottom: 300, left: 40, right: 800 }
+    const place = placeQuoteCard({ top: 150, bottom: 250 }, { left: 120 }, { width: 320, height: 250 }, shallow)
+    expect(place.top).toBe(shallow.top)
+    expect(place.top).toBeGreaterThanOrEqual(shallow.top)
+  })
+
+  it('clamps horizontally into the band instead of hanging off either edge', () => {
+    // QuoteBand 原本只有 top/bottom/right —— 徽标永远靠右，用不上左缘；有宽度的
+    // 盒子两侧都要钳，所以带子补了 left。
+    expect(placeQuoteCard({ top: 300, bottom: 320 }, { left: 700 }, card, band).left).toBe(480)
+    expect(placeQuoteCard({ top: 300, bottom: 320 }, { left: 10 }, card, band).left).toBe(40)
+  })
+
+  it('does not clamp against a band it could not measure', () => {
+    // 高/宽为 0 的带子说的是"还没布局"，不是"没有空间"。门槛与
+    // placeSelectionToolbar 的 `viewport > 0` 同形。
+    const unmeasured = { top: 0, bottom: 0, left: 0, right: 0 }
+    const place = placeQuoteCard({ top: 300, bottom: 320 }, { left: 120 }, card, unmeasured)
+    expect(place).toEqual({ top: 326, left: 120, above: false })
   })
 })

@@ -39,11 +39,37 @@ export const zh = {
   // 引用区的可见计数（原来的「选区引用 (N)」标题行）已经删掉——计数由正文里的
   // 编号徽标承担。屏读用户看不到徽标，所以把计数并进 section 的无障碍名。
   'selection.dock.labelCount': '选区引用（{count} 条）',
+  // composer 上方那枚小 chip。文案说的是「引用」而不是「注释」：aggregate 里
+  // 每一条都会随消息发出去，其中可能一条评论都没有——用「注释」配引用数在
+  // 0 条评论时是句假话。
+  'selection.chip.label': '{count} 条引用',
+  'selection.chip.aria': '查看 {count} 条引用',
+  'selection.list.label': '引用列表',
+  'selection.list.edit': '编辑第 {n} 条引用的评论',
+  'selection.card.aria': '第 {n} 条引用的评论：{excerpt}',
+  'selection.comment.empty': '未添加评论',
+  'selection.comment.save': '保存',
+  'selection.comment.saveAria': '保存第 {n} 条引用的评论',
+  'selection.comment.cancel': '取消',
+  'selection.comment.cancelAria': '取消编辑第 {n} 条引用的评论',
+  // 「保存」禁用时的原因说明。走 aria-describedby 而不是把它塞进按钮名——
+  // 按钮名要在启用/禁用两态里保持稳定。
+  'selection.comment.saveEmpty': '评论为空，无需保存',
+  // 只播报离散的、用户发起的结果。锚点四态**照旧不进** live region：滚动会让
+  // anchored ⇄ offscreen 高频翻转，任何提示都会变噪音。
+  'selection.announce.added': '已添加引用 {n}，共 {total} 条',
+  'selection.announce.saved': '已保存第 {n} 条引用的评论',
+  'selection.announce.removed': '已删除引用 {n}',
   'selection.comment.placeholder': '添加可选评论...',
   // 摘要进 aria-label 而不是 aria-describedby：它是这个输入框的身份（用来区分
   // 几个长得一样的框），身份属于 name，聚焦时立刻朗读。
   'selection.comment.aria': '对引用 {n} 的评论：{excerpt}',
   'selection.remove.aria': '删除引用 {n}：{excerpt}',
+  // 「按两次才删」第一次按下时的可访问名 / 播报。旧写法第一次按下只有
+  // `aria-pressed` 凭空出现——屏读把「已按下」念在一个「删除引用 1」上，
+  // 最自然的解读恰恰是「已经删掉了」，与事实相反。这句话必须自己说清楚
+  // 「还没删，再按一次才删」。
+  'selection.remove.armed': '再按一次以删除引用 {n}',
   // 「跳到原文」的可访问名。摘要**不**进这句：同一行的 title 已经把摘要给了
   // 指针用户，而屏读用户在同一行的评论框名里已经听过一次，再念一遍就是复读。
   'selection.reveal.aria': '跳到引用 {n} 的原文',
@@ -98,9 +124,35 @@ export const en = {
   'selection.side.error.failed': 'The side-chat action could not be completed. Try again.',
   'selection.dock.label': 'Selection references',
   'selection.dock.labelCount': 'Selection references ({count})',
+  // 与中文侧同一口径：说的是「引用 / quote」而不是「注释 / note」——aggregate 里
+  // 每一条都会随消息发出去，其中可能一条评论都没有（理由见 zh 侧同名 key）。
+  //
+  // 计数写成括号后缀，**不是** `{count} quotes`。宿主的翻译器只做 `{name}` 字面
+  // 替换，一点复数机制都没有（`dsh-client-locale` 的 `translate()` 就一句
+  // `template.replace(/\{(\w+)\}/g, …)`），所以 `{count} quotes` 在只有一条时会
+  // 渲染成 "1 quotes"——一个常驻在 composer 上方、英文界面下一眼可见的语法错。
+  // 括号后缀是本词典既有的英文计数惯例（下面 `selection.dock.labelCount` 就是
+  // 这么写的，`selection.quote.headingMultiple` 同理），它在任何 count 下都成立，
+  // 而且不需要调用点分支——分支得写在 selection-actions.tsx 里，那意味着为一条
+  // 文案在渲染层长一个 key 选择器。
+  'selection.chip.label': 'Quotes ({count})',
+  'selection.chip.aria': 'Review quotes ({count})',
+  'selection.list.label': 'Quote list',
+  'selection.list.edit': 'Edit the comment on quote {n}',
+  'selection.card.aria': 'Comment on quote {n}: {excerpt}',
+  'selection.comment.empty': 'No comment yet',
+  'selection.comment.save': 'Save',
+  'selection.comment.saveAria': 'Save the comment on quote {n}',
+  'selection.comment.cancel': 'Cancel',
+  'selection.comment.cancelAria': 'Cancel editing the comment on quote {n}',
+  'selection.comment.saveEmpty': 'Nothing to save yet',
+  'selection.announce.added': 'Quote {n} added, {total} in total',
+  'selection.announce.saved': 'Saved the comment on quote {n}',
+  'selection.announce.removed': 'Quote {n} removed',
   'selection.comment.placeholder': 'Add an optional comment…',
   'selection.comment.aria': 'Comment on quote {n}: {excerpt}',
   'selection.remove.aria': 'Remove quote {n}: {excerpt}',
+  'selection.remove.armed': 'Press again to delete quote {n}',
   'selection.reveal.aria': 'Jump to the source of quote {n}',
   'selection.anchor.offscreen': 'The quoted passage is currently out of view.',
   'selection.anchor.unmeasured': 'The quoted passage’s position cannot be read right now. The quote itself is still valid.',
