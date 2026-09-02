@@ -559,6 +559,24 @@ function renderDock(
   />)
 }
 
+/**
+ * jsdom 不做布局，`offsetHeight` 恒为 0，卡片永远量不到自己的高——于是"打字把
+ * 卡片撑高"这件事在测试里根本发生不了。这里只给 `[data-dsh-quote-card]` 喂一个
+ * **可变**的高度，其余元素保持 0（同 `measureToolbar` 的形状）。
+ */
+function measureCard(height: () => number): () => void {
+  const proto = HTMLElement.prototype
+  const saved = Object.getOwnPropertyDescriptor(proto, 'offsetHeight')
+  Object.defineProperty(proto, 'offsetHeight', {
+    configurable: true,
+    get(this: HTMLElement) { return this.hasAttribute('data-dsh-quote-card') ? height() : 0 },
+  })
+  return () => {
+    if (saved === undefined) delete (proto as unknown as Record<string, unknown>).offsetHeight
+    else Object.defineProperty(proto, 'offsetHeight', saved)
+  }
+}
+
 const twoItems = aggregateOf([
   { id: 'one', parentSessionId: 's', nodeKey: 'n1', nodeKind: 'user', atSeq: 1, text: 'first', startOffset: 0, endOffset: 5 },
   { id: 'two', parentSessionId: 's', nodeKey: 'n2', nodeKind: 'user', atSeq: 2, text: 'second', startOffset: 0, endOffset: 6 },
@@ -1244,6 +1262,11 @@ describe('SelectionDock', () => {
     ))
     expect(names).toEqual([
       'textarea',
+      // 关闭按钮画在右上角，但 DOM 上紧跟输入框：从输入框一次 Tab 就够到它
+      // （"点外面"对键盘用户根本不存在，这颗 X 就是那条路径的可见形态）。这条
+      // 只保证 Tab 顺序，不代表视觉阅读顺序也是这个次序（源码里那条注释已经
+      // 改成如实描述，见 selection-actions.tsx）。
+      '关闭并保存第 1 条评论',
       '删除引用 1：first',
       '跳到引用 1 的原文',
       '取消编辑第 1 条引用的评论',
@@ -1332,7 +1355,21 @@ describe('SelectionDock', () => {
     expect(card().getAttribute('aria-label')).toBe('第 2 条引用的评论：second')
   })
 
-  it('gives the card textarea the same focus ring the rest of the feature uses', () => {
+  it('keeps the input chrome-free and moves the focus signal onto the card’s own edge', () => {
+    // 用户报告的两件事：「输入框内那个很重的聚焦态」和「输入框自己那圈边框」。
+    // 改法是把一条描边拆成两个职责：边界由**卡片**画（它本来就有一条），输入框
+    // 自己什么都不画；焦点信号从框内 2px 蓝环换成卡片外沿 1px 的换色。
+    //
+    // 合规依据（这一段是本轮最容易引错的地方）：AA 侧只有 **1.4.11**，要求焦点
+    // 指示器对**相邻色** ≥3:1，没有厚度要求、也没有"聚焦相对未聚焦"的差值要求。
+    // 卡边 border-l2 → label-tertiary 实测 邻外/邻内 浅 3.71/3.71、深 8.54/5.67，
+    // 两侧都过。上一轮引的"2.4.11 要求两态 3:1"是错的：2.4.11 是 Focus Not
+    // Obscured（与外观无关），"同像素两态 3:1 + 2px 周长面积"是 2.4.13，AAA。
+    //
+    // 杀法（三条各自独立）：
+    //  · 把 `outline: focusedInput ? FOCUS_RING : 'none'` 写回 textarea；
+    //  · 给 textarea 加回任何 border（框内又有一圈线）；
+    //  · 让卡片的 borderColor 不随 focusedInput 变（焦点态整个消失）。
     renderDock(twoItems)
     openCard('1')
     const box = commentBox('对引用 1 的评论：first')
@@ -1341,26 +1378,129 @@ describe('SelectionDock', () => {
     // textarea 直接继承那条属性选择器，不需要新注入。
     expect(box.getAttribute('data-dsh-quote-comment')).not.toBeNull()
     expect(box.placeholder).toBe(zh['selection.comment.placeholder'])
-    fireEvent.focus(box)
-    expect(box.getAttribute('style')).toContain(`outline: 2px solid ${FOCUS_RING_COLOR}`)
-    expect(box.style.outlineOffset).toBe('-2px')
-    fireEvent.blur(box)
+
+    // 框内：无描边、无焦点环；背景不再是纯透明——`color-mix` 混了一点
+    // label-primary 进卡面的 bg-layer-3，给输入区自己一条克制但存在的边界（见
+    // QUOTE_INPUT_SURFACE 的注释与它的专项测试）。文字对比度不受影响：正文
+    // 18.90/11.57、placeholder 5.80/8.03、光标 4.23/4.55，全部 ≥4.5（都是相对
+    // 卡面量的，混合后的背景比卡面更暗/更亮了一点点，只会让对比度略微升高）。
+    expect(box.style.borderStyle).toBe('none')
+    expect(box.style.borderWidth).toBe('0px')
     expect(box.getAttribute('style')).toContain('outline: none')
-    // 静息描边用 label-tertiary（浅 3.71 / 深 8.54），不是 1.25:1 的 border-l2。
-    expect(box.getAttribute('style')).toContain('var(--dsw-alias-label-tertiary, #81858c)')
-    expect(box.getAttribute('style')).not.toContain('var(--dsw-alias-border-l2')
+    expect(box.getAttribute('style')).not.toContain('background: transparent')
+    expect(box.style.background).toContain('color-mix')
+    expect(box.style.background).toContain('var(--dsw-alias-bg-layer-3, #fff)')
+    expect(box.style.background).toContain('var(--dsw-alias-label-primary, #0f1115)')
+    expect(box.getAttribute('style')).not.toContain(FOCUS_RING_COLOR)
+
+    // 焦点信号在卡片自己那条边上：1px 不变，只换色。
+    const dialog = card()
+    fireEvent.focus(box)
+    expect(dialog.style.borderColor).toBe('var(--dsw-alias-label-tertiary, #81858c)')
+    fireEvent.blur(box)
+    expect(dialog.style.borderColor).toBe('var(--dsw-alias-border-l2, rgba(0,0,0,.1))')
+    // 换色而已 —— 宽度/线型一个都没动（聚焦不加粗、不位移）。
+    expect(dialog.style.borderWidth).toBe('1px')
+    expect(dialog.style.borderStyle).toBe('solid')
   })
 
-  it('separates the floating surfaces with a border that survives dark mode', () => {
-    // SURFACE_FLOATING 的 border-inverted 深色合成后是 #414244，对页面 #151517
-    // 只有 1.81:1。这三层压在正文上，边界一弱正文就糊进浮层。
+  it('starts one line tall and stops growing at the line cap', () => {
+    // 用户报告：「默认展示了窄输入框，但是点击了就变成了高的输入框」。真因是
+    // 固定的 `minHeight: 64`（三行多）——折叠态胶囊只有 32px，点开就蹦成一张
+    // 130px 的卡片。改成一行起步（20 行高 + 上下各 8 内边距 = 36，对胶囊只差
+    // 4px）、按真实行数长高、6 行封顶后框内滚动。
+    // 杀法（各自独立）：去掉 `Math.min(…, lineCap)` 上限（第三条断言变 400px）、
+    // 去掉 `Math.max(…, COMMENT_ONE_LINE)` 下限（第一条变 0px）、把 overflowY
+    // 换回 hidden（超出的行就再也读不到了）。
     renderDock(twoItems)
     openCard('1')
-    const dialog = card()
-    expect(dialog.getAttribute('style')).toContain('border: 1px solid var(--dsw-alias-label-tertiary, #81858c)')
-    expect(dialog.getAttribute('style')).toContain('background: var(--dsw-alias-bg-layer-3, #fff)')
-    // 浅色下所有 bg-* 层都是纯白 —— 阴影和描边必须同时在。
-    expect(dialog.style.boxShadow).not.toBe('')
+    const box = commentBox('对引用 1 的评论：first')
+    // jsdom 不做布局，scrollHeight 恒为 0 —— 自己喂一个可变的值当"真实行数"。
+    let scrollHeight = 0
+    Object.defineProperty(box, 'scrollHeight', { configurable: true, get: () => scrollHeight })
+
+    // 开卡即一行高：36px。
+    expect(box.style.height, '开卡不是一行高').toBe('36px')
+    expect(box.style.resize, '自动增高与手动拖拽会打架').toBe('none')
+    expect(box.style.overflowY, '到阈值之后必须能在框内滚动').toBe('auto')
+
+    // 三行（20×3 + 16 = 76）：跟着行数长。
+    scrollHeight = 76
+    fireEvent.change(box, { target: { value: '一\n二\n三' } })
+    expect(box.style.height).toBe('76px')
+
+    // 远超阈值：停在 6 行（20×6 + 16 = 136），剩下的交给框内滚动。
+    scrollHeight = 400
+    fireEvent.change(box, { target: { value: '很多很多行' } })
+    expect(box.style.height, '超过阈值之后还在往下长').toBe('136px')
+
+    // 删回一行也要落回去（先把 height 归零再读 scrollHeight 才做得到）。
+    scrollHeight = 36
+    fireEvent.change(box, { target: { value: '一' } })
+    expect(box.style.height, '删字之后高度只涨不落').toBe('36px')
+  })
+
+  it('pins the card’s quote-facing edge so typing never moves it', () => {
+    // 评论框可变高之后，卡片位置**绝不能再是高度的函数**。旧写法每帧
+    // `placeQuoteCard(…, cardSize, …)`：下缘钳制 `band.bottom - height` 会随高度
+    // 一直动（这里长到 400 就把 top 从 222 拽到 200），翻面判据也会随高度翻转，
+    // 于是用户一边打字卡片一边往上爬、长到某一行还会突然跳到原文上方。
+    // 杀法：把落点换回 `placeQuoteCard(source.rect, …, cardSize, source.band)`
+    // —— 第二条断言读到 200px，红。
+    installRangeRects()
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
+    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
+    let cardHeight = 96
+    const restore = measureCard(() => cardHeight)
+    try {
+      renderDock(aggregateOf([twoItems.items[0]!]))
+      openCard('1')
+      const dialog = card()
+      // 末行下缘 216 + QUOTE_CARD_GAP 6 = 222，钉死。
+      expect(dialog.style.top).toBe('222px')
+      // 带子 [100, 600)：钉住的那条边到带子下缘还剩 600 - 6 - 222 = 372。
+      expect(dialog.style.maxHeight).toBe('372px')
+
+      // 打字把卡片撑到 400 —— 位置一个像素都不许动。
+      cardHeight = 400
+      fireEvent.change(commentBox('对引用 1 的评论：first'), { target: { value: '一\n二\n三\n四\n五' } })
+      expect(dialog.style.top, '卡片长高之后落点动了').toBe('222px')
+      expect(dialog.style.maxHeight, '高度上限跟着高度变了').toBe('372px')
+    } finally {
+      restore()
+    }
+  })
+
+  it('separates the floating surfaces with the host’s own hairline, not a 3:1 stroke it does not need', () => {
+    // 上一轮这里是 label-tertiary（浅 3.71 / 深 8.54），依据写的是「1.4.11 要
+    // 3:1」——那条 SC 只规范 "user interface components and states"，而胶囊/卡片/
+    // 列表是**容器面板**，不是控件；Understanding 还明写：控件有可见内容时不要求
+    // 画出边界。所以这条描边从来不是合规项，纯粹是可读性判断——而它正是用户看到
+    // 的「边框线太重」。降到宿主自己的发丝线 border-l2（浅 #E6E6E6 1.25:1 /
+    // 深 #4D4E50 2.19:1），与宿主 MessageFeedbackActions 的 .notePanel 同一档
+    // （那个浅色下描边干脆是全透明的，只剩阴影）。
+    //
+    // 杀法：换回 label-tertiary（第一条红），或删掉 boxShadow —— 浅色下 bg-base
+    // 与 layer-1..3 全是纯白，没有阴影就是纯白压纯白，浮层与正文完全分不开。
+    const hairline = (surface: HTMLElement) => {
+      expect(surface.style.borderWidth).toBe('1px')
+      expect(surface.style.borderStyle).toBe('solid')
+      expect(surface.style.borderColor).toBe('var(--dsw-alias-border-l2, rgba(0,0,0,.1))')
+      expect(surface.getAttribute('style')).not.toContain('var(--dsw-alias-label-tertiary')
+      expect(surface.getAttribute('style')).toContain('background: var(--dsw-alias-bg-layer-3, #fff)')
+      // 浅色下所有 bg-* 层都是纯白 —— 阴影和描边必须同时在。
+      expect(surface.style.boxShadow).not.toBe('')
+    }
+    renderDock(twoItems)
+    openCard('1')
+    // 开卡会自动聚焦输入框，卡边这时是"正在打字"的那一档（见上一条测试）；
+    // 这里量的是**静息**态，先让它静息下来。
+    fireEvent.blur(commentBox('对引用 1 的评论：first'))
+    hairline(card())
+    // 引用列表共用同一张面。（打开列表会把焦点带到第 1 行 → 卡片保存并收起，
+    // 那是既有的"失焦即保存"行为，不是这条测试要管的事。）
+    openChipList()
+    hairline(document.querySelector<HTMLElement>('[data-dsh-quote-list]')!)
   })
 
   /* ── 本轮修复 ───────────────────────────────────────────────────────── */
@@ -1439,36 +1579,109 @@ describe('SelectionDock', () => {
   })
 
   it('lets a hover on a different quote take the pinned capsule with it, instead of leaving it stuck', async () => {
-    // 与任意一条引用交互过（哪怕只是打开卡片又取消）之后，ui 会钉在 'capsule'
-    // 上——旧代码只有 removeQuote 成功那一条路径会把它写回 'none'，于是这枚钉子
-    // 只进不出：openItemId = ui.kind === 'none' ? peekItemId : ui.itemId 里
-    // `ui.kind` 恒不是 'none'，peekItemId 被彻底挡在公式外面。表现是：之后悬停
-    // 别的引用的徽标，hoveredItemId 照常更新（正文高亮跟着走），但胶囊纹丝不动，
-    // 仍停在被钉住的那条上。
-    // 杀法：把 schedulePeek 里"悬停到另一条时松开钉子"那段删掉（或者把
-    // `setUi({kind:'none'})` 换成什么都不做）——悬停第 2 条徽标时胶囊仍停在
-    // 第 1 条上，下面这条断言就会红。
+    // 「新增一条引用」是 'capsule' 现在**唯一**的生产者（收起卡片一律回 'none'，
+    // 见下面那条 collapses… 的测试），所以这里用新增来造出被钉住的那枚胶囊。
+    //
+    // 被测行为没变：ui 钉在 'capsule' 上时，openItemId = ui.itemId 恒成立，
+    // peekItemId 被挡在公式外面 —— 之后悬停别的引用的徽标，hoveredItemId 照常
+    // 更新（正文高亮跟着走），胶囊却纹丝不动。
+    // 杀法：把 schedulePeek 里"悬停到另一条时松开钉子"那段删掉（或把
+    // `setUi({kind:'none'})` 换成什么都不做）——胶囊仍停在第 2 条上，最后一条
+    // 断言变红。
     installRangeRects()
     rangeRects.set('first', [{ top: 200, bottom: 216 }])
     rangeRects.set('second', [{ top: 300, bottom: 316 }])
     mountConversation('s', [{ nodeKey: 'n1', text: 'first' }, { nodeKey: 'n2', text: 'second' }])
-    renderDock(twoItems)
+    const one = aggregateOf([twoItems.items[0]!])
+    const props = dockProps(twoItems)
+    const view = render(<SelectionDock {...props} input={snapshotOf(one)} />)
 
-    // 打开并取消第 1 条的卡片：ui 从 'card' 收起到 'capsule'，钉在条目 1 上
-    // （commitCard 的保存成功路径走的是同一个 collapse()，效果等价）。
-    openCard('1')
-    fireEvent.click(screen.getByRole('button', { name: '取消编辑第 1 条引用的评论' }))
+    // 新增第 2 条 → 胶囊钉在条目 2 上（不抢焦点，见上面那条测试）。
+    view.rerender(<SelectionDock {...props} input={snapshotOf(twoItems)} />)
     const capsule = () => document.querySelector<HTMLElement>('[data-dsh-quote-capsule]')!
-    expect(capsule(), '取消后正文旁应该留着第 1 条的胶囊').not.toBeNull()
-    expect(capsule().dataset.dshQuoteCapsule, '取消后胶囊应该钉在条目 1 上').toBe('1')
+    expect(capsule(), '新增引用后正文旁应该浮出胶囊').not.toBeNull()
+    expect(capsule().dataset.dshQuoteCapsule, '胶囊应该钉在刚新增的条目 2 上').toBe('2')
 
-    // 悬停第 2 条的正文徽标，等悬停预览的开启延迟（PEEK_OPEN_MS）跑完。
+    // 悬停第 1 条的正文徽标，等悬停预览的开启延迟（PEEK_OPEN_MS）跑完。
     await act(async () => {
-      fireEvent.mouseEnter(document.querySelector<HTMLElement>('[data-dsh-quote-badge-anchor="two"]')!)
+      fireEvent.mouseEnter(document.querySelector<HTMLElement>('[data-dsh-quote-badge-anchor="one"]')!)
       await new Promise((resolve) => setTimeout(resolve, 150))
     })
     expect(capsule(), '悬停到另一条引用后胶囊应该换成新的这一条').not.toBeNull()
-    expect(capsule().dataset.dshQuoteCapsule, '悬停到另一条引用后胶囊没有跟过去').toBe('2')
+    expect(capsule().dataset.dshQuoteCapsule, '悬停到另一条引用后胶囊没有跟过去').toBe('1')
+  })
+
+  it('collapses all the way out of sight when the user clicks away, instead of leaving a pinned capsule', () => {
+    // 用户报告的第三件事：「打开输入框之后只能在下方引用处删掉」。真因不是卡片
+    // 没收起——它收了——而是收到了 'capsule'：段落旁永远留着一枚 32px 的胶囊，
+    // 空评论时还写着占位符，从用户视角这就是"输入框关不掉"。
+    // 杀法：把 commitCard 的 collapse() / onCancel 换回 {kind:'capsule', …}，
+    // 下面两条 toBeNull 立刻红。
+    installRangeRects()
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
+    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
+    renderDock(aggregateOf([twoItems.items[0]!]))
+
+    openCard('1')
+    expect(screen.queryByRole('dialog')).not.toBeNull()
+    // 点别处 = 保存并收起（capture 阶段的 document.pointerdown）。
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByRole('dialog'), '点别处之后卡片还在').toBeNull()
+    expect(document.querySelector('[data-dsh-quote-capsule]'), '收起后段落旁还钉着胶囊').toBeNull()
+
+    // 「取消」也一样收干净。
+    openCard('1')
+    fireEvent.click(screen.getByRole('button', { name: '取消编辑第 1 条引用的评论' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.querySelector('[data-dsh-quote-capsule]'), '取消后段落旁还钉着胶囊').toBeNull()
+  })
+
+  it('reopens the card from the body badge with the text the user had typed', () => {
+    // 「点别处先隐藏 / 点划词旁的数字标签再打开编辑 / 输入的内容做临时暂存」这条
+    // 动作链的闭环。第三句描述的正是现状：失焦那一刻评论就写进了 composer 草稿的
+    // 聚合（这才是"暂存"的真身——随草稿走、随草稿清空而消失、发送后随消息消费），
+    // openCard 再用 item.comment 把它重建回 draft+baseline。
+    // 杀法：断掉 QuoteBadgeLayer 的 onClick（重新打开这条路没了），或让 openCard
+    // 不用 item.comment 播种 draft（打开是空的）。
+    installRangeRects()
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
+    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
+    const bare = aggregateOf([twoItems.items[0]!])
+    const saved = aggregateOf([{ ...twoItems.items[0]!, comment: '暂存的半句话' }])
+    const updateComment = vi.fn(() => ({ ok: true as const, aggregate: saved }))
+    const props = dockProps(saved, { updateComment })
+    const view = render(<SelectionDock {...props} input={snapshotOf(bare)} />)
+
+    openCard('1')
+    fireEvent.change(commentBox('对引用 1 的评论：first'), { target: { value: '暂存的半句话' } })
+    fireEvent.pointerDown(document.body)
+    expect(updateComment).toHaveBeenCalledWith('one', '暂存的半句话')
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    // 宿主把改写后的草稿回灌（真实链路：insertReference 的 CAS 写回）。
+    view.rerender(<SelectionDock {...props} input={snapshotOf(saved)} />)
+    // 点正文那枚数字徽标 —— 用户要的"再打开编辑"入口。
+    fireEvent.click(document.querySelector<HTMLElement>('[data-dsh-quote-badge-anchor="one"]')!)
+    expect(commentBox('对引用 1 的评论：first').value, '重新打开时刚打的字没回来').toBe('暂存的半句话')
+  })
+
+  it('gives the close button a name that says it saves, and actually saves', () => {
+    // X 的语义是「保存并收起」——「点外面」的可见形态，不是丢弃。卡片上同时有一个
+    // 可见的「保存」按钮，所以一个光秃秃的「关闭」必然被读成"丢弃"，可访问名里
+    // 必须把「并保存」写死。
+    // 杀法：把 X 接到 onCancel 上 —— updateComment 不会被调用，第二条断言红。
+    const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
+    renderDock(twoItems, { updateComment })
+    const chip = screen.getByRole('button', { name: '查看 2 条引用' })
+    openCard('1')
+    fireEvent.change(commentBox('对引用 1 的评论：first'), { target: { value: '关掉之前写的' } })
+    fireEvent.click(screen.getByRole('button', { name: '关闭并保存第 1 条评论' }))
+    expect(updateComment).toHaveBeenCalledWith('one', '关掉之前写的')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // 卡片 portal 在 document.body，收起 = 卸载：焦点必须还回 chip。
+    expect(document.activeElement, '关闭后焦点掉了').toBe(chip)
+    // 焦点归还本身会再触发一次 focusout —— 落定之后不许借它又写一遍。
+    expect(updateComment).toHaveBeenCalledTimes(1)
   })
 
   it('lets the chip close the list it opened, and keeps aria-expanded honest', () => {
@@ -1721,6 +1934,96 @@ describe('SelectionDock', () => {
     const capsule = document.querySelector<HTMLElement>('[data-dsh-quote-capsule]')!
     expect(capsule.dataset.dshQuoteCapsule, '胶囊被打回了旧条目').toBe('2')
   })
+
+  it('freezes the card facing from the real quote geometry, not the transient chip fallback', () => {
+    // 回归复现：开卡后的第一帧 `anchors.openAnchor` 恒为 null（quote-overlay.tsx
+    // 的 B 段量测 layout effect 还没为新的 openItemId 跑过），这一帧的 `source`
+    // 会退到 chipRect 兜底渲染点什么；而 chipRect 一旦被量过就不会再清空——
+    // `openCard` 走的 chip → 列表 → 编辑这条路径本身就会先打开一次列表，量出
+    // chipRect。jsdom 里 chip 这枚 <button> 的 getBoundingClientRect 没被 mock，
+    // 恒为全 0，在 `viewportBand()` 这条几乎顶到窗口高的带子里"下方永远塞得
+    // 下"——chip 分支因此恒给 above=false。真实原文这里量出来的位置塞不下
+    // 下方、只能翻到上方（above=true）。冻结时机一旦从"chip 兜底那一帧"错误地
+    // 锁死，即便下一帧真几何到位，above 也再也不会重算。
+    // 杀法：把 `if (quoteAnchor !== null || ui.anchor === 'chip') frozenFacing...`
+    // 那道闸门去掉，改回每次 source !== null 都无条件写 —— top 变成 chip 分支
+    // 算出来的 504 附近（低于可见带内应有的上翻位置），不再是 448。
+    installRangeRects()
+    rangeRects.set('first', [{ top: 550, bottom: 566 }])
+    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
+    const restore = measureCard(() => 96)
+    try {
+      renderDock(aggregateOf([twoItems.items[0]!]))
+      openCard('1')
+      // 末行上缘 550 - GAP 6 = 544，钉住下缘（above 分支），减去开卡高度 96 → 448。
+      expect(card().style.top, '朝向被 chip 兜底的错误几何冻结住了').toBe('448px')
+    } finally {
+      restore()
+    }
+  })
+
+  it('reserves room for the error row so it does not spill outside the card box', () => {
+    // 旧代码给 textarea 的高度上限是 `maxHeight - 120`，多出来的 60px 正是留给
+    // role="alert" 那一行的。新代码 `CARD_CHROME_HEIGHT`(60) 只算了内边距 + 网格
+    // 间距 + 动作行，没算错误行（18px 文字 + 8px gap）。卡片的 `maxHeight` 是画
+    // 在盒子上的 CSS 上限，`overflow` 默认 visible——超出的内容不会被裁掉，会
+    // 直接画到盒子外面，盖住下面的正文，读不清。
+    // 杀法：把 lineCap 计算里 `- (error !== null ? ERROR_ROW_HEIGHT : 0)` 删掉——
+    // 有错误时 box.style.height 会跟没错误时一样撑到 100px，最后一条断言变红。
+    installRangeRects()
+    rangeRects.set('first', [{ top: 400, bottom: 428 }])
+    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
+    const updateComment = vi.fn(() => ({ ok: false as const, reason: 'stale-draft' as const }))
+    renderDock(aggregateOf([twoItems.items[0]!]), { updateComment })
+    openCard('1')
+    const box = commentBox('对引用 1 的评论：first')
+    // jsdom 不做布局，scrollHeight 恒为 0——喂一个远超阈值的值，逼输入框往
+    // lineCap 顶（同 "starts one line tall…" 那条测试的手法）。
+    let scrollHeight = 400
+    Object.defineProperty(box, 'scrollHeight', { configurable: true, get: () => scrollHeight })
+    fireEvent.change(box, { target: { value: '撑满输入框' } })
+    expect(box.style.height, '没有错误时的高度上限').toBe('100px')
+
+    // 触发一次失败提交：卡片留在原地、挂上错误行（既有行为，见
+    // "keeps the card open WITH the text…" 那条测试）。
+    fireEvent.pointerDown(document.body)
+    expect(screen.getByRole('alert').textContent).toBe(zh['selection.error.draftChanged'])
+    // 带子 [100,600)、末行 [400,428] → pin.maxHeight = 600 - 6 - (428+6) = 160。
+    // 没错误：lineCap = min(136, 160-60) = 100。有错误：lineCap = min(136, 160-60-26) = 74。
+    expect(box.style.height, '错误行的高度没有被算进预算，撑出了卡片盒子').toBe('74px')
+  })
+
+  it('keeps the close button’s focus ring inside the card’s rounded corner', () => {
+    // 关闭按钮贴着卡片 16px 的圆角（外层 div 是 `top:4,right:4`，按钮本身
+    // 28×28）：默认的外环（`outlineOffset:+2`）外沿正好落在卡片 padding box 的
+    // 直角顶点上，会被圆角描边"切掉"一块，画到圆角之外的空白里。这里改内环——
+    // 与 QuoteList 那两颗贴边按钮同款先例（`outlineOffset: -FOCUS_RING_OFFSET`）。
+    // 杀法：把 CardIconButton 调用点上的 `insetFocusRing` 去掉——第一条断言变
+    // '2px'，红。
+    renderDock(twoItems)
+    openCard('1')
+    const close = screen.getByRole('button', { name: '关闭并保存第 1 条评论' })
+    fireEvent.focus(close)
+    expect(close.style.outlineOffset, '关闭按钮的焦点环没有内缩，会探出卡片圆角').toBe('-2px')
+    // 其余按钮在卡片 chrome 里有余量，维持默认的外环——不是所有按钮都要内缩。
+    const trash = screen.getByRole('button', { name: '删除引用 1：first' })
+    fireEvent.focus(trash)
+    expect(trash.style.outlineOffset, '不该贴边的按钮也被改成内环了').toBe('2px')
+  })
+
+  it('gives the close button a title so pointer users get the same "close and save" hint', () => {
+    // 产品决定（见 dictionaries.ts）：X 保持"保存并收起"的语义，但指针用户悬停
+    // 看不到可访问名——补一个原生 title，复用同一段文案（改写后已经不再是
+    // saveAria 的子串，见 dictionaries.ts 与"两个可访问名不再互为子串"那条测试）。
+    // 杀法：去掉 CardIconButton 上的 `title` prop 透传——第一条断言变 null。
+    renderDock(twoItems)
+    openCard('1')
+    const close = screen.getByRole('button', { name: '关闭并保存第 1 条评论' })
+    expect(close.getAttribute('title')).toBe('关闭并保存第 1 条评论')
+    // 其余按钮没有要求加 title，维持原样（不该被一起改）。
+    const trash = screen.getByRole('button', { name: '删除引用 1：first' })
+    expect(trash.getAttribute('title')).toBeNull()
+  })
 })
 
 describe('createSelectionItemId', () => {
@@ -1911,6 +2214,9 @@ describe('引用浮层文案（zh/en）', () => {
     'selection.card.aria', 'selection.comment.empty',
     'selection.comment.save', 'selection.comment.saveAria', 'selection.comment.cancel',
     'selection.comment.cancelAria', 'selection.comment.saveEmpty',
+    // 卡片右上角那颗 X 的可访问名。名字里必须带「并保存」/"and save"，否则它会被
+    // 读成"丢弃"——同一张卡片上还有一个可见的「保存」按钮。
+    'selection.comment.closeAria',
     'selection.announce.added', 'selection.announce.saved', 'selection.announce.removed',
   ] as const
 
@@ -1929,5 +2235,21 @@ describe('引用浮层文案（zh/en）', () => {
 
   it('keeps the two dictionaries exactly the same size', () => {
     expect(Object.keys(en).length).toBe(Object.keys(zh).length)
+  })
+
+  it('never lets the close button’s accessible name contain the save button’s verbatim', () => {
+    // 同一张卡片上两个可访问名互为子串：closeAria 早先写的是「关闭并保存第
+    // {n} 条引用的评论」，从第 3 个字起逐字节包含了 saveAria「保存第 {n} 条
+    // 引用的评论」。按名字定位 / 语音控制的用户没法区分「关闭」和「保存」这
+    // 两颗按钮——英文侧同形（"Close and save the comment on quote {n}"
+    // 整句包含了 "Save the comment on quote {n}"）。
+    // 杀法：把 zh/en 的 closeAria 改回旧文案（在 saveAria 前面简单拼接
+    // "关闭并"/"Close and "）——两条断言都变红。
+    for (const dict of [zh, en]) {
+      const save = dict['selection.comment.saveAria']
+      const close = dict['selection.comment.closeAria']
+      expect(close.includes(save), `closeAria 包含了 saveAria：${JSON.stringify({ save, close })}`).toBe(false)
+      expect(save.includes(close), `saveAria 包含了 closeAria：${JSON.stringify({ save, close })}`).toBe(false)
+    }
   })
 })

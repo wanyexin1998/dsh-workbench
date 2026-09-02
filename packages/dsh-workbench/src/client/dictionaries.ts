@@ -52,6 +52,19 @@ export const zh = {
   'selection.comment.saveAria': '保存第 {n} 条引用的评论',
   'selection.comment.cancel': '取消',
   'selection.comment.cancelAria': '取消编辑第 {n} 条引用的评论',
+  // 卡片右上角那个 X。**名字里必须带「并保存」**：同一张卡片上还有一个可见的
+  // 「保存」按钮，一个光秃秃的「关闭」会被读成「丢弃」，而它真正的语义是
+  // 「点外面」的可见形态 —— 保存并收起。这是本轮唯一有误读风险的地方，可访问名
+  // 必须自己把它堵死。
+  //
+  // **不能写成 `selection.comment.saveAria` 的超串**：早先的写法是
+  // 「关闭并保存第 {n} 条引用的评论」，从第 3 个字开始逐字节包含了 saveAria
+  // 「保存第 {n} 条引用的评论」——同一张卡片上两个可访问名互为子串，按名字定位
+  // /语音控制的用户没法区分「关闭」和「保存」这两颗按钮。这里改写措辞（去掉
+  // 「引用的」、换一种语序），保住「并保存」这三个字表达的语义，但不再是
+  // saveAria 的逐字节前缀/后缀。同一段文案也直接当 `title` 用（见 X 按钮那颗
+  // `CardIconButton` 的 `title` prop）——指针用户悬停就能看到同一句话。
+  'selection.comment.closeAria': '关闭并保存第 {n} 条评论',
   // 「保存」禁用时的原因说明。走 aria-describedby 而不是把它塞进按钮名——
   // 按钮名要在启用/禁用两态里保持稳定。
   'selection.comment.saveEmpty': '评论为空，无需保存',
@@ -145,6 +158,7 @@ export const en = {
   'selection.comment.saveAria': 'Save the comment on quote {n}',
   'selection.comment.cancel': 'Cancel',
   'selection.comment.cancelAria': 'Cancel editing the comment on quote {n}',
+  'selection.comment.closeAria': 'Close and save comment {n}',
   'selection.comment.saveEmpty': 'Nothing to save yet',
   'selection.announce.added': 'Quote {n} added, {total} in total',
   'selection.announce.saved': 'Saved the comment on quote {n}',

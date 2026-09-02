@@ -9,7 +9,8 @@ import {
 } from './conversation-dom.js'
 import type { HarnessServices } from './harness-adapter.js'
 import {
-  placeQuoteCard, quoteExcerpt, type QuoteAnchorState, type QuoteHighlightRegistry,
+  pinQuoteCard, placeQuoteCard, quoteExcerpt,
+  type QuoteAnchorState, type QuoteHighlightRegistry,
 } from './quote-highlight.js'
 import { QuoteBadge, QuoteBadgeLayer, useQuoteAnchors } from './quote-overlay.js'
 import { SelectionController, type SelectionSessions } from './selection-controller.js'
@@ -552,8 +553,43 @@ const CAPSULE_HEIGHT = 32
 const CAPSULE_MAX_WIDTH = 280
 const CARD_MIN_WIDTH = 240
 const CARD_MAX_WIDTH = 360
-/** 量到真高之前的兜底值：textarea 64 + 动作行 28 + 内边距 24 + 间距。 */
-const CARD_FALLBACK_HEIGHT = 132
+
+/* ── 评论框的高度 ───────────────────────────────────────────────────────────
+   旧写法是固定的 `minHeight: 64`（三行多）：折叠态胶囊只有 32px，点开就蹦成
+   一张 130px 的卡片。改成「一行起步 → 按真实行数长高 → 到阈值转框内滚动」。
+   一行 = 行高 20 + 上下内边距各 8 = 36px（描边已经取消，不再占高），对胶囊的
+   32px 只差 4px——**输入框**不再是一次跳变。卡片整体仍有 chrome（下方
+   CARD_CHROME_HEIGHT）：胶囊 32px → 开卡高度 CARD_FALLBACK_HEIGHT(96)px 依旧是
+   一次三倍多的跳变，这里改掉的只是"输入框本身"那一段落差，不是整张卡片。 */
+const COMMENT_LINE_HEIGHT = 20
+const COMMENT_PADDING_Y = 8
+const COMMENT_ONE_LINE = COMMENT_LINE_HEIGHT + COMMENT_PADDING_Y * 2
+/** 超过这么多行就在框内滚动，卡片不再往下长。 */
+const COMMENT_MAX_LINES = 6
+const COMMENT_MAX_HEIGHT = COMMENT_LINE_HEIGHT * COMMENT_MAX_LINES + COMMENT_PADDING_Y * 2
+/** 卡片上评论框以外的固定开销：内边距 12×2 + 网格间距 8 + 动作行 28。**不含**
+ * 错误提示行——那一行只在提交/删除失败时才出现，预算单独由 `ERROR_ROW_HEIGHT`
+ * 记账，按 `error` 是否非空动态并进 `lineCap`（见下方用到它的地方）。 */
+const CARD_CHROME_HEIGHT = 60
+/** 错误提示行的高度预算：`fontSize:12/lineHeight:18` 的文字行 + `display:grid`
+ * 卡片自己的 `gap:8`（这一行是 grid 的第 4 个子项，会再吃一份 gap）。
+ * `error !== null` 时必须并进 chrome 预算：卡片的 `maxHeight` 是画在盒子上的
+ * CSS 上限，`overflow` 默认 `visible`，超出的内容不会被裁掉、而是直接画到盒子
+ * 外面——错误行会压在卡片下方的正文上，读不清。 */
+const ERROR_ROW_HEIGHT = 18 + 8
+/**
+ * **开卡瞬间**的卡片高度（一行评论框 + chrome）—— 不是稳定高度。
+ *
+ * 它有两个用途，都只发生在"这一刻"：① 首帧、`onMeasure` 量到真高之前的兜底；
+ * ② 在开卡那一帧决定卡片朝上还是朝下，之后这个朝向被冻结、不再翻面。
+ *
+ * 评论框可变高之后，卡片高度每帧都可能变，所以**位置绝不能再是高度的函数**：
+ * 落点由 `pinQuoteCard` 钉住朝向原文的那条边（放在下方钉上缘、放在上方钉下缘），
+ * 长高的余量由收紧后的 `maxHeight` 吃掉（论证见 quote-highlight.ts 的
+ * `pinQuoteCard`）。所以这个兜底值"与稳定高度对不上"**不是 bug** —— 它本来就
+ * 只描述开卡那一刻，后续的增高不通过重定位吸收。
+ */
+const CARD_FALLBACK_HEIGHT = COMMENT_ONE_LINE + CARD_CHROME_HEIGHT
 const LIST_FALLBACK_HEIGHT = 160
 /** 引用列表最多 240px 高，再多就在列表内部滚动 —— 它是 portal 在 body 上的
  * 浮层，没有"把 composer 顶飞"的问题，但也不该长到盖住整屏对话。 */
@@ -565,22 +601,103 @@ const PEEK_OPEN_MS = 120
 const PEEK_CLOSE_MS = 150
 
 /**
- * 胶囊 / 卡片 / 引用列表共用的浮层面。
+ * 胶囊 / 卡片 / 引用列表共用的浮层面的描边色：宿主自己那条发丝线。
+ *   `border-l2` 合成后 浅 `#E6E6E6` 1.25:1 / 深 `#4D4E50` 2.19:1（对页面底）
  *
- * 描边**不用** `SURFACE_FLOATING` 的 `border-inverted`：那个 token 深色合成后
- * 是 `#414244`，对页面 `#151517` 只有 1.81:1（`border-l4` 也只有 2.81:1）。
- * 划词工具条可以那么写，因为它浮在选区上方的空白里；这三层会**压在正文上**，
- * 边界一弱，正文就视觉上糊进浮层。`label-tertiary` 是本文件已有的先例（评论框
- * 静息描边那一段），沿用同一条论证：
- *   描边 / 页面 bg-base   浅 3.71:1   深 8.54:1   （1.4.11 要 3:1）
- *   描边 / 浮层面          浅 3.71:1   深 5.67:1
- * 浅色下所有 `bg-*` 层都是纯白，所以阴影（SHADOW_LV3）与描边两者都要写。
+ * 上一轮这里是 `label-tertiary`（浅 3.71 / 深 8.54），依据写的是「1.4.11 要
+ * 3:1」——**那条 SC 管不到这里**。它只规范 "user interface components and
+ * states"，而胶囊 / 卡片 / 列表是**容器面板**，不是控件；Understanding 还明写：
+ * 控件本身有可见内容时不要求画出边界（"a border or other indication of the
+ * overall boundary of the hit area is not required"）。所以这条描边从来不是
+ * 合规项，只是可读性判断——而它正是用户看到的「边框线太重」：全产品里没有第二
+ * 处浮层描边这么黑。
+ *
+ * 宿主同类物的写法（只读参考 rc.2 产物）：`MessageFeedbackActions` 的
+ * `.notePanel` 是宿主自己的消息批注弹层，用 `border-inverted` + `shadow-lv3`，
+ * **浅色下那条描边是全透明的**，只剩阴影。这里比它还强一档（真的画了一条
+ * 1.25:1 的灰线），足够把浮层从正文里拉开。
+ *
+ * 阴影替代不了描边，所以两者都要写：`shadow-lv3` 的第一层是
+ * `0 0 1px 0 rgba(0,0,0,.2)`，1px 模糊让贴边处 alpha≈0.1，压白之后恰好也是
+ * `#E6E6E6` = 1.25:1（blur=0 的理论上限也只有 1.61:1）。而浅色下 `bg-base` 与
+ * `bg-layer-1..3` 全是纯白，少了任何一个浮层就糊进正文。
+ *
+ * 若真机上觉得深色太"飘"，唯一的旋钮是升到 `border-l4`（浅 1.45 / 深 2.81）——
+ * 仍然明显比 `label-tertiary` 浅，且同样不涉及任何合规阈值。
+ */
+const QUOTE_SURFACE_BORDER_COLOR = 'var(--dsw-alias-border-l2, rgba(0,0,0,.1))'
+
+/**
+ * 评论框聚焦时卡片那条边换成的颜色。**1px → 1px，只换色**：不加粗、不位移、
+ * 不换色相，观感上就是那道浅灰线"实了一下"。
+ *
+ * 依据是 WCAG **1.4.11（AA）**：焦点指示器对相邻色 ≥3:1，没有厚度要求、也没有
+ * 「聚焦态相对未聚焦态」的差值要求。实测（`label-tertiary` 对页面底 / 对浮层面）：
+ *   浅 3.71:1 / 3.71:1     深 8.54:1 / 5.67:1     —— 两侧都过 AA
+ *
+ * 上一轮那条 3px 蓝带引的是「2.4.11 要求聚焦相对未聚焦 3:1」，两处都错了：
+ * WCAG 2.2 的 **2.4.11 是 Focus Not Obscured (Minimum)**（说的是焦点元素不能被
+ * 作者内容完全遮挡，与外观无关），而"同像素聚焦/未聚焦 ≥3:1 + 2px 周长面积"是
+ * **2.4.13 Focus Appearance，Level AAA**。本文件其余每一处都站在 AA 基线上，
+ * 唯独那里被一条 AAA 指标绑架，才推出了一条又粗又蓝的环。
+ *
+ * 这一档同像素差（浅 2.97 / 深 3.90）与面积（1px 环 868px² < 1424px²）拿不到
+ * AAA。想连 AAA 一起要，就把聚焦边加到 2px（`inset` 阴影叠上去，避免布局位移）
+ * 并换 `label-secondary`（同像素 浅 4.65 / 深 5.53）——代价是观感明显变重，与
+ * 用户诉求相反，所以默认不做。
+ *
+ * 顺带钉一句给后来人：宿主自己的主 composer **一个焦点态都没有**
+ * （`.input { outline: none }`，全文件 grep 不到 `focus`），所以"跟宿主一致"
+ * 这条理由支持不了任何强度的焦点环，别拿它当挡箭牌；而再往浅走（例如
+ * `border-l4`，浅 1.45）就是**明确放弃 1.4.11 的焦点指示**，那属于产品取舍，
+ * 不该由实现者默默降下去。
+ */
+const CARD_FOCUS_BORDER_COLOR = 'var(--dsw-alias-label-tertiary, #81858c)'
+
+/**
+ * 三条边框属性写 longhand，不写 `border` 简写：卡片要在聚焦时单独覆盖
+ * `borderColor`，而本文件早有一条教训（见上面提示条那段长注释）——`border`
+ * 简写在赋值那一刻就展开成 12 个具体的 longhand，不是持续跟踪的引用，跟逐 key
+ * diff 的 React 混用会踩出"覆盖一个 longhand 之后简写整条失效"的坑。这里三个
+ * key 在每一帧都显式给值，覆盖的也只是其中一个，不存在缺席的那一帧。
  */
 const QUOTE_SURFACE: React.CSSProperties = {
   background: 'var(--dsw-alias-bg-layer-3, #fff)',
-  border: '1px solid var(--dsw-alias-label-tertiary, #81858c)',
+  borderWidth: 1, borderStyle: 'solid', borderColor: QUOTE_SURFACE_BORDER_COLOR,
   boxShadow: SHADOW_LV3,
 }
+
+/**
+ * 评论输入区**自己的**边界——不是描边，是背景比卡面深一档（浅色主题）/浅一档
+ * （深色主题）。
+ *
+ * 上一轮把输入框的 `border` 和 `background` 一起清空了，理由是"边界交给卡片
+ * 那条发丝线代劳"——但那条线圈的是**整张卡片**，五颗按钮和输入框共用同一条
+ * 边，输入框自己没有任何边界。深色下尤其看得出来：卡面 `bg-layer-3`
+ * （#353638）与 `background:transparent` 逐字节同色，输入区跟按钮区糊成一整块。
+ * 旧一版（清空之前）用的是 `background: bg-base`（深色 #151517），在 #353638
+ * 的卡面上是一口挖得出来的"井"——但浅色下 `bg-base` 与 `bg-layer-3` 全是纯白，
+ * 那口井在浅色下根本不存在，只解决了深色一侧。
+ *
+ * 这里换 `color-mix`：往卡面的 `bg-layer-3` 里混一点 `label-primary`（正文色）。
+ * 选它不是随手拿一个 token，是因为它在两个主题下天然落在"要挖的方向"两端：
+ * 浅色下 `label-primary` 接近黑（#0f1115），混一点会把卡面的纯白轻轻压暗；
+ * 深色下 `label-primary` 接近白（对 `bg-layer-3` 是 11.57:1，反推亮度 ≈0.95，
+ * 约等于 rgb(249,250,251)），混一点会把卡面的深灰轻轻提亮。同一行代码，两个
+ * 主题不用分支，都会得到"比卡面靠近正文色一点点"的效果。
+ *
+ * 10% 的量是刻意选的——两种背景色的对比度自算如下（这不是 SC 要求的边界，纯粹
+ * 可读性判断，所以没有 3:1/4.5:1 那样的阈值，只是拿卡片自己已经被接受的
+ * `border-l2` 描边当参照系）：
+ *   卡面 → 输入区背景         浅色              深色
+ *   #ffffff → ≈#ebebec        1.24:1            —
+ *   #353638 → ≈#484a4c        —                 1.34:1
+ * 与用户抱怨"太重"的旧描边 `label-tertiary`（浅 3.71:1 / 深 8.54:1）差了一个
+ * 量级；也比卡片自己那条已经过关的 `border-l2`（浅 1.25:1 / 深 2.19:1）更轻——
+ * 克制，但不再是"没有边界"。
+ */
+const QUOTE_INPUT_SURFACE =
+  'color-mix(in srgb, var(--dsw-alias-bg-layer-3, #fff) 90%, var(--dsw-alias-label-primary, #0f1115) 10%)'
 
 /**
  * 折叠 ⇄ 展开的状态。**同时只允许一个**：两条 200px 宽的浮层必然互相遮挡，
@@ -599,24 +716,26 @@ const QUOTE_SURFACE: React.CSSProperties = {
  *                                                          胶囊由 peekItemId 单独驱动）
  *   'capsule' ──openCard──────────────────────────────▶ 'card'
  *   'capsule' ──悬停另一条引用的徽标/胶囊──────────────▶ 'none'（见下）
- *   'card'    ──保存成功 / 取消───────────────────────▶ 'capsule'
+ *   'card'    ──保存成功 / 取消 / 关闭────────────────▶ 'none'（收干净，见下）
  *   'card'    ──保存失败 / 删除失败───────────────────▶ 'card'（原地，带 error）
  *   'card'    ──删除成功──────────────────────────────▶ 'none'
  *   （新增一条引用会直接把 'none'/'capsule' 都改写成新条目的 'capsule'，
- *    见下面 `seen` 那个 effect。）
+ *    见下面 `seen` 那个 effect —— 这是 'capsule' 现在**唯一**的生产者。）
  *
- * 只有 `removeQuote` 成功那一条路径会显式写 `{kind:'none'}`——这是本轮修复之前
- * 唯一能回到 'none' 的出口。`capsule` 因此是一张**只进不出**的钉子：openItemId
- * 在 `ui.kind !== 'none'` 时恒等于 `ui.itemId`（见下），于是只要用户跟任意一条
- * 引用交互过一次（哪怕只是打开卡片又取消），这枚钉子就再也拔不掉——之后悬停
- * 别的引用的徽标，`hoveredItemId` 照常更新（正文高亮会跟着走），但 `peekItemId`
- * 被 `ui.kind !== 'none'` 这个判据挡在 `openItemId` 公式外面，胶囊纹丝不动。
+ * **卡片收起时回 'none' 而不是 'capsule'。** 旧写法让 `commitCard` 的
+ * `collapse()` 与 `onCancel` 都落到 'capsule' 上，于是用户"点了别处"之后段落旁
+ * 永远留着一枚 32px 的胶囊（空评论时还写着占位符）——从用户视角这就是「输入框
+ * 关不掉」，也正是用户报告的「打开输入框之后只能在下方引用处删掉」。收到 'none'
+ * 之后，重新编辑走的是**点正文那枚数字徽标**（`QuoteBadgeLayer.onSelect` →
+ * `openCard`）或 chip → 引用列表这两条既有路径，输入过的内容在失焦那一刻就已经
+ * 写进草稿聚合，`openCard` 再用 `item.comment` 把它重建回来。
  *
- * 修法在 `schedulePeek` 里补上第三条退出路径：**悬停到一条不同的引用**时，
- * 如果当前是被钉住的 'capsule'（不是正在编辑的 'card'——那个绝不能被悬停打断），
- * 就把钉子拔回 'none'，让 `peekItemId` 重新接管。拔钉子本身不用等
- * `PEEK_OPEN_MS`：钉子代表的是"上一条引用还留着"，不是"新一条正在被看"，这两件
- * 事没有理由绑在同一个延迟上。
+ * 这也顺手拔掉了本文件曾经自嘲的那枚「只进不出的钉子」：`capsule` 从此只有
+ * 「新增引用」一个生产者。`schedulePeek` 里的拔钉分支仍然需要——它现在只服务
+ * 这一种情况：**悬停到一条不同的引用**时，如果当前是被钉住的 'capsule'（不是
+ * 正在编辑的 'card'——那个绝不能被悬停打断），就把钉子拔回 'none'，让
+ * `peekItemId` 重新接管。拔钉子本身不用等 `PEEK_OPEN_MS`：钉子代表的是"上一条
+ * 引用还留着"，不是"新一条正在被看"，两件事没有理由绑在同一个延迟上。
  */
 type QuoteAnchorKind = 'quote' | 'chip'
 
@@ -795,9 +914,17 @@ interface CardIconButtonProps {
   /** armed 时调用方会换成 `selection.remove.armed`；`aria-pressed` 不用于表达
    * 这个状态（见 `useArmedDelete` 上方注释），颜色/内描边仍然靠 `armed` 变化。 */
   readonly label: string
+  /** 指针悬停提示（原生 `title`）。可选——只有可访问名本身不够直白、需要额外
+   * 给指针用户一句话时才传（目前只有右上角那颗关闭按钮用到，见调用点注释）。 */
+  readonly title?: string
   readonly disabled?: boolean
   /** 已进入「再按一次就真删」的状态：颜色钉住 danger，再套一圈内描边。 */
   readonly armed?: boolean
+  /** 焦点环画在按钮**内侧**而不是外侧。默认（外侧，`outlineOffset:+2`）只对
+   * 卡片 chrome 里有余量的按钮成立；右上角那颗关闭按钮贴着卡片 16px 的圆角，
+   * 外环的直角外沿会画到圆角描边之外的空白里（见调用点注释与 QuoteList 里
+   * `outlineOffset: -FOCUS_RING_OFFSET` 那个同款先例）。 */
+  readonly insetFocusRing?: boolean
   /** 指针移开 / 失焦 —— armed 在这里解除。 */
   readonly onIdle?: () => void
   readonly onClick: () => void
@@ -805,7 +932,7 @@ interface CardIconButtonProps {
 }
 
 function CardIconButton({
-  tone, label, disabled = false, armed = false, onIdle, onClick, children,
+  tone, label, title, disabled = false, armed = false, insetFocusRing = false, onIdle, onClick, children,
 }: CardIconButtonProps) {
   const { hovered, active, focusRing, handlers } = useInteractive()
   const hot = !disabled && (hovered || active || armed)
@@ -828,6 +955,7 @@ function CardIconButton({
     <button
       type="button"
       aria-label={label}
+      title={title}
       aria-disabled={disabled || undefined}
       onClick={() => { if (!disabled) onClick() }}
       {...handlers}
@@ -842,7 +970,7 @@ function CardIconButton({
         // danger hover 那块：描边外侧对浮层面 浅 4.50:1 / 深 3.68:1，内侧对填充
         // 浅 4.15:1 / 深 3.11:1，两侧都过。
         boxShadow: armed ? 'inset 0 0 0 1px var(--dsw-alias-state-error-primary, #ec1313)' : undefined,
-        outlineOffset: FOCUS_RING_OFFSET,
+        outlineOffset: insetFocusRing ? -FOCUS_RING_OFFSET : FOCUS_RING_OFFSET,
         outline: focusRing ? FOCUS_RING : 'none',
       }}
     >
@@ -1096,6 +1224,15 @@ function QuoteCommentCard({
     ? t('selection.remove.armed', { n: ordinal })
     : t('selection.remove.aria', { n: ordinal, excerpt })
 
+  // 评论框的高度上限：6 行封顶，且不许把卡片撑出可见带（`maxHeight` 已经是
+  // `pinQuoteCard` 收紧过的、这个朝向上的剩余空间）。至少留一行。有错误提示行
+  // 时预算里再扣掉它的高度——否则输入框会占满 `maxHeight - CARD_CHROME_HEIGHT`，
+  // 错误行没有余量可用，只能画到卡片盒子外面（见 `ERROR_ROW_HEIGHT` 的注释）。
+  const lineCap = Math.max(
+    COMMENT_ONE_LINE,
+    Math.min(COMMENT_MAX_HEIGHT, maxHeight - CARD_CHROME_HEIGHT - (error !== null ? ERROR_ROW_HEIGHT : 0)),
+  )
+
   React.useEffect(() => {
     const node = textarea.current
     if (node === null) return
@@ -1104,6 +1241,30 @@ function QuoteCommentCard({
     const end = node.value.length
     try { node.setSelectionRange(end, end) } catch { /* jsdom / 不支持的输入类型 */ }
   }, [])
+
+  /**
+   * 按真实行数定高。**必须声明在下面 `onMeasure` 那个 layout effect 之前** ——
+   * 同一组件内的 layout effect 按声明顺序执行，输入框先定好高，卡片才量得到真高。
+   *
+   * 用 `scrollHeight` 回写，不用 CSS `field-sizing: content`：后者 2026-06-16 才
+   * 进 Baseline newly available（Chrome/Edge 123+、Firefox 152+、Safari 26.2+），
+   * 而本产品是本机起服务、用**系统默认浏览器**打开，没有可控的浏览器下限 ——
+   * Safari 18 / Firefox 140 上会静默退回固定高度，用户抱怨的症状原样保留。等它
+   * widely available（预计 2028-12）之后，这一整段可以换成两行 CSS。
+   *
+   * 也不用宿主 composer 那套隐藏 mirror div：它需要 mirror 是因为还要在下面叠一层
+   * backdrop 画 @-引用高亮，我们没有那一层，mirror 是纯成本。
+   *
+   * 不加防抖：高度只在**换行数变化**时才真的变（不是每个字符），而防抖会让输入框
+   * 已经长高、卡片还停在旧尺寸，反而看得见一次追赶。
+   */
+  React.useLayoutEffect(() => {
+    const node = textarea.current
+    if (node === null) return
+    // 先归零再读 scrollHeight：否则删字时 scrollHeight 恒等于当前高度，只涨不落。
+    node.style.height = '0px'
+    node.style.height = `${Math.min(Math.max(node.scrollHeight, COMMENT_ONE_LINE), lineCap)}px`
+  }, [draft, lineCap])
 
   // 量真实尺寸交回父级定位。尺寸没变时父级会 bail out，不会循环。
   React.useLayoutEffect(() => {
@@ -1164,13 +1325,26 @@ function QuoteCommentCard({
       }}
       style={{
         ...QUOTE_SURFACE,
+        // 静息是宿主那条发丝线；评论框持有焦点时**只换色**，1px 不动、不位移。
+        // 焦点信号整条搬到卡片外沿之后，输入框自己一点 chrome 都不剩（见
+        // CARD_FOCUS_BORDER_COLOR 上方的论证）。两态都显式给值，不会出现某一帧
+        // 缺 key、React 把它清成 '' 再回退到初始值那条老坑（见提示条那段注释）。
+        borderColor: focusedInput ? CARD_FOCUS_BORDER_COLOR : QUOTE_SURFACE_BORDER_COLOR,
+        // `position:fixed` 本身就是绝对定位子元素的包含块，右上角那颗 X 直接
+        // 落在这个 padding box 里，不需要再写 position:relative。
         position: 'fixed', top, left, width, maxHeight,
         boxSizing: 'border-box', borderRadius: 16, padding: 12,
         zIndex: Z_QUOTE_CARD,
         display: 'grid', gap: 8,
       }}
     >
-      {/* DOM 顺序 = 视觉顺序：输入 → 删除 → 跳到原文 → 取消 → 保存。 */}
+      {/* DOM 顺序（= Tab 顺序）：输入 → 关闭 → 删除 → 跳到原文 → 取消 → 保存。
+          这**不等于**视觉阅读顺序——关闭那颗 X 是绝对定位在卡片右上角的（见下面
+          `top:4,right:4` 那个 div），视觉上它比输入框的正文更早入眼；这里保证的
+          只是键盘可达性（从输入框一次 Tab 就到 X），不是"DOM 先后 = 屏幕先后"。
+          两者不一致的实害很低（X 的位置符合"关闭按钮在右上角"的通用直觉，
+          键盘用户也不依赖视觉顺序），所以没有为了让两者字面一致而去改 DOM
+          顺序或断开当前这条更符合操作直觉的 Tab 路径。 */}
       <textarea
         ref={textarea}
         data-dsh-quote-comment
@@ -1184,21 +1358,56 @@ function QuoteCommentCard({
         onFocus={() => setFocusedInput(true)}
         onBlur={() => setFocusedInput(false)}
         style={{
-          boxSizing: 'border-box', width: '100%', minHeight: 64,
-          maxHeight: Math.max(64, maxHeight - 120),
-          resize: 'none', padding: '8px 10px', borderRadius: 10,
-          // 焦点环内缩：卡片内边距只有 12px，外侧 4px 的环会压到动作行上。
-          // 环整条落在输入框自己的填充里，实测 4.23 / 6.86（对 bg-base）。
-          outline: focusedInput ? FOCUS_RING : 'none',
-          outlineOffset: -FOCUS_RING_OFFSET,
-          border: `1px solid ${focusedInput
-            ? 'var(--dsw-alias-state-business-primary, #4176e6)'
-            : 'var(--dsw-alias-label-tertiary, #81858c)'}`,
-          background: 'var(--dsw-alias-bg-base, #fff)',
+          // height 由上面那个 layout effect 直接写在 node.style 上（React 只 diff
+          // 它自己给过的 key，从没给过 height 就不会去清它）。这里不写 minHeight：
+          // 一行的下限已经由那段 `Math.max(scrollHeight, COMMENT_ONE_LINE)` 保证。
+          boxSizing: 'border-box',
+          // 右侧给右上角那颗 X 让位：**收窄整个盒子**，不是加大 padding-right。
+          // 两者对文字的效果一样，但滚动条画在**边框盒的右内缘**上、padding 推不动
+          // 它 —— 超过 6 行开始滚动之后，那条滚动条会正好画在 X 底下。
+          // 24 = 28（按钮宽）+ 4（按钮距卡片内边距）− 12（卡片内边距）+ 4（留缝）。
+          width: 'calc(100% - 24px)',
+          // 自动增高与手动拖拽会互相打架，所以 resize 保持关闭（宿主 composer
+          // 同款）；到 lineCap 之后转框内滚动。
+          resize: 'none', overflowY: 'auto',
+          padding: `${COMMENT_PADDING_Y}px 10px`,
+          borderRadius: 10,
+          // **框内不留描边、不留独立的聚焦环**——聚焦信号仍然整条画在卡片外沿
+          // （`focusedInput` 只换 `CARD_FOCUS_BORDER_COLOR`，见上面卡片自己那条
+          // `borderColor`），这一段与宿主 `ui-primitives/Input.module.css` 的
+          // `.input { border:none; outline:none }` 同款。但**静息态的边界不再
+          // 完全交给卡片那条发丝线**——那条线圈的是整张卡片（五颗按钮 + 输入框
+          // 共用），输入框自己需要一点自身的边界，交给背景（`QUOTE_INPUT_SURFACE`，
+          // 论证与对比度见该常量上方的注释），不是重新描一条边。
+          borderWidth: 0, borderStyle: 'none',
+          outline: 'none', background: QUOTE_INPUT_SURFACE,
           color: 'var(--dsw-alias-label-primary, #0f1115)',
-          fontFamily: 'inherit', fontSize: 13, lineHeight: '20px',
+          fontFamily: 'inherit', fontSize: 13, lineHeight: `${COMMENT_LINE_HEIGHT}px`,
         }}
       />
+      {/* 关闭 = 「点外面」的可见形态：**保存并收起**，不是丢弃。它不带来新语义，
+          带来的是可发现性与键盘可达性——"点外面"对键盘用户根本不存在，Esc 存在
+          但不可见。可访问名里写死「并保存」，堵住"卡片上同时有『保存』按钮，X
+          必然是丢弃"这条最自然的误读（见 dictionaries.ts 该键的注释——同一段
+          文案现在也直接当 `title` 用，指针用户悬停就看得到同一句话，不用另开
+          一个键）。产品决定见 dictionaries.ts：X 保持"保存并收起"的语义不变，
+          只把可访问名改写成不再是 `saveAria` 的子串。 */}
+      <div style={{ position: 'absolute', top: 4, right: 4 }}>
+        <CardIconButton
+          tone="plain"
+          label={t('selection.comment.closeAria', { n: ordinal })}
+          title={t('selection.comment.closeAria', { n: ordinal })}
+          // 贴着卡片 16px 的圆角（这颗 div 离卡片上/右边缘只有 4px）：外侧焦点环
+          // （默认 outlineOffset:+2）的外沿会正好落在卡片 padding box 的直角
+          // 顶点上，被圆角描边"切掉"一块、画到圆角之外的空白里。改内环——与
+          // QuoteList 那两颗贴边按钮（`outlineOffset: -FOCUS_RING_OFFSET`）同款
+          // 先例，环缩进按钮自己的 28×28 圆里，不再触到卡片的圆角。
+          insetFocusRing
+          onClick={() => { if (save()) onRestoreFocus() }}
+        >
+          <CloseIcon />
+        </CardIconButton>
+      </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
         <CardIconButton
           tone="danger"
@@ -1533,7 +1742,10 @@ export function SelectionDock({
   const peekTimer = React.useRef(0)
   // 上一帧算出来的卡片落点。锚点这一帧量不出来时卡片**冻结**在这里，而不是
   // 跳走 —— 正在打字的浮层不许因为滚动或重排而移位（设计 §3.3）。
-  const frozenCard = React.useRef<{ top: number; left: number } | null>(null)
+  const frozenCard = React.useRef<{ top: number; left: number; maxHeight: number } | null>(null)
+  // 卡片朝上还是朝下，在开卡后的第一帧定死（`openCard` 每次把它清空）。评论框
+  // 可变高之后，翻面判据绝不能再每帧重跑——否则打到某一行卡片会突然跳到原文上方。
+  const frozenFacing = React.useRef<{ itemId: string; above: boolean } | null>(null)
   // 首次渲染时草稿里已有的条目不算"新增"。
   //
   // `undefined` = 还没定基线（首次渲染）；`new Set()` = 定过基线，只是当时一条
@@ -1646,7 +1858,7 @@ export function SelectionDock({
    * 卡片补一次保存。** 这条不变量由两件事共同保证：
    *
    *  - 指针路径：卡片自己在 capture 阶段挂了 `document.pointerdown`，点徽标 /
-   *    点 chip 都会**先**触发它 → `commitCard` → `ui` 已经变成 `capsule`，之后
+   *    点 chip 都会**先**触发它 → `commitCard` → `ui` 已经收成了 `none`，之后
    *    click 才走到这里。
    *  - 键盘路径不存在：徽标是 `aria-hidden` 的 `<span>`（不可聚焦），胶囊里没有
    *    任何 `<button>`，而引用列表在卡片打开时是关着的（下面就 `setListOpen(false)`）。
@@ -1658,6 +1870,10 @@ export function SelectionDock({
    * `commit.current` 是旧渲染帧的 `commitCard` 闭包，成功后会
    * `setUi({kind:'capsule', itemId: 旧id})`，把刚打开的新卡片打回旧条目的胶囊。
    * 见测试 `saves the previous card exactly once when the user switches quotes`。
+   *
+   * `draft` 用 `item.comment` 重建：评论在失焦那一刻就已经写进草稿聚合（那才是
+   * 「临时暂存」的真身——存在 composer 草稿里，随草稿走、随草稿清空而消失、发送
+   * 后随消息消费），所以"点别处收起 → 点数字徽标重新打开"这条来回不丢字。
    */
   const openCard = (itemId: string) => {
     const item = itemOf(itemId)
@@ -1667,6 +1883,9 @@ export function SelectionDock({
     if (state === 'offscreen' || state === 'unmeasured') reveal(item)
     if (peekTimer.current !== 0 && typeof window !== 'undefined') window.clearTimeout(peekTimer.current)
     peekTimer.current = 0
+    // 朝向只在开卡后的第一帧算，所以每次开卡都要把上一次的冻结值丢掉 ——
+    // 同一条引用先后两次打开，两次的原文位置可能已经不同了。
+    frozenFacing.current = null
     setPeekItemId(null)
     setListOpen(false)
     setUi({
@@ -1682,18 +1901,21 @@ export function SelectionDock({
   /**
    * 保存并收起。返回 false = 提交失败，卡片留在原地。
    *
+   * **收起 = `'none'`，不是 `'capsule'`。** 用户点了别处就该看不见这张卡片，
+   * 段落旁不留那枚只进不出的钉子（论证见 `QuoteUi` 上方的状态迁移表）。
+   *
    * 每一次 `setUi` 都走函数式更新并**先核对当前打开的还是不是这张卡片**：
    * 卸载路径上 `commit.current` 拿到的是上一帧的 `commitCard` 闭包，而这时 `ui`
    * 可能已经被「新增引用自动浮胶囊」那个 effect 换成了另一条的胶囊。无条件
-   * `setUi({kind:'capsule', itemId: 旧id})` 会把刚浮出来的新胶囊打回旧条目 ——
-   * 没有数据丢失，但胶囊指着错的那一条。
+   * `setUi({kind:'none'})` 会把刚浮出来的新胶囊一起抹掉 —— 没有数据丢失，但
+   * 用户刚添加的那条引用旁边什么都没有了。
    */
   const commitCard = (value: string): boolean => {
     if (ui.kind !== 'card') return true
-    const { itemId, anchor, baseline } = ui
+    const { itemId, baseline } = ui
     const collapse = () => setUi((current) => (
       current.kind === 'card' && current.itemId === itemId
-        ? { kind: 'capsule', itemId, anchor }
+        ? { kind: 'none' }
         : current
     ))
     if (value === baseline) {
@@ -1757,18 +1979,51 @@ export function SelectionDock({
 
   // 卡片落点。锚在段落上时用这一帧的几何；量不出来就冻结在上一帧的位置；
   // 一次都没量到过（或锚在 chip 上）才退到 chip 上方。
-  let cardPoint: { top: number; left: number } | null = null
-  if (ui.kind === 'card' && ui.anchor === 'quote' && anchors.openAnchor !== null) {
-    const place = placeQuoteCard(
-      anchors.openAnchor, { left: anchors.openAnchor.rowLeft }, cardSize, anchors.openAnchor.band,
-    )
-    cardPoint = { top: place.top, left: place.left }
-    frozenCard.current = cardPoint
-  } else if (ui.kind === 'card' && ui.anchor === 'quote' && frozenCard.current !== null) {
-    cardPoint = frozenCard.current
-  } else if (ui.kind === 'card' && chipRect !== null) {
-    const place = placeQuoteCard(chipRect, chipRect, cardSize, chipBand)
-    cardPoint = { top: place.top, left: place.left }
+  //
+  // **朝向（上/下）只在开卡后的第一帧算一次，之后冻结**；落点由 `pinQuoteCard`
+  // 钉住朝向原文的那条边，剩余空间作为卡片的 `maxHeight` 交下去。评论框可变高
+  // 之后这两件事缺一不可：照旧每帧 `placeQuoteCard(…, cardSize, …)` 的话，
+  // 打字会让卡片一边长一边往上爬（下缘钳制 `band.bottom - height` 一直在动），
+  // 长到某一行还会突然翻到原文上方去。这与本文件既有的不变量（"正在打字的浮层
+  // 不许因为滚动或重排而移位"、`frozenCard`）是同一条，只是从"量不出几何时"
+  // 扩展到了"高度变化时"。
+  let cardPoint: { top: number; left: number; maxHeight: number } | null = null
+  if (ui.kind === 'card') {
+    // 三条来源的优先级与改动前逐字相同：这一帧的段落几何 → 冻结的上一帧落点 →
+    // chip 上方（`anchor==='chip'`，以及"锚在段落上但一次都还没量到"的首帧）。
+    const quoteAnchor = ui.anchor === 'quote' ? anchors.openAnchor : null
+    const frozen = ui.anchor === 'quote' && quoteAnchor === null && frozenCard.current !== null
+    const source = quoteAnchor !== null
+      ? { rect: quoteAnchor, rowLeft: quoteAnchor.rowLeft, band: quoteAnchor.band }
+      : !frozen && chipRect !== null
+        ? { rect: chipRect, rowLeft: chipRect.left, band: chipBand }
+        : null
+    if (source !== null) {
+      // 朝向用**开卡高度**判，不是当前高度：判据本身也必须与高度解耦。
+      const opening = placeQuoteCard(
+        source.rect, { left: source.rowLeft },
+        { width: cardSize.width, height: CARD_FALLBACK_HEIGHT }, source.band,
+      )
+      const above = frozenFacing.current?.itemId === ui.itemId
+        ? frozenFacing.current.above
+        : opening.above
+      // **只在几何来自真锚点（或 chip 本就是终局来源）时才落笔冻结**——
+      // `anchors.openAnchor` 在开卡后的第一帧恒为 `null`（quote-overlay.tsx 的
+      // B 段量测 layout effect 还没为新的 `openItemId` 跑过），这一帧 `source`
+      // 会退到 `chipRect` 兜底渲染点什么，但那不是这条引用真正的位置。chipRect
+      // 一旦在引用列表打开过就不会再清空（`openCard` 走的 chip → 列表 → 编辑
+      // 这条路径本身就会先量一次），如果这一帧顺手把 `above` 焊进
+      // `frozenFacing.current`，下一帧真几何到位后也再也不会重算（上面那行
+      // `itemId` 命中就直接复用），朝向就永久错了。`ui.anchor === 'chip'` 时没
+      // 有"稍后会有更准的几何"这回事——它本身就是终局来源，照旧当帧冻结。
+      if (quoteAnchor !== null || ui.anchor === 'chip') frozenFacing.current = { itemId: ui.itemId, above }
+      const pin = pinQuoteCard(source.rect, cardSize.height, source.band, above, CARD_FALLBACK_HEIGHT)
+      // left 与高度无关（只看 width 和带子左右缘），照旧交给 placeQuoteCard。
+      cardPoint = { top: pin.top, left: opening.left, maxHeight: pin.maxHeight }
+      frozenCard.current = cardPoint
+    } else if (ui.anchor === 'quote' && frozenCard.current !== null) {
+      cardPoint = frozenCard.current
+    }
   }
 
   const capsuleWidth = clampWidth(band, 160, CAPSULE_MAX_WIDTH)
@@ -1862,12 +2117,16 @@ export function SelectionDock({
           top={cardPoint.top}
           left={cardPoint.left}
           width={clampWidth(band, CARD_MIN_WIDTH, CARD_MAX_WIDTH)}
-          maxHeight={Math.max(160, band.bottom - band.top - 16)}
+          // 高度上限 = 被钉住的那条边到带子边缘的剩余空间（`pinQuoteCard` 已经
+          // 兜过下限）。评论框的行数上限再从这里减掉卡片 chrome —— 于是卡片长不
+          // 出带子，钳制永远不触发，被钉的那条边一个像素都不动。
+          maxHeight={cardPoint.maxHeight}
           onDraftChange={(value) => setUi((current) => (
             current.kind === 'card' ? { ...current, draft: value } : current
           ))}
           onCommit={commitCard}
-          onCancel={() => setUi({ kind: 'capsule', itemId: ui.itemId, anchor: ui.anchor })}
+          // 「取消」= 丢弃本次编辑、回退到上次保存值、**收干净**（不留胶囊）。
+          onCancel={() => setUi({ kind: 'none' })}
           onRemove={() => removeQuote(ui.itemId)}
           onAnnounce={announce}
           onReveal={() => reveal(openItem)}

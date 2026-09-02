@@ -414,6 +414,76 @@ export function placeQuoteCard(
   return { top, left, above }
 }
 
+/** 朝向已定之后，卡片朝向原文的那条边被钉死之后的落点与高度余量。 */
+export interface QuoteCardPin {
+  /** 卡片上缘。`above=false` 时它是常数；`above=true` 时常数的是下缘。 */
+  readonly top: number
+  /** 这个朝向上还剩多少空间。评论框的行数上限由它收口，卡片因此长不出带子。 */
+  readonly maxHeight: number
+}
+
+/**
+ * `placeQuoteCard` 决定朝向，这个函数负责**朝向定下来之后钉住那条边**。
+ *
+ * 为什么要拆成两步：评论框改成随行数长高之后，卡片高度每一帧都可能变，而
+ * `placeQuoteCard` 的 `top` 是高度的函数——既有下缘钳制 `band.bottom - height`，
+ * 也有 above/below 的翻面判据。照旧每帧重算的话，用户一边打字卡片一边往上爬，
+ * 打到某一行还会突然翻到原文上方去。
+ *
+ * 正解不是"跟着重算位置"，而是"让位置根本不用变"：朝向由调用方在**开卡那一帧
+ * 冻结**，这里钉住**朝向原文的那条边**（放在下方就钉上缘，放在上方就钉下缘），
+ * 并把该方向的剩余空间作为 `maxHeight` 交回去——卡片长不出带子，钳制就永远不
+ * 触发，被钉的那条边一个像素都不动。
+ *
+ * `maxHeight` 有个下限 `minHeight`：带子矮到连一张开卡高度的卡片都放不下时，
+ * 这里与 `placeQuoteCard` 取同一优先级——宁可让卡片探出带子，也不能把正在打字的
+ * 输入框压成一条缝。带子量不出来（高 ≤ 0）时同样只给下限，门槛与那边的
+ * `measured` 一致。
+ *
+ * **被钉住的那条边本身也要钳进可见带**，否则"钉住"这件事只在原文本来就在带内
+ * 时才有意义——一旦用户在卡片打开时滚动对话，把原文滚出可见带（甚至滚出
+ * 视口），`lastRect` 会跟着滚动帧一路变成带外的坐标，而这两条分支在钳制之前
+ * 都直接拿它当落点：卡片会跟着原文一路滚出可见带，直至滚出视口，用户看不到
+ * 正在打字的输入框。这与 `placeQuoteCard` 的钳制是同一条优先级（"宁可压住引用
+ * 原文，也不能让卡片整块滚出可见带"），只是钳的对象从"卡片盒子（用完整高度）"
+ * 换成了"被钉住的那条边（用 `minHeight`，因为另一条边本就与高度无关或已经被
+ * `maxHeight` 收着）"：
+ *   below（钉上缘）：上缘钳进 `[band.top, band.bottom - minHeight]`——上缘本来就
+ *     与高度无关，钳它不会重新引入"卡片随高度移位"的老问题。
+ *   above（钉下缘）：下缘钳进 `[band.top + minHeight, band.bottom]`——下缘钳住之后
+ *     `top = pinned - min(height, maxHeight)` 仍然只看这一帧的 `height`，钉住的是
+ *     下缘，不是 `top` 本身，行为不变。
+ * 带子量不出来（`measured` 为 false）时同上面几处一样不钳——那不是"没有空间"，
+ * 是"还没量出来"。
+ */
+export function pinQuoteCard(
+  lastRect: { readonly top: number; readonly bottom: number },
+  height: number,
+  band: QuoteBand,
+  above: boolean,
+  minHeight: number,
+): QuoteCardPin {
+  const measured = band.bottom > band.top
+  if (above) {
+    // 下缘钉在引用上方一个间隙处；卡片向上长，与 composer 同向。
+    const rawPinned = lastRect.top - QUOTE_CARD_GAP
+    const pinned = measured
+      ? Math.min(Math.max(rawPinned, band.top + minHeight), band.bottom)
+      : rawPinned
+    const maxHeight = Math.max(minHeight, measured ? pinned - QUOTE_CARD_GAP - band.top : 0)
+    return { top: pinned - Math.min(height, maxHeight), maxHeight }
+  }
+  // 上缘钉在引用下方一个间隙处；卡片向下长，`top` 与高度无关。
+  const rawPinned = lastRect.bottom + QUOTE_CARD_GAP
+  const pinned = measured
+    ? Math.min(Math.max(rawPinned, band.top), Math.max(band.top, band.bottom - minHeight))
+    : rawPinned
+  return {
+    top: pinned,
+    maxHeight: Math.max(minHeight, measured ? band.bottom - QUOTE_CARD_GAP - pinned : 0),
+  }
+}
+
 /**
  * 末行矩形。取 `getClientRects()` 的**最后一条**是脚注语义——"引用到此为止，
  * 编号在后"。`right` 是引用文字**真正的末端**（徽标落点第 2 档要它），与行

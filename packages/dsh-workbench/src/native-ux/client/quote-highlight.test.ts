@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  createQuoteHighlightRegistry, cssHighlightPainter, lastLineRect, placeQuoteBadge,
+  createQuoteHighlightRegistry, cssHighlightPainter, lastLineRect, pinQuoteCard, placeQuoteBadge,
   placeQuoteCard, quoteBadgeWidth, quoteBandIsMeasured, quoteExcerpt, quoteMutationsMatter,
   resolveQuoteAnchor, supportsHighlightApi,
   QUOTE_BADGE_HEIGHT,
@@ -439,5 +439,101 @@ describe('placeQuoteCard', () => {
     const unmeasured = { top: 0, bottom: 0, left: 0, right: 0 }
     const place = placeQuoteCard({ top: 300, bottom: 320 }, { left: 120 }, card, unmeasured)
     expect(place).toEqual({ top: 326, left: 120, above: false })
+  })
+})
+
+/**
+ * 朝向定下来之后钉住那条边。评论框改成随行数长高之后，`placeQuoteCard` 那种
+ * "top 是高度的函数"的算法会让用户一边打字、卡片一边爬，所以增高的余量必须由
+ * `maxHeight` 吃掉，而不是由重定位吸收。
+ */
+describe('pinQuoteCard', () => {
+  const band = { top: 100, bottom: 600, left: 40, right: 800 }
+  const line = { top: 300, bottom: 320 }
+
+  it('keeps the top fixed while the card grows downward', () => {
+    // 杀法：把 below 分支的 top 换回 `Math.min(rawTop, band.bottom - height)`
+    // —— 高度一过 274（600-326）这条断言就散架。
+    const tops = [80, 200, 400, 900].map((height) => pinQuoteCard(line, height, band, false, 96).top)
+    expect(tops).toEqual([326, 326, 326, 326])
+  })
+
+  it('keeps the bottom fixed while the card grows upward', () => {
+    // 放在原文上方时被钉住的是**下缘**：卡片向上长（与 composer 同向）。
+    // 高度取到该方向的余量（188）为止 —— 再高就超出带子，那由 maxHeight 拦住
+    // （下一条测试）。
+    for (const height of [80, 150, 188]) {
+      expect(pinQuoteCard(line, height, band, true, 96).top + height).toBe(294)
+    }
+  })
+
+  it('hands back exactly the room left in that direction, so the card cannot outgrow the band', () => {
+    // 下方：600 - 6 - 326 = 268；上方：300 - 6 - 6 - 100 = 188。
+    expect(pinQuoteCard(line, 96, band, false, 96).maxHeight).toBe(268)
+    expect(pinQuoteCard(line, 96, band, true, 96).maxHeight).toBe(188)
+  })
+
+  it('never squeezes the card below its opening height (visibility wins, same as placeQuoteCard)', () => {
+    // 带子矮到放不下一张开卡高度的卡片时，宁可让它探出带子 —— 与
+    // placeQuoteCard 的"可见优先"同一条优先级。
+    const shallow = { top: 100, bottom: 340, left: 40, right: 800 }
+    expect(pinQuoteCard(line, 96, shallow, false, 96).maxHeight).toBe(96)
+    // 带子量不出来（高 ≤ 0）时同样只给下限，门槛与 placeQuoteCard 的 measured 一致。
+    const unmeasured = { top: 0, bottom: 0, left: 0, right: 0 }
+    expect(pinQuoteCard(line, 96, unmeasured, false, 96)).toEqual({ top: 326, maxHeight: 96 })
+  })
+
+  it('keeps the pinned edge inside the band even after the quote scrolls out of it', () => {
+    // 回归复现：`pinQuoteCard` 取代 `placeQuoteCard` 时把可见带钳制整条丢了——
+    // `placeQuoteCard` 的 `top` 有 `Math.min(Math.max(rawTop, band.top), …)`，这里
+    // 曾经只剩 `top: pinned`（below）/ `pinned - Math.min(height, maxHeight)`
+    // （above），`pinned` 直接抄 `lastRect`、不看 `band`。卡片本身还刻意不看
+    // `inBand`（"正在打字的浮层不许因为滚动而消失"），两者叠加：用户在卡片打开
+    // 时滚动对话，卡片会跟着原文一路滚出可见带、直至滚出视口。
+    // 杀法：删掉 below/above 分支里 `pinned = measured ? Math.min(Math.max(…` 那行
+    // 钳制，换回 `const pinned = rawPinned`——下面四条断言全部变红（下方两条会
+    // 报 504/100 之外的巨大或巨负坐标，上方两条同理）。
+    const below = 600 - 96 // band.bottom - minHeight
+    // 原文滚到可见带下方很远处：below 分支的上缘、above 分支的下缘都要被拉回带内。
+    const farBelow = { top: 5000, bottom: 5020 }
+    expect(pinQuoteCard(farBelow, 96, band, false, 96).top, '原文滚到带下方，below 分支的上缘').toBe(below)
+    expect(pinQuoteCard(farBelow, 96, band, true, 96).top, '原文滚到带下方，above 分支钉住的下缘也要拉回来')
+      .toBe(band.bottom - 96)
+    // 原文滚到可见带上方很远处（甚至滚出视口上沿，坐标为负）。
+    const farAbove = { top: -5000, bottom: -4980 }
+    expect(pinQuoteCard(farAbove, 96, band, false, 96).top, '原文滚到带上方，below 分支的上缘').toBe(band.top)
+    expect(pinQuoteCard(farAbove, 96, band, true, 96).top, '原文滚到带上方，above 分支').toBe(band.top)
+
+    // 无论哪种情形，卡片实际占用的那一段都必须完全落在带内——"宁可压住引用
+    // 原文，也不能让卡片整块滚出可见带"，与 placeQuoteCard 同一条优先级，只是
+    // 钳的对象换成了被钉住的边。两个分支"占用区间"的算法不同，不能共用同一条
+    // `top + maxHeight` 判据：
+    //   below：`top` 是固定上缘，`maxHeight` 就是到 band.bottom 的余量，占用区间
+    //          正是 `[top, top + maxHeight]`。
+    //   above：`maxHeight` 量的是"到 band.top 的余量"，card 的下缘是 `pinned`
+    //          （被钉住的那条边），不是 `top + maxHeight`——占用区间是
+    //          `[top, pinned]`，而 `pinned` 本身已经钳进 `<= band.bottom`。
+    for (const lastRect of [farBelow, farAbove]) {
+      const below = pinQuoteCard(lastRect, 96, band, false, 96)
+      expect(below.top, 'below 分支上缘滚出了带子').toBeGreaterThanOrEqual(band.top)
+      expect(below.top + below.maxHeight, 'below 分支下缘滚出了带子').toBeLessThanOrEqual(band.bottom)
+
+      const above = pinQuoteCard(lastRect, 96, band, true, 96)
+      expect(above.top, 'above 分支上缘滚出了带子').toBeGreaterThanOrEqual(band.top)
+      // above 分支被钉住的下缘 = top + min(height, maxHeight)；这里 height(96) 不
+      // 超过 maxHeight，所以下缘就是 top + 96。
+      expect(above.top + 96, 'above 分支下缘滚出了带子').toBeLessThanOrEqual(band.bottom)
+    }
+  })
+
+  it('does not clamp the pinned edge when the band could not be measured', () => {
+    // 带子量不出来（高 ≤ 0）说的是"还没布局"，不是"原文在带外"——与
+    // placeQuoteCard 的 `measured` 门槛同形，这时不该钳。
+    const unmeasured = { top: 0, bottom: 0, left: 0, right: 0 }
+    const farBelow = { top: 5000, bottom: 5020 }
+    // below：pinned = 5020 + GAP(6) = 5026，不钳。
+    expect(pinQuoteCard(farBelow, 96, unmeasured, false, 96).top).toBe(5026)
+    // above：pinned = 5000 - GAP(6) = 4994，不钳；top = pinned - min(96, maxHeight(96)) = 4898。
+    expect(pinQuoteCard(farBelow, 96, unmeasured, true, 96).top).toBe(4898)
   })
 })
