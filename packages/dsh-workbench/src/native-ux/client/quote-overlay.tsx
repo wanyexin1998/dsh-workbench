@@ -29,7 +29,7 @@ export interface QuoteBadgePlacement {
 }
 
 /**
- * 当前**打开**的那一条引用（胶囊 / 卡片）的几何。
+ * 当前**打开**的那一条引用（标签 / 卡片）的几何。
  *
  * 它由 B 段（测量帧）顺手算出来 —— 那一段本来就已经在量末行矩形和行矩形，
  * 多带一个字段是零成本。浮层的滚动跟随因此完全挂在既有的 `viewTick` 上：
@@ -44,7 +44,7 @@ export interface QuoteOpenAnchor {
   /** 正文列左缘 —— 浮层左对齐到它。 */
   readonly rowLeft: number
   readonly band: QuoteBand
-  /** 末行与可见带有交集。胶囊靠它决定隐不隐藏；卡片**不看**它（正在打字的
+  /** 末行与可见带有交集。标签靠它决定隐不隐藏；卡片**不看**它（正在打字的
    * 浮层不许因为滚动而消失，见设计 §3.3）。 */
   readonly inBand: boolean
 }
@@ -140,7 +140,7 @@ export interface UseQuoteAnchorsOptions {
   readonly revision: string | undefined
   readonly sessionId: string
   readonly activeItemId: string | null
-  /** 当前打开了胶囊 / 卡片的那一条。只影响 `snapshot.openAnchor`，不影响高亮。 */
+  /** 当前打开了标签 / 卡片的那一条。只影响 `snapshot.openAnchor`，不影响高亮。 */
   readonly openItemId?: string | null
   readonly ownerId: string
   readonly registry?: QuoteHighlightRegistry
@@ -389,14 +389,14 @@ export interface QuoteBadgeProps {
  *   徽标底 #4868b2 对表面             浅            深
  *   正文层      bg-base              5.39 #ffffff  3.39 #151517
  *   代码块      markdown-code-block  5.15 #f9fafb  3.20 #1b1b1c
- *   胶囊        bg-layer-3           5.39 #ffffff  2.25 #353638   ✗
+ *   标签        bg-layer-3           5.39 #ffffff  2.25 #353638   ✗
  *   引用列表行  bg-layer-3           5.39 #ffffff  2.25 #353638   ✗
  *
  * （上一版注释把浅色代码块记成 4.10:1。`markdown-code-block` 浅色是
  * `neutral-bluish-50` #f9fafb，实算 5.15:1——记低了不改变结论，数值在此更正。）
  *
  * 补的是一圈 1px 实心描边，取随主题翻的 `label-secondary`（浅 #61666b /
- * 深 #cfd3d6）。上一版描边只给「胶囊、引用列表行」算了 hover/pressed 叠加层，
+ * 深 #cfd3d6）。上一版描边只给「标签、引用列表行」算了 hover/pressed 叠加层，
  * 「正文层 / 代码块」只算了静息态——但四个表面这一轮**都**进了同一个组件，
  * 少算的两个表面没资格被默认成安全。补全之后，四表面 × 双主题 × 三态
  * （静息 / hover 6% / pressed 10%，深色叠加层是白色 8%/14%，见下方
@@ -405,10 +405,10 @@ export interface QuoteBadgeProps {
  *   描边对表面（浅｜深）        静息          ＋hover        ＋pressed
  *   正文层 bg-base             5.80｜12.11    5.21｜9.81     4.84｜8.04
  *   代码块 markdown-code-block 5.55｜11.43    4.99｜9.10     4.63｜7.44
- *   胶囊/列表 bg-layer-3       5.80｜8.03     5.21｜6.26     4.84｜5.18
+ *   标签/列表 bg-layer-3       5.80｜8.03     5.21｜6.26     4.84｜5.18
  *
  * 最低 **4.63:1**——浅色代码块面 × pressed（`#f9fafb` 叠 10% 的
- * `rgba(38,49,72,.1)` ≈ `#e4e6e9`）。上一版把「胶囊/列表面 pressed 4.82:1」
+ * `rgba(38,49,72,.1)` ≈ `#e4e6e9`）。上一版把「标签/列表面 pressed 4.82:1」
  * 记成全表最低：那其实只是「算过 hover/pressed 的两个表面」里的最低，代码块面
  * 从没被算过 pressed 就被默认成安全了。真正的最低比它还低，但依然过 3:1，
  * 结论没变。**不能**改用 `state-business-primary` 当描边：它在深色 pressed
@@ -422,7 +422,7 @@ export interface QuoteBadgeProps {
  *   内环(bg-base) / 徽标底   浅 5.39:1  深 3.39:1
  *   外环(business-primary) / 页面  浅 4.23:1  深 6.86:1
  * 静息态写**同样结构**但两层都透明——盒子尺寸恒定，emphasis 切换零布局位移
- * （沿用旧实现的 box-shadow 技巧）。emphasis **只**出现在正文层（胶囊与引用
+ * （沿用旧实现的 box-shadow 技巧）。emphasis **只**出现在正文层（标签与引用
  * 列表两处都传 `emphasis={false}`），所以内环取 `bg-base` 才成立；哪天让它出现
  * 在 bg-layer-3 上，这两行要重新审。
  *
@@ -483,7 +483,7 @@ export interface QuoteBadgeLayerProps {
  * emphasis）。
  *
  * 容器本身是 0×0 的 fixed 盒子，不铺满屏幕，绝不拦截宿主的指针事件；
- * zIndex 897 是这一族浮层的最底层（897 徽标 / 898 胶囊 / 899 卡片与引用列表 /
+ * zIndex 897 是这一族浮层的最底层（897 徽标 / 898 标签 / 899 卡片与引用列表 /
  * 900 划词工具条），全部压在宿主 100/101 档之上、1000 档模态之下
  * （层级考据见 selection-actions.tsx 的 zIndex 注释）。16px 的蓝点绝不该画在
  * 卡片上面，所以徽标从 899 降到 897。

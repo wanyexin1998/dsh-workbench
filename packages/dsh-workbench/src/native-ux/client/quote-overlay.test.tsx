@@ -262,7 +262,7 @@ describe('useQuoteAnchors', () => {
   })
 
   it('carries the open quote’s geometry so the card can follow the scroll with no new observer', () => {
-    // 胶囊 / 卡片的滚动跟随**必须**挂在这里已有的 viewTick 上。新增第二个
+    // 标签 / 卡片的滚动跟随**必须**挂在这里已有的 viewTick 上。新增第二个
     // ResizeObserver / MutationObserver / scroll 监听会直接推翻上一轮"滚动只重量、
     // 不重解析"的成果，所以几何由测量帧顺手带出来（它本来就在量这两个矩形）。
     bandOf(dom.scrollport)
@@ -384,16 +384,16 @@ describe('useQuoteAnchors', () => {
  * 徽标的外观契约。
  *
  * 这里断言的每一条都是无障碍算过的数，不是审美：同一个 `QuoteBadge` 这一轮进了
- * **四个**表面（正文层 bg-base、代码块 markdown-code-block、胶囊与引用列表行
+ * **四个**表面（正文层 bg-base、代码块 markdown-code-block、标签与引用列表行
  * 的 bg-layer-3），而徽标底 `deepseek-600 #4868b2` 对深色 bg-layer-3 #353638
  * 只有 **2.25:1**，撑不起 WCAG 1.4.11 要求的 3:1 非文本边界。
  * 描边（label-secondary，浅 #61666b / 深 #cfd3d6）才是那条边界（完整
  * 四表面 × 双主题 × 三态推导见 quote-overlay.tsx 里 QuoteBadge 上方的注释）：
  *   正文层 bg-base                浅 5.80 / 5.21 / 4.84   深 12.11 / 9.81 / 8.04
  *   代码块 markdown-code-block    浅 5.55 / 4.99 / 4.63   深 11.43 / 9.10 / 7.44
- *   胶囊/列表 bg-layer-3          浅 5.80 / 5.21 / 4.84   深  8.03 / 6.26 / 5.18
+ *   标签/列表 bg-layer-3          浅 5.80 / 5.21 / 4.84   深  8.03 / 6.26 / 5.18
  * 最低 4.63:1（浅色代码块面 × pressed），四表面 × 两主题 × 三交互态全过。
- * 删掉它 = 深色下胶囊/列表里的徽标没有边界，所以它必须有一条测试守着。
+ * 删掉它 = 深色下标签/列表里的徽标没有边界，所以它必须有一条测试守着。
  */
 describe('QuoteBadge', () => {
   afterEach(cleanup)

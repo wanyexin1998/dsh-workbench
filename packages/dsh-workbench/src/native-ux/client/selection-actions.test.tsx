@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   addSelectionToConversation, applySelectionActions, createSelectionItemId, FOCUS_RING_COLOR,
   placeSelectionToolbar, SelectionDock, SelectionToolbar,
-  type SelectionApplyContext, type SelectionApplyServices,
+  type SelectionActionResult, type SelectionApplyContext, type SelectionApplyServices,
 } from './selection-actions.js'
 import { SelectionController } from './selection-controller.js'
 import type { ConversationSelection } from './selection-contract.js'
@@ -141,11 +141,11 @@ describe('SelectionToolbar', () => {
   it('shows a visible focus ring while a toolbar action holds keyboard focus', () => {
     render(<SelectionToolbar controller={controllerWith(selection())} onAdd={() => ({ ok: true })} t={t} />)
     const add = screen.getByRole('button', { name: 'selection.add' })
-    expect(add.getAttribute('style')).not.toContain('outline: 2px')
+    expect(add.getAttribute('style')).not.toContain('outline: 1px')
     fireEvent.focusIn(add)
-    expect(add.getAttribute('style')).toContain('outline: 2px solid')
+    expect(add.getAttribute('style')).toContain('outline: 1px solid')
     fireEvent.focusOut(add)
-    expect(add.getAttribute('style')).not.toContain('outline: 2px')
+    expect(add.getAttribute('style')).not.toContain('outline: 1px')
   })
 
   it('draws the focus ring outside the fill, in the token the contrast audit passed', () => {
@@ -155,7 +155,9 @@ describe('SelectionToolbar', () => {
     expect(add.style.outlineOffset).toBe('2px')
     fireEvent.focusIn(add)
     // 钉住 token 本身 —— 只断言 'outline' 钉不住对比度，换回 label-tertiary 会重新塌掉。
-    expect(add.getAttribute('style')).toContain(`outline: 2px solid ${FOCUS_RING_COLOR}`)
+    // 环宽本轮从 2px 收到 1px（用户反馈聚焦态"边框重"）：厚度不影响 1.4.11 的
+    // 对比度计算（那只看颜色），所以颜色 token 与 offset 都不变，只改这一位。
+    expect(add.getAttribute('style')).toContain(`outline: 1px solid ${FOCUS_RING_COLOR}`)
   })
 
   it('puts the busy cursor on the buttons themselves, not only in the container gaps', () => {
@@ -584,7 +586,7 @@ const twoItems = aggregateOf([
 
 describe('SelectionDock', () => {
   afterEach(() => {
-    // cleanup() 必须先跑：徽标 / 胶囊 / 卡片图层都 portal 在 document.body 上，
+    // cleanup() 必须先跑：徽标 / 批注标签 / 卡片图层都 portal 在 document.body 上，
     // 先 innerHTML='' 会把 React 还持有的 portal 节点抽走，随后的卸载就抛
     // NotFoundError。文件级的 afterEach(cleanup) 在这之后跑，重复调用是幂等的。
     cleanup()
@@ -668,7 +670,8 @@ describe('SelectionDock', () => {
     fireEvent.focusOut(box, { relatedTarget: cancel })
     fireEvent.click(cancel)
     expect(updateComment).not.toHaveBeenCalled()
-    // 卡片收起成胶囊；重新展开时回到上次保存值（空串），不是那段被丢弃的文字。
+    // 卡片收起（空评论 → 段落旁不留东西）；重新展开时回到上次保存值（空串），
+    // 不是那段被丢弃的文字。
     expect(screen.queryByRole('dialog')).toBeNull()
     openCard('1')
     expect(commentBox('对引用 1 的评论：first').value).toBe('')
@@ -803,10 +806,10 @@ describe('SelectionDock', () => {
     // 杀法：在 openCard 里加回那段兜底
     //   `if (ui.kind === 'card' && ui.itemId !== itemId && ui.draft !== ui.baseline)
     //      updateComment(ui.itemId, ui.draft)`
-    // —— 它不可达（pointerdown 已经把 ui 变成 capsule 了），可一旦可达就会写第二
+    // —— 它不可达（pointerdown 已经把 ui 收起来了），可一旦可达就会写第二
     // 次：setUi 换掉 itemId → 卡片 key 变化 → 旧卡片卸载 → 卸载清理里 settled 仍
     // 是 false、draft !== baseline 仍成立 → 第二次 commit，且那个闭包成功后会
-    // setUi({kind:'capsule', itemId:'one'})，把刚打开的第 2 张卡片打回第 1 条的胶囊。
+    // setUi({kind:'note', itemId:'one'})，把刚打开的第 2 张卡片打回第 1 条的收起态。
     // 所以这条测试同时钉住"只写一次"和"落在第 2 条上"。
     const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
     renderDock(twoItems, { updateComment })
@@ -879,9 +882,7 @@ describe('SelectionDock', () => {
     renderDock(twoItems, { removeItem })
     openChipList()
     const x = screen.getByRole('button', { name: '删除引用 2：second' })
-    // 第一次只是上膛（见 useArmedDelete），第二次才真删。
-    fireEvent.click(x)
-    expect(removeItem).not.toHaveBeenCalled()
+    // 单击立即删除（产品决定改回单击，见 QuoteCommentCard 里 `remove` 上方的注释）。
     fireEvent.click(x)
     expect(removeItem).toHaveBeenCalledWith('two')
     expect(document.querySelector('[data-dsh-quote-announce]')!.textContent)
@@ -1178,7 +1179,7 @@ describe('SelectionDock', () => {
   it('leaves the host conversation byte-identical across a whole quote lifecycle', async () => {
     // 本轮最硬的一条约束：**绝不 patch 宿主 DOM** —— 不写属性、不改内容、不插入
     // 或移动节点、不动 class/style。高亮只把 Range 交给浏览器（registry），徽标 /
-    // 胶囊 / 卡片全是 portal 在 document.body 上的自有图层。
+    // 批注标签 / 卡片全是 portal 在 document.body 上的自有图层。
     //
     // 杀法：往 anchor.row 上写任何一个属性（`row.setAttribute('data-x','1')`）、
     // 或把徽标 append 进宿主行里，这条断言立刻红。
@@ -1246,7 +1247,8 @@ describe('SelectionDock', () => {
     expect(badges.style.height).toBe('0px')
     expect(badges.style.zIndex).toBe('897')
 
-    // 胶囊层同理：纯指针预览，一个可聚焦控件都没有。
+    // 批注标签层同理：纯指针图层，一个可聚焦控件都没有（那一层的断言见
+    // "collapses to the note the user wrote…"）。
     fireEvent.click(document.querySelector<HTMLElement>('[data-dsh-quote-badge-anchor="one"]')!)
     const dialog = card()
     expect(dialog.closest('[aria-hidden="true"]')).toBeNull()
@@ -1322,54 +1324,61 @@ describe('SelectionDock', () => {
     expect(second!.replace(/​/g, '')).toBe('已保存第 1 条引用的评论')
   })
 
-  it('floats a capsule beside a freshly added quote without stealing focus', () => {
+  it('opens the card with the caret already in it the moment a quote is added', () => {
+    // 用户原话：「图 1 那个小输入框的意义是什么呢，用户的动作应该是划词 - 点击
+    // 添加到对话 - 输入文字，现在输入文字前用户还多一步点击」。所以「添加到对话」
+    // 之后**直接**是展开的卡片、焦点就在输入框里——中间那枚"长得像输入框却不能
+    // 输入"的折叠胶囊，连同它索要的那次点击，一起没了。
+    // 杀法（各自独立）：把 seen 那个 effect 换回 `setUi({kind:'note', …})`（第二
+    // 条断言红：根本没有 dialog）；或去掉卡片 mount 时那次 `node.focus()`（第三
+    // 条红：焦点还在 body）；或让新增时不清 frozenCard/frozenFacing（这条测试
+    // 看不出来，见下面那条 "opens the fresh card on its own geometry…"）；或去掉
+    // `consumeAddSignal` 那道证据闸门（这条测试因为下面真的喂了匹配的证据，看不
+    // 出来——没有证据时不开卡的四条反例见 "does NOT treat a transient…" 那组）。
     installRangeRects()
     rangeRects.set('first', [{ top: 200, bottom: 216 }])
     rangeRects.set('second', [{ top: 300, bottom: 316 }])
     mountConversation('s', [{ nodeKey: 'n1', text: 'first' }, { nodeKey: 'n2', text: 'second' }])
     const view = renderDock(aggregateOf([twoItems.items[0]!]))
-    expect(document.querySelector('[data-dsh-quote-capsule]')).toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
     view.rerender(<SelectionDock
       sessionId="s"
       session={{ sessionId: 's' }}
       input={snapshotOf(twoItems)}
       updateComment={vi.fn(() => ({ ok: true as const, aggregate: twoItems }))}
       removeItem={vi.fn(() => ({ ok: true as const, aggregate: twoItems }))}
+      // 「新增第二条」这一帧本身不是证据——这里显式喂上"item 'two' 真的是刚才
+      // 那次真实新增"的信号，模拟 applySelectionActions 里 onAdd 成功之后记的
+      // 那笔账被 consumeAddSignal 命中。
+      consumeAddSignal={(id) => id === 'two'}
       t={zhTranslate}
     />)
-    const capsule = document.querySelector<HTMLElement>('[data-dsh-quote-capsule]')!
-    expect(capsule.dataset.dshQuoteCapsule).toBe('2')
-    expect(capsule.textContent).toContain(zh['selection.comment.placeholder'])
-    // 不抢焦点：焦点留在 composer（这里是 body），卡片也没有展开。
-    expect(screen.queryByRole('dialog')).toBeNull()
-    expect(document.activeElement).toBe(document.body)
-    expect(document.querySelector('[data-dsh-quote-announce]')!.textContent).toBe('已添加引用 2，共 2 条')
-    // 胶囊层不吃焦点：aria-hidden 容器里放可聚焦控件 = 能 Tab 到但读不出来。
-    const layer = document.querySelector<HTMLElement>('[data-dsh-quote-capsule-layer]')!
-    expect(layer.getAttribute('aria-hidden')).toBe('true')
-    expect(layer.getAttribute('role')).toBe('presentation')
-    expect(layer.querySelectorAll('button, a, input, textarea, [tabindex]').length).toBe(0)
-    expect(layer.style.zIndex).toBe('898')
-    // 点胶囊直接展开卡片。
-    fireEvent.click(capsule)
     expect(card().getAttribute('aria-label')).toBe('第 2 条引用的评论：second')
+    expect(document.activeElement, '开卡之后焦点没有落进输入框').toBe(
+      commentBox('对引用 2 的评论：second'),
+    )
+    // 刚添加的引用还没有评论，所以段落旁**不会**另外再画一条批注标签（也不会有
+    // 任何占位符文案）。
+    expect(document.querySelector('[data-dsh-quote-note]')).toBeNull()
+    expect(document.body.textContent).not.toContain(zh['selection.comment.placeholder'])
+    expect(document.querySelector('[data-dsh-quote-announce]')!.textContent).toBe('已添加引用 2，共 2 条')
   })
 
-  it('keeps the input chrome-free and moves the focus signal onto the card’s own edge', () => {
-    // 用户报告的两件事：「输入框内那个很重的聚焦态」和「输入框自己那圈边框」。
-    // 改法是把一条描边拆成两个职责：边界由**卡片**画（它本来就有一条），输入框
-    // 自己什么都不画；焦点信号从框内 2px 蓝环换成卡片外沿 1px 的换色。
+  it('keeps the input chrome-free and leaves the card’s edge alone on focus', () => {
+    // 用户报告的两件事：「输入框自己那圈边框」和「聚焦态可以不要嘛，或者别用这么
+    // 重的边框线，真的很丑」。上一版把框内那圈 2px 蓝环换成了卡片外沿 1px 的
+    // 换色——仍然是一条会因为聚焦而变化的边框线，用户第二次点名说丑。这一版
+    // 干脆没有聚焦态：**边框在聚焦前后逐字节相同**，焦点信号只剩输入框自己的
+    // 插入符（那是浏览器画的，2.4.7 对文本框的常规解读）。
     //
-    // 合规依据（这一段是本轮最容易引错的地方）：AA 侧只有 **1.4.11**，要求焦点
-    // 指示器对**相邻色** ≥3:1，没有厚度要求、也没有"聚焦相对未聚焦"的差值要求。
-    // 卡边 border-l2 → label-tertiary 实测 邻外/邻内 浅 3.71/3.71、深 8.54/5.67，
-    // 两侧都过。上一轮引的"2.4.11 要求两态 3:1"是错的：2.4.11 是 Focus Not
-    // Obscured（与外观无关），"同像素两态 3:1 + 2px 周长面积"是 2.4.13，AAA。
+    // 按钮那圈 FOCUS_RING 是另一回事，一个都不许动（按钮没有插入符）——由
+    // "keeps the close button’s focus ring inside the card’s rounded corner" 与
+    // 工具条那两条焦点测试各自钉住。
     //
-    // 杀法（三条各自独立）：
+    // 杀法（各自独立）：
     //  · 把 `outline: focusedInput ? FOCUS_RING : 'none'` 写回 textarea；
     //  · 给 textarea 加回任何 border（框内又有一圈线）；
-    //  · 让卡片的 borderColor 不随 focusedInput 变（焦点态整个消失）。
+    //  · 让卡片的 borderColor 随聚焦变（最后那组"聚焦前后逐字节相同"红）。
     renderDock(twoItems)
     openCard('1')
     const box = commentBox('对引用 1 的评论：first')
@@ -1393,21 +1402,23 @@ describe('SelectionDock', () => {
     expect(box.style.background).toContain('var(--dsw-alias-label-primary, #0f1115)')
     expect(box.getAttribute('style')).not.toContain(FOCUS_RING_COLOR)
 
-    // 焦点信号在卡片自己那条边上：1px 不变，只换色。
+    // 卡片外沿：聚焦前后**逐字节相同**。开卡本身就已经把焦点放进输入框了，所以
+    // 这里先量"持有焦点"的那一档，再 blur 回来对比。
     const dialog = card()
-    fireEvent.focus(box)
-    expect(dialog.style.borderColor).toBe('var(--dsw-alias-label-tertiary, #81858c)')
+    const border = (node: HTMLElement) => [node.style.borderWidth, node.style.borderStyle, node.style.borderColor]
+    const focused = border(dialog)
     fireEvent.blur(box)
-    expect(dialog.style.borderColor).toBe('var(--dsw-alias-border-l2, rgba(0,0,0,.1))')
-    // 换色而已 —— 宽度/线型一个都没动（聚焦不加粗、不位移）。
-    expect(dialog.style.borderWidth).toBe('1px')
-    expect(dialog.style.borderStyle).toBe('solid')
+    expect(border(dialog), '卡片边框还在因为聚焦而变化').toEqual(focused)
+    fireEvent.focus(box)
+    expect(border(dialog), '卡片边框还在因为聚焦而变化').toEqual(focused)
+    // 而且它就是那条静息的发丝线，不是"两态都取了聚焦色"。
+    expect(focused).toEqual(['1px', 'solid', 'var(--dsw-alias-border-l2, rgba(0,0,0,.1))'])
   })
 
   it('starts one line tall and stops growing at the line cap', () => {
     // 用户报告：「默认展示了窄输入框，但是点击了就变成了高的输入框」。真因是
-    // 固定的 `minHeight: 64`（三行多）——折叠态胶囊只有 32px，点开就蹦成一张
-    // 130px 的卡片。改成一行起步（20 行高 + 上下各 8 内边距 = 36，对胶囊只差
+    // 固定的 `minHeight: 64`（三行多）——收起态那条标签只有 32px，点开就蹦成一张
+    // 130px 的卡片。改成一行起步（20 行高 + 上下各 8 内边距 = 36，对标签只差
     // 4px）、按真实行数长高、6 行封顶后框内滚动。
     // 杀法（各自独立）：去掉 `Math.min(…, lineCap)` 上限（第三条断言变 400px）、
     // 去掉 `Math.max(…, COMMENT_ONE_LINE)` 下限（第一条变 0px）、把 overflowY
@@ -1473,7 +1484,7 @@ describe('SelectionDock', () => {
 
   it('separates the floating surfaces with the host’s own hairline, not a 3:1 stroke it does not need', () => {
     // 上一轮这里是 label-tertiary（浅 3.71 / 深 8.54），依据写的是「1.4.11 要
-    // 3:1」——那条 SC 只规范 "user interface components and states"，而胶囊/卡片/
+    // 3:1」——那条 SC 只规范 "user interface components and states"，而标签/卡片/
     // 列表是**容器面板**，不是控件；Understanding 还明写：控件有可见内容时不要求
     // 画出边界。所以这条描边从来不是合规项，纯粹是可读性判断——而它正是用户看到
     // 的「边框线太重」。降到宿主自己的发丝线 border-l2（浅 #E6E6E6 1.25:1 /
@@ -1493,9 +1504,7 @@ describe('SelectionDock', () => {
     }
     renderDock(twoItems)
     openCard('1')
-    // 开卡会自动聚焦输入框，卡边这时是"正在打字"的那一档（见上一条测试）；
-    // 这里量的是**静息**态，先让它静息下来。
-    fireEvent.blur(commentBox('对引用 1 的评论：first'))
+    // 卡边只有一档（聚焦不换色，见上一条测试），所以开着输入框直接量。
     hairline(card())
     // 引用列表共用同一张面。（打开列表会把焦点带到第 1 行 → 卡片保存并收起，
     // 那是既有的"失焦即保存"行为，不是这条测试要管的事。）
@@ -1505,118 +1514,328 @@ describe('SelectionDock', () => {
 
   /* ── 本轮修复 ───────────────────────────────────────────────────────── */
 
-  /** 不经 renderDock：这一组要自己控制「草稿里连 occurrence 都还没有」这个起点。 */
+  /** 不经 renderDock：这一组要自己控制「草稿里连 occurrence 都还没有」这个起点。
+   * `consumeAddSignal` 默认不传（即"没有证据"）——大多数这组测试关心的是新增
+   * 之外的行为；需要模拟"这条确实是真实新增"的测试自己传一个匹配的实现。 */
   function dockProps(aggregate: SelectionAggregateV1, overrides: {
     updateComment?: (itemId: string, comment: string) => SelectionMutationResult
     removeItem?: (itemId: string) => SelectionMutationResult
+    consumeAddSignal?: (itemId: string) => boolean
   } = {}) {
     return {
       sessionId: 's',
       session: { sessionId: 's' },
       updateComment: overrides.updateComment ?? vi.fn(() => ({ ok: true as const, aggregate })),
       removeItem: overrides.removeItem ?? vi.fn(() => ({ ok: true as const, aggregate })),
+      consumeAddSignal: overrides.consumeAddSignal,
       t: zhTranslate,
     }
   }
 
   const EMPTY_INPUT = { draft: '', draftRev: 1, occurrences: [] }
 
-  it('floats a capsule and announces for the FIRST quote, not only from the second on', () => {
+  it('opens the card and announces for the FIRST quote, not only from the second on', () => {
     // 杀法：把哨兵写回 `seen.current = ids.length === 0 ? null : new Set(ids)` +
     // `if (previous === null) return` —— 「0 条」与「首次渲染」编码成同一个值，
-    // 0→1 这个真实的新增被整个吞掉：第一条引用没有胶囊（本轮 UI 的主入口）、
+    // 0→1 这个真实的新增被整个吞掉：第一条引用不开卡（本轮 UI 的主入口）、
     // 也没有播报。
     installRangeRects()
     rangeRects.set('first', [{ top: 200, bottom: 216 }])
     mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
     const one = aggregateOf([twoItems.items[0]!])
-    const props = dockProps(one)
+    const props = dockProps(one, { consumeAddSignal: (id) => id === 'one' })
     // 起点：草稿里一条引用都没有，坞整个不渲染。
     const view = render(<SelectionDock {...props} input={EMPTY_INPUT} />)
-    expect(document.querySelector('[data-dsh-quote-capsule]')).toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
 
     view.rerender(<SelectionDock {...props} input={snapshotOf(one)} />)
-    const capsule = document.querySelector<HTMLElement>('[data-dsh-quote-capsule]')
-    expect(capsule, '第一条引用没有浮出胶囊').not.toBeNull()
-    expect(capsule!.dataset.dshQuoteCapsule).toBe('1')
+    expect(screen.queryByRole('dialog'), '第一条引用没有开卡').not.toBeNull()
+    expect(card().getAttribute('aria-label')).toBe('第 1 条引用的评论：first')
     expect(document.querySelector('[data-dsh-quote-announce]')!.textContent)
       .toBe('已添加引用 1，共 1 条')
   })
 
-  it('writes the saved comment on the capsule and only falls back to the placeholder without one', () => {
-    // 本轮特性的核心目的就是「把批注标在被引段落旁边」。旧写法把 placeholder
-    // 写死传进来，保存完评论后段落旁那枚胶囊仍写着「添加可选评论...」——
-    // 杀法：把 comment 换回 `placeholder={t('selection.comment.placeholder')}`。
+  it('anchors a fresh card to the chip instead of the previous card’s coordinates when its own geometry is unmeasured', () => {
+    // `frozenCard` 存的是**上一张卡片**的落点，它服务的是"这一帧量不出几何就冻结
+    // 在原地"。可它跨条目也照冻：开卡后的第一帧 `anchors.openAnchor` 恒为 null
+    //（量测 layout effect 还没为新的 openItemId 跑过），不清掉它，新卡片就会拿着
+    // **上一条引用**的坐标画出来——锚点一直量不出来（这里让第 2 条没有客户区
+    // 矩形，`unmeasured`）时更是永久停在那儿，一张写着"第 2 条"的卡片钉在第 1 条
+    // 的段落旁边。这与上一轮"朝向从错误的那一帧冻结"是同源的坑，`frozenCard`
+    // 在新增 effect 里清零解决了它。
+    //
+    // 但"宁可不画"是上一轮的取舍，本轮改了：量不出真几何 **且** chipRect 也从没
+    // 量过时（本次会话第一次开卡），旧代码让 cardPoint 整个是 null——用户点了
+    // "添加到对话"，界面上什么反馈都没有。这里先给第 1 条开一次卡（走 chip →
+    // badge 路径，会顺带量出 chipRect，且量出之后不会再清空），确保第 2 条开卡
+    // 那一刻 chipRect 已经不是 null，验证它退到 chip 兜底，而不是沿用第 1 条的
+    // 坐标、也不是彻底不渲染。
+    // 杀法：把新增 effect（或 openCard）里的 `frozenCard.current = null` 删掉 ——
+    // 第 2 条的卡片会停在第 1 条末行下方的 222px 上，第一条断言红；把
+    // `needsChipRect` 换回只在 `ui.anchor === 'chip'` 时才量——第二条断言变
+    // undefined（卡片又不渲染了）。
+    installRangeRects()
+    // 只给第 1 条喂矩形：第 2 条的行在 DOM 里（解析得到），但量不出末行矩形。
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
+    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }, { nodeKey: 'n2', text: 'second' }])
+    const one = aggregateOf([twoItems.items[0]!])
+    const props = dockProps(twoItems, { consumeAddSignal: (id) => id === 'two' })
+    const restore = measureCard(() => 96)
+    try {
+      const view = render(<SelectionDock {...props} input={snapshotOf(one)} />)
+      // 先给第 1 条开一次卡，把 frozenCard 写满（末行下缘 216 + 间隙 6 = 222），
+      // 顺带把 chipRect 量出来（jsdom 没 mock chip 的 getBoundingClientRect，
+      // 恒为全 0，但"量过"这件事本身才是这条测试需要的），再点别处收起。
+      fireEvent.click(document.querySelector<HTMLElement>('[data-dsh-quote-badge-anchor="one"]')!)
+      expect(card().style.top).toBe('222px')
+      fireEvent.pointerDown(document.body)
+
+      // 新增第 2 条 → 直接开卡，但它的几何量不出来。
+      view.rerender(<SelectionDock {...props} input={snapshotOf(twoItems)} />)
+      expect(card().getAttribute('aria-label'), '开的不是刚新增的第 2 条').toBe('第 2 条引用的评论：second')
+      expect(card().style.top, '新卡片用了上一张卡片的落点').not.toBe('222px')
+      // 退到 chip 兜底：chipRect 全 0，viewportBand() 是 [8, 760)（jsdom 默认
+      // 768 高，OVERLAY_EDGE_INSET 8）里"下方永远塞得下"，above 恒为 false，
+      // 上缘钉在 chip 下缘 + QUOTE_CARD_GAP(6) 再钳进带内下限：
+      // pinned = clamp(0+6, [8, 760-96]) = 8。
+      expect(card().style.top, '几何未知时应该退到 chip 兜底，而不是什么都不画').toBe('8px')
+    } finally {
+      restore()
+    }
+  })
+
+  /* ── "items 比上一帧多了一条"不等于"用户点了添加到对话" ──────────────────
+     `items` 来自 `readSelectionAggregate(input)`：occurrences.length !== 1 或
+     ref 解码失败时它返回 null，`items` 塌成 `NO_ITEMS`（空数组）。下面四条
+     分别对应新增 effect 顶部注释点名的四种瞬时空档——纯集合差会把"空档之后
+     条目原样复原"误读成一次新的添加，本轮改成必须经 `consumeAddSignal` 认领
+     才开卡；这四条不传它（= 没有证据），断言：不开卡、live region 不播报
+     "已添加引用"、焦点原地不动（卡片 mount 时的 `node.focus()` 不会被触发）。
+     真实点击"添加到对话"必须开卡并聚焦——那条覆盖见上面
+     "opens the card with the caret already in it the moment a quote is added"
+     （显式喂了匹配的 `consumeAddSignal`）与
+     "applySelectionActions wires a genuine add through to the dock"
+     （走真实的 onAdd → consumeAddSignal 链路，见文件末尾）。 */
+
+  /** 挂一个真实可聚焦的哨兵并把焦点放上去：如果错误地开了卡，卡片 mount 的
+   * `node.focus()` 会把焦点从它身上拽走，断言就会红。 */
+  function focusSentinel(): HTMLInputElement {
+    const sentinel = document.createElement('input')
+    document.body.appendChild(sentinel)
+    sentinel.focus()
+    return sentinel
+  }
+
+  it('does not open a card (or steal focus) when a composer undo/redo makes the occurrence vanish and reappear', () => {
+    // 探针 1：撤销把引用 token 连同它的 occurrence 一起抹掉，重做又原样恢复。
+    const sentinel = focusSentinel()
+    const one = aggregateOf([twoItems.items[0]!])
+    const props = dockProps(one)
+    const view = render(<SelectionDock {...props} input={snapshotOf(one)} />)
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    view.rerender(<SelectionDock {...props} input={EMPTY_INPUT} />) // 撤销
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    view.rerender(<SelectionDock {...props} input={snapshotOf(one)} />) // 重做
+    expect(screen.queryByRole('dialog'), '瞬时空档被误判成了新增').toBeNull()
+    expect(document.activeElement, '焦点被误开的卡片抢走了').toBe(sentinel)
+    expect(document.querySelector('[data-dsh-quote-announce]')!.textContent).toBe('')
+
+    sentinel.remove()
+  })
+
+  it('does not open a card (or steal focus) when the draft briefly carries two occurrences', () => {
+    // 探针 2：草稿里瞬间出现 2 个 occurrence（并发写入的一帧）。
+    // occurrences.length !== 1 时 readSelectionAggregate 恒返回 null，与探针 1
+    // 走的是同一条代码路径（items 塌成空数组）。
+    const sentinel = focusSentinel()
+    const one = aggregateOf([twoItems.items[0]!])
+    const props = dockProps(one)
+    const twoOccurrences = {
+      draft: 'Selected context Selected context ', draftRev: 1,
+      occurrences: [
+        { source: SELECTION_REFERENCE_SOURCE, ref: encodeSelectionAggregate(one), offset: 0, length: 16 },
+        { source: SELECTION_REFERENCE_SOURCE, ref: encodeSelectionAggregate(one), offset: 16, length: 16 },
+      ],
+    }
+    const view = render(<SelectionDock {...props} input={snapshotOf(one)} />)
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    view.rerender(<SelectionDock {...props} input={twoOccurrences} />)
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    view.rerender(<SelectionDock {...props} input={snapshotOf(one)} />)
+    expect(screen.queryByRole('dialog'), '瞬时的双 occurrence 被误判成了新增').toBeNull()
+    expect(document.activeElement, '焦点被误开的卡片抢走了').toBe(sentinel)
+    expect(document.querySelector('[data-dsh-quote-announce]')!.textContent).toBe('')
+
+    sentinel.remove()
+  })
+
+  it('does not open a card (or steal focus) when the ref briefly fails to decode', () => {
+    // 探针 3：occurrence 还在，但 ref 字符串这一帧解不出来（比如写入过程中
+    // 撞见半份 JSON）。`decodeSelectionAggregate` 抛出 → readSelectionAggregate
+    // 同样返回 null。
+    const sentinel = focusSentinel()
+    const one = aggregateOf([twoItems.items[0]!])
+    const props = dockProps(one)
+    const badRef = {
+      draft: 'Selected context ', draftRev: 1,
+      occurrences: [{ source: SELECTION_REFERENCE_SOURCE, ref: 'not-json', offset: 0, length: 16 }],
+    }
+    const view = render(<SelectionDock {...props} input={snapshotOf(one)} />)
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    view.rerender(<SelectionDock {...props} input={badRef} />)
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    view.rerender(<SelectionDock {...props} input={snapshotOf(one)} />)
+    expect(screen.queryByRole('dialog'), '瞬时的解码失败被误判成了新增').toBeNull()
+    expect(document.activeElement, '焦点被误开的卡片抢走了').toBe(sentinel)
+    expect(document.querySelector('[data-dsh-quote-announce]')!.textContent).toBe('')
+
+    sentinel.remove()
+  })
+
+  it('does not open a card (or steal focus) when session.sessionId and sessionId disagree for one frame', () => {
+    // 探针 4：会话切走再切回——`owned` 的判据 `session.sessionId === sessionId`
+    // 有一帧不成立（owned 变 null，items 同样塌成空数组），紧接着切回来。
+    const sentinel = focusSentinel()
+    const one = aggregateOf([twoItems.items[0]!])
+    const props = dockProps(one)
+    const view = render(
+      <SelectionDock {...props} input={snapshotOf(one)} session={{ sessionId: 's' }} />,
+    )
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    view.rerender(
+      <SelectionDock {...props} input={snapshotOf(one)} session={{ sessionId: 'other' }} />,
+    )
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    view.rerender(
+      <SelectionDock {...props} input={snapshotOf(one)} session={{ sessionId: 's' }} />,
+    )
+    expect(screen.queryByRole('dialog'), '瞬时的会话不一致被误判成了新增').toBeNull()
+    expect(document.activeElement, '焦点被误开的卡片抢走了').toBe(sentinel)
+    expect(document.querySelector('[data-dsh-quote-announce]')!.textContent).toBe('')
+
+    sentinel.remove()
+  })
+
+  it('collapses to the note the user wrote, and to nothing at all without one', () => {
+    // 用户原话：「保存并收起后，段落旁显示的是用户写的那句话……它是一条批注标签，
+    // 不是输入框——不要再显示占位符文案」「没有评论时收起不留任何标签」。
+    // 杀法（各自独立）：把 collapseCard 换回无条件 `{kind:'none'}`（第一组全红：
+    // 段落旁什么都没有）；换回无条件留标签（第二组红：空评论又留下一枚空壳）；
+    // 把标签里的 `note` 换回 placeholder 分支（第二条断言红）。
     installRangeRects()
     rangeRects.set('first', [{ top: 200, bottom: 216 }])
     mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
     const note = '这段的推理跳步了，第二段和第三段之间缺一个前提'
     const commented = aggregateOf([{ ...twoItems.items[0]!, comment: note }])
-    const props = dockProps(commented)
-    const view = render(<SelectionDock {...props} input={EMPTY_INPUT} />)
-    view.rerender(<SelectionDock {...props} input={snapshotOf(commented)} />)
+    renderDock(commented)
 
-    const text = document.querySelector<HTMLElement>('[data-dsh-quote-capsule-text]')!
-    expect(text.dataset.dshQuoteCapsuleText).toBe('comment')
-    expect(text.textContent).toBe(note)
-    // 截断交给 ellipsis，完整值挂 title。
-    expect(text.getAttribute('title')).toBe(note)
-    expect(text.style.textOverflow).toBe('ellipsis')
-    // 已保存内容用更实的前景色：label-primary 浅 18.90:1 / 深 11.57:1。
-    expect(text.getAttribute('style')).toContain('var(--dsw-alias-label-primary, #0f1115)')
+    // 有评论：开卡 → 点别处收起 → 段落旁留下的是那句话本身。
+    openCard('1')
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    const label = document.querySelector<HTMLElement>('[data-dsh-quote-note]')!
+    expect(label, '保存并收起后段落旁没有批注标签').not.toBeNull()
+    expect(label.dataset.dshQuoteNote).toBe('1')
+    expect(label.querySelector('[data-dsh-quote-note-text]')!.textContent).toBe(note)
+    // 截断交给 ellipsis，完整值挂 title（本层对 AT 隐藏，title 只服务指针用户）。
+    expect(label.getAttribute('title')).toBe(note)
+    expect(label.querySelector<HTMLElement>('[data-dsh-quote-note-text]')!.style.textOverflow)
+      .toBe('ellipsis')
+    // 它是标签不是输入框：没有占位符、没有可聚焦控件、整层对 AT 隐藏。
+    expect(label.textContent).not.toContain(zh['selection.comment.placeholder'])
+    const layer = document.querySelector<HTMLElement>('[data-dsh-quote-note-layer]')!
+    expect(layer.getAttribute('aria-hidden')).toBe('true')
+    expect(layer.getAttribute('role')).toBe('presentation')
+    expect(layer.querySelectorAll('button, a, input, textarea, [tabindex]').length).toBe(0)
+    expect(layer.style.zIndex).toBe('898')
+    // 点它重新开卡编辑，带着已保存的那句话。
+    fireEvent.click(label)
+    expect(commentBox('对引用 1 的评论：first').value).toBe(note)
+
+    // 「取消」按**上次保存值**决定收起态，不是按用户刚打的字：清空输入框再取消，
+    // 草稿没被改写，段落旁那条标签当然也不该跟着消失。
+    // 杀法：把 onCancel 的 `collapseCard(ui.itemId, ui.baseline)` 换成 `ui.draft`。
+    fireEvent.change(commentBox('对引用 1 的评论：first'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: '取消编辑第 1 条引用的评论' }))
+    expect(document.querySelector('[data-dsh-quote-note]'), '取消之后已保存的批注标签不见了')
+      .not.toBeNull()
 
     cleanup()
-    const bare = aggregateOf([twoItems.items[0]!])
-    const bareProps = dockProps(bare)
-    const second = render(<SelectionDock {...bareProps} input={EMPTY_INPUT} />)
-    second.rerender(<SelectionDock {...bareProps} input={snapshotOf(bare)} />)
-    const empty = document.querySelector<HTMLElement>('[data-dsh-quote-capsule-text]')!
-    expect(empty.dataset.dshQuoteCapsuleText).toBe('placeholder')
-    expect(empty.textContent).toBe(zh['selection.comment.placeholder'])
-    expect(empty.getAttribute('title')).toBeNull()
-    // 占位符弱一档，但仍过 4.5:1：label-secondary 浅 5.80:1 / 深 8.03:1。
-    expect(empty.getAttribute('style')).toContain('var(--dsw-alias-label-secondary, #61666b)')
+    // 没有评论：收起之后段落旁一个盒子都不留（数字徽标本来就在，入口没少）。
+    renderDock(aggregateOf([twoItems.items[0]!]))
+    openCard('1')
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.querySelector('[data-dsh-quote-note]'), '空评论也留下了一枚空标签').toBeNull()
+    expect(document.body.textContent).not.toContain(zh['selection.comment.placeholder'])
   })
 
-  it('lets a hover on a different quote take the pinned capsule with it, instead of leaving it stuck', async () => {
-    // 「新增一条引用」是 'capsule' 现在**唯一**的生产者（收起卡片一律回 'none'，
-    // 见下面那条 collapses… 的测试），所以这里用新增来造出被钉住的那枚胶囊。
-    //
-    // 被测行为没变：ui 钉在 'capsule' 上时，openItemId = ui.itemId 恒成立，
-    // peekItemId 被挡在公式外面 —— 之后悬停别的引用的徽标，hoveredItemId 照常
-    // 更新（正文高亮跟着走），胶囊却纹丝不动。
+  it('lets a hover on a different quote take the pinned note with it, instead of leaving it stuck', async () => {
+    // 收起卡片会把标签钉在**刚编辑完的那一条**上（'note'）。钉住时
+    // openItemId = ui.itemId 恒成立，peekItemId 被挡在公式外面 —— 之后悬停别的
+    // 引用的徽标，hoveredItemId 照常更新（正文高亮跟着走），标签却纹丝不动。
     // 杀法：把 schedulePeek 里"悬停到另一条时松开钉子"那段删掉（或把
-    // `setUi({kind:'none'})` 换成什么都不做）——胶囊仍停在第 2 条上，最后一条
+    // `setUi({kind:'none'})` 换成什么都不做）——标签仍停在第 2 条上，最后一条
     // 断言变红。
     installRangeRects()
     rangeRects.set('first', [{ top: 200, bottom: 216 }])
     rangeRects.set('second', [{ top: 300, bottom: 316 }])
     mountConversation('s', [{ nodeKey: 'n1', text: 'first' }, { nodeKey: 'n2', text: 'second' }])
-    const one = aggregateOf([twoItems.items[0]!])
-    const props = dockProps(twoItems)
-    const view = render(<SelectionDock {...props} input={snapshotOf(one)} />)
+    // 两条都已经有批注：没有批注的引用收起后不留标签，也就没有"钉子"可谈。
+    const both = aggregateOf([
+      { ...twoItems.items[0]!, comment: '第一条的批注' },
+      { ...twoItems.items[1]!, comment: '第二条的批注' },
+    ])
+    renderDock(both)
 
-    // 新增第 2 条 → 胶囊钉在条目 2 上（不抢焦点，见上面那条测试）。
-    view.rerender(<SelectionDock {...props} input={snapshotOf(twoItems)} />)
-    const capsule = () => document.querySelector<HTMLElement>('[data-dsh-quote-capsule]')!
-    expect(capsule(), '新增引用后正文旁应该浮出胶囊').not.toBeNull()
-    expect(capsule().dataset.dshQuoteCapsule, '胶囊应该钉在刚新增的条目 2 上').toBe('2')
+    // 编辑第 2 条再收起 → 标签钉在条目 2 上。
+    openCard('2')
+    fireEvent.pointerDown(document.body)
+    const label = () => document.querySelector<HTMLElement>('[data-dsh-quote-note]')!
+    expect(label(), '收起之后正文旁应该留下批注标签').not.toBeNull()
+    expect(label().dataset.dshQuoteNote, '标签应该钉在刚编辑完的条目 2 上').toBe('2')
 
     // 悬停第 1 条的正文徽标，等悬停预览的开启延迟（PEEK_OPEN_MS）跑完。
     await act(async () => {
       fireEvent.mouseEnter(document.querySelector<HTMLElement>('[data-dsh-quote-badge-anchor="one"]')!)
       await new Promise((resolve) => setTimeout(resolve, 150))
     })
-    expect(capsule(), '悬停到另一条引用后胶囊应该换成新的这一条').not.toBeNull()
-    expect(capsule().dataset.dshQuoteCapsule, '悬停到另一条引用后胶囊没有跟过去').toBe('1')
+    expect(label(), '悬停到另一条引用后标签应该换成新的这一条').not.toBeNull()
+    expect(label().dataset.dshQuoteNote, '悬停到另一条引用后标签没有跟过去').toBe('1')
+    expect(label().textContent).toContain('第一条的批注')
   })
 
-  it('collapses all the way out of sight when the user clicks away, instead of leaving a pinned capsule', () => {
-    // 用户报告的第三件事：「打开输入框之后只能在下方引用处删掉」。真因不是卡片
-    // 没收起——它收了——而是收到了 'capsule'：段落旁永远留着一枚 32px 的胶囊，
-    // 空评论时还写着占位符，从用户视角这就是"输入框关不掉"。
-    // 杀法：把 commitCard 的 collapse() / onCancel 换回 {kind:'capsule', …}，
-    // 下面两条 toBeNull 立刻红。
+  it('shows nothing at all while hovering a quote that has no comment', async () => {
+    // 悬停预览（peek）在这一版仍然有意义：它是"不开卡就读到别条引用写了什么"的
+    // 唯一途径。但它预览的是**批注本身**——没有批注就没有可预览的东西，那时浮出
+    // 一枚只写着占位符的盒子，正是这一版要删掉的那个"假输入框"。徽标的强调环
+    // 仍然照亮，悬停反馈没丢（见 emphasises the matching range… 那条测试）。
+    // 杀法：把 showNote 里的 `hasNote(noteText)` 去掉 —— 空标签又浮出来，红。
+    installRangeRects()
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
+    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
+    renderDock(aggregateOf([twoItems.items[0]!]))
+    await act(async () => {
+      fireEvent.mouseEnter(document.querySelector<HTMLElement>('[data-dsh-quote-badge-anchor="one"]')!)
+      await new Promise((resolve) => setTimeout(resolve, 150))
+    })
+    expect(document.querySelector('[data-dsh-quote-note]'), '悬停一条没有批注的引用也浮出了标签').toBeNull()
+  })
+
+  it('never leaves a pinned input behind: the collapsed thing is a label or nothing', () => {
+    // 用户报告的第三件事：「打开输入框之后只能在下方引用处删掉」。真因是收起态
+    // 落回了一枚 32px 的胶囊：空评论时还写着占位符，从用户视角就是"输入框关不掉"。
+    // 现在收起态要么是写着用户那句话的标签，要么什么都没有——两者都不是输入框。
+    // 杀法：把 collapseCard 换回无条件 `{kind:'capsule'|'note', …}`，两条
+    // toBeNull 立刻红。
     installRangeRects()
     rangeRects.set('first', [{ top: 200, bottom: 216 }])
     mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
@@ -1627,13 +1846,15 @@ describe('SelectionDock', () => {
     // 点别处 = 保存并收起（capture 阶段的 document.pointerdown）。
     fireEvent.pointerDown(document.body)
     expect(screen.queryByRole('dialog'), '点别处之后卡片还在').toBeNull()
-    expect(document.querySelector('[data-dsh-quote-capsule]'), '收起后段落旁还钉着胶囊').toBeNull()
+    expect(document.querySelector('[data-dsh-quote-note]'), '空评论收起后段落旁还钉着盒子').toBeNull()
+    expect(screen.queryByRole('textbox'), '收起之后段落旁还留着一个输入框').toBeNull()
 
-    // 「取消」也一样收干净。
+    // 「取消」也一样收干净：回退到上次保存值（空串）→ 不留标签。
     openCard('1')
+    fireEvent.change(commentBox('对引用 1 的评论：first'), { target: { value: '待会儿要丢掉的' } })
     fireEvent.click(screen.getByRole('button', { name: '取消编辑第 1 条引用的评论' }))
     expect(screen.queryByRole('dialog')).toBeNull()
-    expect(document.querySelector('[data-dsh-quote-capsule]'), '取消后段落旁还钉着胶囊').toBeNull()
+    expect(document.querySelector('[data-dsh-quote-note]'), '取消后段落旁留下了刚被丢弃的字').toBeNull()
   })
 
   it('reopens the card from the body badge with the text the user had typed', () => {
@@ -1738,8 +1959,10 @@ describe('SelectionDock', () => {
     openCard('1')
     fireEvent.change(commentBox('对引用 1 的评论：first'), { target: { value: '刚打的字' } })
     const trash = screen.getByRole('button', { name: '删除引用 1：first' })
+    // 单击立即删除（产品决定改回单击，见 QuoteCommentCard 里 `remove` 上方的
+    // 注释）——不再需要先点一次"上膛"。
     fireEvent.click(trash)
-    fireEvent.click(trash)
+    expect(removeItem).toHaveBeenCalledTimes(1)
     expect(removeItem).toHaveBeenCalledWith('one')
 
     // 卡片留在原地、文字留住、错误画在卡片上（与提交失败同款处理）。
@@ -1748,56 +1971,44 @@ describe('SelectionDock', () => {
     expect(screen.getByRole('alert').textContent).toBe(zh['selection.error.draftChanged'])
     // 焦点没掉进 <body>：承载它的元素还在卡片里。
     expect(card().contains(document.activeElement)).toBe(true)
-    // 第一次按下已经如实播报过"再按一次以删除"；删除本身失败（CAS 竞争），
-    // 所以没有后续的"已删除引用 1"，但 armed 那句不是"没播报"。
-    expect(document.querySelector('[data-dsh-quote-announce]')!.textContent).toBe('再按一次以删除引用 1')
+    // 删除失败（CAS 竞争）这条路径本身不 announce 任何东西——live region 还是
+    // mount 时的初始空串。
+    expect(document.querySelector('[data-dsh-quote-announce]')!.textContent).toBe('')
     // 而且卸载时那段字**仍然**会被尽力提交。
     view.unmount()
     expect(updateComment).toHaveBeenCalledWith('one', '刚打的字')
   })
 
-  it('tells the user to press again before it deletes anything, instead of just toggling aria-pressed', () => {
-    // 删除走 CAS 改写草稿，不进浏览器的文本 undo 栈；而真正的「撤销」在这里做不
-    // 出来（重新插入引用要一个活的 DOM 选区，detached 条目给不出）。所以二次确认。
-    // 杀法：让 useArmedDelete.press 直接 onConfirm() —— 第一次点就删。
+  it('deletes on a single click and announces the result, with focus back on the chip', () => {
+    // 「按两次才删」是上一轮加的，用户实测后反馈这个交互是错的：第一次按下只
+    // 点亮一圈内描边，长得像聚焦态；可访问性验证在屏读侧发现过同源问题——
+    // `aria-pressed` 套在删除按钮上会被念成"已按下"=已经删了，视觉与屏读两侧
+    // 都读反了。而它要保护的场景本来就选错了对象：误删代价很低（原文还在
+    // 对话里，重新划一次词就能加回来），真正不可逆的只有 detached 条目，而那
+    // 是少数——为了防少数情形让每次删除都变两步，不划算。产品决定改回单击。
+    // 杀法：把 onClick 换回需要两次点击才调用 onRemove 的任何形式。
     const removeItem = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
     renderDock(twoItems, { removeItem })
     openCard('1')
     const trash = screen.getByRole('button', { name: '删除引用 1：first' })
     const live = document.querySelector<HTMLElement>('[data-dsh-quote-announce]')!
-    // 静息态与今天逐字节相同：没有任何常驻装饰，可访问名就是普通的删除说明。
+    // 没有任何常驻装饰：不用 aria-pressed 表达"删没删"（那是切换按钮的语义，
+    // 套在一次性的破坏性动作上是撒谎）。
     expect(trash.getAttribute('aria-pressed')).toBeNull()
     expect(trash.getAttribute('aria-label')).toBe('删除引用 1：first')
 
     fireEvent.click(trash)
-    expect(removeItem).not.toHaveBeenCalled()
-    // aria-pressed（「已按下」）套在一个破坏性的一次性动作上是在撒谎——它在
-    // 「删除引用 1」这句上最自然的解读恰恰是「已经删掉了」，与事实相反，所以
-    // 彻底不渲染它；第一次按下改用可访问名 + live region 明说「还没删，
-    // 再按一次才删」。
-    expect(trash.getAttribute('aria-pressed')).toBeNull()
-    expect(trash.getAttribute('aria-label')).toBe('再按一次以删除引用 1')
-    expect(live.textContent).toBe('再按一次以删除引用 1')
-    expect(trash.getAttribute('style')).toContain('inset 0 0 0 1px')
-
-    // 移开指针就解除，armed 不跨交互残留，可访问名退回静息文案。
-    fireEvent.mouseLeave(trash)
-    expect(trash.getAttribute('aria-label')).toBe('删除引用 1：first')
-    fireEvent.click(trash)
-    expect(removeItem).not.toHaveBeenCalled()
-    expect(trash.getAttribute('aria-label')).toBe('再按一次以删除引用 1')
-
-    fireEvent.click(trash)
+    expect(removeItem).toHaveBeenCalledTimes(1)
     expect(removeItem).toHaveBeenCalledWith('one')
+    expect(trash.getAttribute('aria-pressed')).toBeNull()
+    // 删除成功后的播报与焦点归还都保留：卡片卸载（坞还有条目在），焦点回到 chip。
     expect(live.textContent).toBe('已删除引用 1')
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '查看 2 条引用' }))
   })
 
-  it('arms the list row’s X the same way, on the fill its red ring survives in dark mode', () => {
-    // 列表行的 X 与卡片上的垃圾桶共用同一条闸门；armed 的填充**必须**是 danger
-    // 那块，不能是中性的 interactive-bg-active —— 后者深色合成 #515254，红色内描边
-    // #f25a5a 画上去只有 2.37:1，低于 1.4.11 对非文本指示器的 3:1（danger 填充
-    // #513b3d 上是 3.11:1）。杀法：把 armed 那一支换回 interactive-bg-active，
-    // 或让 onClick 直接调 onRemove。
+  it('deletes the list row on a single click too', () => {
+    // 列表行的 X 与卡片上的垃圾桶共用同一套热态样式（hover/active 时换成
+    // danger 填充），本轮一起从"按两次"改回单击。
     const removeItem = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
     renderDock(twoItems, { removeItem })
     openChipList()
@@ -1805,18 +2016,9 @@ describe('SelectionDock', () => {
     expect(x.getAttribute('aria-pressed')).toBeNull()
 
     fireEvent.click(x)
-    expect(removeItem).not.toHaveBeenCalled()
-    // 与卡片上的垃圾桶同一条决定：不用 aria-pressed，第一次按下换成
-    // 「再按一次以删除」的可访问名。
-    expect(x.getAttribute('aria-pressed')).toBeNull()
-    expect(x.getAttribute('aria-label')).toBe('再按一次以删除引用 1')
-    const armedStyle = x.getAttribute('style')!
-    expect(armedStyle).toContain('inset 0 0 0 1px')
-    expect(armedStyle).toContain('--dsw-alias-interactive-bg-hover-danger')
-    expect(armedStyle).not.toContain('--dsw-alias-interactive-bg-active')
-
-    fireEvent.click(x)
+    expect(removeItem).toHaveBeenCalledTimes(1)
     expect(removeItem).toHaveBeenCalledWith('one')
+    expect(x.getAttribute('aria-pressed')).toBeNull()
   })
 
   it('puts the excerpt and the comment into the list button’s accessible name', () => {
@@ -1912,17 +2114,18 @@ describe('SelectionDock', () => {
     }
   })
 
-  it('does not let the unmount commit drag the fresh capsule back to the old quote', () => {
+  it('does not let the unmount commit drag the fresh card back to the old quote', () => {
     // 卸载路径上 commit.current 是上一帧的 commitCard 闭包，而这时 ui 已经被
-    // 「新增引用自动浮胶囊」的 effect 换成了第 2 条的胶囊。杀法：把 commitCard
-    // 里的 collapse() 换回无条件 setUi({kind:'capsule', itemId, anchor})。
+    // 「新增引用直接开卡」的 effect 换成了第 2 条的卡片。杀法：把 collapseCard
+    // 里那道 `current.kind === 'card' && current.itemId === itemId` 的核对去掉
+    //（无条件 setUi）—— 刚打开的第 2 张卡片会被顶成第 1 条的收起态。
     installRangeRects()
     rangeRects.set('first', [{ top: 200, bottom: 216 }])
     rangeRects.set('second', [{ top: 300, bottom: 316 }])
     mountConversation('s', [{ nodeKey: 'n1', text: 'first' }, { nodeKey: 'n2', text: 'second' }])
     const one = aggregateOf([twoItems.items[0]!])
     const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
-    const props = dockProps(twoItems, { updateComment })
+    const props = dockProps(twoItems, { updateComment, consumeAddSignal: (id) => id === 'two' })
     const view = render(<SelectionDock {...props} input={snapshotOf(one)} />)
     openCard('1')
     fireEvent.change(commentBox('对引用 1 的评论：first'), { target: { value: '第一条的评论' } })
@@ -1930,9 +2133,9 @@ describe('SelectionDock', () => {
     view.rerender(<SelectionDock {...props} input={snapshotOf(twoItems)} />)
     // 字没丢（尽力提交照跑）……
     expect(updateComment).toHaveBeenCalledWith('one', '第一条的评论')
-    // ……但胶囊必须留在刚到货的第 2 条上。
-    const capsule = document.querySelector<HTMLElement>('[data-dsh-quote-capsule]')!
-    expect(capsule.dataset.dshQuoteCapsule, '胶囊被打回了旧条目').toBe('2')
+    // ……但打开的必须是刚到货的第 2 条，而不是被打回第 1 条的收起态。
+    expect(card().getAttribute('aria-label'), '新卡片被旧条目的收起态顶掉了')
+      .toBe('第 2 条引用的评论：second')
   })
 
   it('freezes the card facing from the real quote geometry, not the transient chip fallback', () => {
@@ -2111,6 +2314,111 @@ describe('addSelectionToConversation routing', () => {
     expect(leftInput.state.getSnapshot().draft.startsWith('draft')).toBe(true)
     expect(document.activeElement).toBe(composer)
     controller.dispose()
+  })
+})
+
+describe('applySelectionActions wires a genuine add through to the dock', () => {
+  it('lets consumeAddSignal confirm exactly the item onAdd just inserted, once', () => {
+    // 补上"真实点击添加到对话"这条证据链的最后一环。SelectionDock 那组测试
+    // （"opens the card with the caret already in it…" 与四条"探针"）已经证明
+    // 了 `consumeAddSignal` 一旦给出匹配/不匹配的信号，卡片开或不开、焦点抢或
+    // 不抢——那些测试都是直接把 `consumeAddSignal` 当 prop 喂给 SelectionDock。
+    // 这条测试补的是它们没覆盖的一段：`applySelectionActions` 真实注册出来的
+    // `onAdd` 成功之后，记进 `pendingAdds` 的那笔账，能不能被同一次注册产出的
+    // `inject(sessionId)` 里的 `consumeAddSignal` 正确认领——包括"认领一次之后
+    // 不能再认领第二次"与"不匹配的 id 不会被误认领"。
+    const node = { key: 'n', kind: 'user', anchorSeq: 1, visibility: 'visible', data: {} }
+    const face = {
+      getSnapshot: () => (
+        { sessionId: 's', chat: { nodes: { get: (key: string) => key === 'n' ? node : undefined } } }
+      ),
+      subscribe: () => () => {},
+    }
+    const scope = { id: 's', bail: vi.fn() }
+    const sessions = {
+      list: { getSnapshot: () => ({ current: 's' }) },
+      presentation: { state: { getSnapshot: () => ({ visible: ['s'], focused: 's' }) } },
+      scope: () => scope,
+      sessionOf: () => face,
+    }
+    let snapshot = { draft: 'draft', draftRev: 0, occurrences: [] as Array<Record<string, unknown>> }
+    const input = {
+      state: { getSnapshot: () => snapshot },
+      insertReference: vi.fn((reference: { source: string; ref: string; label: string }, span: { draftRev: number }) => {
+        if (span.draftRev !== snapshot.draftRev) return false
+        snapshot = {
+          draft: snapshot.draft + reference.label + ' ',
+          draftRev: snapshot.draftRev + 1,
+          occurrences: [{ source: reference.source, ref: reference.ref, offset: 5, length: reference.label.length }],
+        }
+        return true
+      }),
+      notify: vi.fn(),
+    }
+    const registrations = new Map<string, { inject: (arg?: string) => unknown }>()
+    const services = {
+      sessions,
+      conversation: { input: { for: () => input } },
+      inputTriggers: { registerSource: () => () => {}, sessionOf: () => ({}) },
+      slots: {
+        inject: (_name: string, setup: () => unknown) => setup(),
+        register: (options: { id: string; inject: (arg?: string) => unknown }) => {
+          registrations.set(options.id, options)
+          return () => {}
+        },
+      },
+      harness: {},
+    } as unknown as SelectionApplyServices
+
+    const pane = document.createElement('section')
+    pane.dataset.sessionPane = 's'
+    const root = document.createElement('main')
+    root.className = 'ConversationRoot_root'
+    root.dataset.phase = 'ready'
+    const flow = document.createElement('div')
+    flow.dataset.chatFlow = ''
+    const row = document.createElement('article')
+    row.dataset.chatAnchorKey = 'anchor-n'
+    row.dataset.chatFlowKey = 'n'
+    row.dataset.chatFlowKind = 'user'
+    const text = document.createTextNode('quoted text')
+    row.append(text)
+    flow.append(row)
+    const seat = document.createElement('div')
+    seat.dataset.composerSeat = ''
+    const composer = document.createElement('textarea')
+    seat.append(composer)
+    root.append(flow, seat)
+    pane.append(root)
+    document.body.append(pane)
+    const range = document.createRange()
+    range.setStart(text, 0)
+    range.setEnd(text, text.length)
+
+    const ctx: SelectionApplyContext = { effect: (setup) => setup() }
+    const controller = applySelectionActions(ctx, services, t, 'dsh-workbench', () => 'fixed-item')
+    try {
+      const captured = controller.captureRange(range)
+      expect(captured).not.toBeNull()
+
+      const toolbar = registrations.get('dsh-workbench.selection-actions')!
+      const { onAdd } = toolbar.inject() as {
+        onAdd: (selection: ConversationSelection) => SelectionActionResult
+      }
+      expect(onAdd(captured!)).toEqual({ ok: true })
+
+      const dock = registrations.get('dsh-workbench.selection-aggregate')!
+      const { consumeAddSignal } = dock.inject('s') as { consumeAddSignal: (itemId: string) => boolean }
+      // 不匹配的 id 不会被误认领——真实证据只认它对应的那一个 itemId。
+      expect(consumeAddSignal('someone-elses-item')).toBe(false)
+      expect(consumeAddSignal('fixed-item')).toBe(true)
+      // 一次性：认领过之后同一个 id 不能再认领第二次，否则后续任何巧合的瞬时
+      // 空档都能蹭上这一笔"证据"，重新打开一次不该开的卡片。
+      expect(consumeAddSignal('fixed-item')).toBe(false)
+    } finally {
+      controller.dispose()
+      pane.remove()
+    }
   })
 })
 

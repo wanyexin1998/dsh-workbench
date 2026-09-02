@@ -78,11 +78,6 @@ export const zh = {
   // 几个长得一样的框），身份属于 name，聚焦时立刻朗读。
   'selection.comment.aria': '对引用 {n} 的评论：{excerpt}',
   'selection.remove.aria': '删除引用 {n}：{excerpt}',
-  // 「按两次才删」第一次按下时的可访问名 / 播报。旧写法第一次按下只有
-  // `aria-pressed` 凭空出现——屏读把「已按下」念在一个「删除引用 1」上，
-  // 最自然的解读恰恰是「已经删掉了」，与事实相反。这句话必须自己说清楚
-  // 「还没删，再按一次才删」。
-  'selection.remove.armed': '再按一次以删除引用 {n}',
   // 「跳到原文」的可访问名。摘要**不**进这句：同一行的 title 已经把摘要给了
   // 指针用户，而屏读用户在同一行的评论框名里已经听过一次，再念一遍就是复读。
   'selection.reveal.aria': '跳到引用 {n} 的原文',
@@ -166,7 +161,6 @@ export const en = {
   'selection.comment.placeholder': 'Add an optional comment…',
   'selection.comment.aria': 'Comment on quote {n}: {excerpt}',
   'selection.remove.aria': 'Remove quote {n}: {excerpt}',
-  'selection.remove.armed': 'Press again to delete quote {n}',
   'selection.reveal.aria': 'Jump to the source of quote {n}',
   'selection.anchor.offscreen': 'The quoted passage is currently out of view.',
   'selection.anchor.unmeasured': 'The quoted passage’s position cannot be read right now. The quote itself is still valid.',

@@ -380,7 +380,7 @@ describe('quoteBadgeWidth / quoteExcerpt', () => {
 })
 
 /**
- * 胶囊 / 卡片落点。与 `placeSelectionToolbar` 的测试同一形状（表驱动 + 不变量），
+ * 标签 / 卡片落点。与 `placeSelectionToolbar` 的测试同一形状（表驱动 + 不变量），
  * 但规则相反：那个首选**上方**并水平居中，这个首选**下方**并左对齐正文列。
  */
 describe('placeQuoteCard', () => {

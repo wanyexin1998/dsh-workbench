@@ -516,7 +516,7 @@ export function railInset(scrollport: HTMLElement, rect: { right: number }, base
 export interface QuoteBand {
   readonly top: number
   readonly bottom: number
-  /** 左缘。徽标只需要右缘（它永远靠右），但胶囊/卡片是有宽度的盒子，
+  /** 左缘。徽标只需要右缘（它永远靠右），但标签/卡片是有宽度的盒子，
    * 水平钳制两侧都要用，所以带子必须把左缘也说出来。 */
   readonly left: number
   readonly right: number

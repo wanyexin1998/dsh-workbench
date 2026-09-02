@@ -561,7 +561,7 @@ describe('quoteBand', () => {
   afterEach(() => { document.body.innerHTML = '' })
 
   it('reports the left edge too, and keeps the right edge clear of the scrollbar gutter', () => {
-    // 徽标永远靠右，所以带子原本只说 top/bottom/right。胶囊和卡片是有宽度的
+    // 徽标永远靠右，所以带子原本只说 top/bottom/right。标签和卡片是有宽度的
     // 盒子，水平钳制两侧都要用 —— 少了 left，窄 Pane 上卡片会挂到正文列左边
     // 的视口外面去。
     const scrollport = document.createElement('div')

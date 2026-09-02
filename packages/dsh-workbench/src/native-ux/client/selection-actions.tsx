@@ -134,17 +134,23 @@ const SHADOW_LV3 = 'var(--dsw-shadow-lv3, 0 0 1px 0 rgba(0,0,0,.2), 0 0 4px 0 rg
  *
  * 改法有两处：环画到按钮**外侧**（见 FOCUS_RING_OFFSET），相邻色就从按钮填充变成
  * 浮层表面色；同时换成 business-primary —— 它也是本文件备注输入框的聚焦描边色，
- * 整块 UI 的聚焦语言一致。改后实测（含 hover 态，因为环已不碰填充，值与填充无关）：
+ * 整块 UI 的聚焦语言一致。实测（含 hover 态，因为环已不碰填充，值与填充无关）：
  *   工具条 bg-layer-3      浅 #4176e6/#fff     4.23:1   深 #679efe/#353638  4.55:1
  *   引用面板 specific-tip  浅 #4176e6/#f5f6f7  3.91:1   深 #679efe/#353638  4.55:1
  * 环的外沿正好压在工具条 1px 的 border-inverted 上，深色下那一侧最保守取 3.79:1，
  * 仍在 3:1 之上。
+ *
+ * 环宽本轮从 2px 收到 1px：用户两次反馈聚焦态"边框重、难看"。1.4.11 只约束
+ * "指示器对相邻色 ≥3:1"，没有厚度要求（那是 2.4.13 的 AAA 附加项，本文件其余
+ * 部分只做到 AA）——上面几组对比度是纯颜色计算，与环宽无关，所以收到 1px
+ * 不用牺牲任何一组数字，仍然全部 ≥3.79:1。
  */
 export const FOCUS_RING_COLOR = 'var(--dsw-alias-state-business-primary, #4176e6)'
-const FOCUS_RING = `2px solid ${FOCUS_RING_COLOR}`
+const FOCUS_RING = `1px solid ${FOCUS_RING_COLOR}`
 /**
- * 正值 = 环画在按钮外面。2px 缝隙 + 2px 环宽 = 4px，正好落在工具条 / 引用面板行
- * 留给按钮的 4px 空隙里，所以环的内外两侧相邻色都是表面色，与按钮填充无关。
+ * 正值 = 环画在按钮外面。2px 缝隙 + 1px 环宽 = 3px，落在工具条 / 引用面板行
+ * 留给按钮的 4px 空隙里（环变细之后留白比之前更松，不影响布局），环的内外
+ * 两侧相邻色都是表面色，与按钮填充无关。
  */
 const FOCUS_RING_OFFSET = 2
 
@@ -538,28 +544,29 @@ const NO_ITEMS: readonly SelectionAggregateItem[] = []
 
 /* ── 引用浮层 ───────────────────────────────────────────────────────────────
    composer 上方不再是行列表，只留一枚 chip（`💬 N 条引用`）。引用本体的编辑
-   发生在**被引用段落旁边**：折叠态是一枚圆角胶囊，展开态是一张卡片。
+   发生在**被引用段落旁边**：展开态是一张卡片，收起态是一条批注标签——写着
+   用户自己那句话，没写评论就什么都不画。
 
-   z 轴（自下而上）：897 徽标 / 898 胶囊 / 899 卡片与引用列表 / 900 划词工具条。
+   z 轴（自下而上）：897 徽标 / 898 批注标签 / 899 卡片与引用列表 / 900 划词工具条。
    徽标从 899 降到 897 是因为 16px 的蓝点绝不该画在卡片上面；工具条留在 900 是
    因为它是用户当下正在操作的瞬时面（层级考据见上面 SelectionToolbar 的 zIndex
    注释）。三层新浮层都用 0×0 的 `position:fixed` 容器（照 QuoteBadgeLayer 的
    写法），绝不铺满屏幕拦截宿主的指针事件。 */
 
-const Z_QUOTE_CAPSULE = 898
+const Z_QUOTE_NOTE = 898
 const Z_QUOTE_CARD = 899
 
-const CAPSULE_HEIGHT = 32
-const CAPSULE_MAX_WIDTH = 280
+const NOTE_HEIGHT = 32
+const NOTE_MAX_WIDTH = 280
 const CARD_MIN_WIDTH = 240
 const CARD_MAX_WIDTH = 360
 
 /* ── 评论框的高度 ───────────────────────────────────────────────────────────
-   旧写法是固定的 `minHeight: 64`（三行多）：折叠态胶囊只有 32px，点开就蹦成
-   一张 130px 的卡片。改成「一行起步 → 按真实行数长高 → 到阈值转框内滚动」。
-   一行 = 行高 20 + 上下内边距各 8 = 36px（描边已经取消，不再占高），对胶囊的
+   旧写法是固定的 `minHeight: 64`（三行多）：收起态那条标签只有 32px，点开就
+   蹦成一张 130px 的卡片。改成「一行起步 → 按真实行数长高 → 到阈值转框内滚动」。
+   一行 = 行高 20 + 上下内边距各 8 = 36px（描边已经取消，不再占高），对标签的
    32px 只差 4px——**输入框**不再是一次跳变。卡片整体仍有 chrome（下方
-   CARD_CHROME_HEIGHT）：胶囊 32px → 开卡高度 CARD_FALLBACK_HEIGHT(96)px 依旧是
+   CARD_CHROME_HEIGHT）：标签 32px → 开卡高度 CARD_FALLBACK_HEIGHT(96)px 依旧是
    一次三倍多的跳变，这里改掉的只是"输入框本身"那一段落差，不是整张卡片。 */
 const COMMENT_LINE_HEIGHT = 20
 const COMMENT_PADDING_Y = 8
@@ -595,18 +602,18 @@ const LIST_FALLBACK_HEIGHT = 160
  * 浮层，没有"把 composer 顶飞"的问题，但也不该长到盖住整屏对话。 */
 const LIST_MAX_HEIGHT = 240
 const OVERLAY_EDGE_INSET = 8
-/** 悬停徽标多久才浮出胶囊，以及指针离开后多久收起（悬停桥接：从徽标移到胶囊
- * 上的那一小段路不能把胶囊抖掉）。 */
+/** 悬停徽标多久才浮出批注标签，以及指针离开后多久收起（悬停桥接：从徽标移到
+ * 标签上的那一小段路不能把标签抖掉）。 */
 const PEEK_OPEN_MS = 120
 const PEEK_CLOSE_MS = 150
 
 /**
- * 胶囊 / 卡片 / 引用列表共用的浮层面的描边色：宿主自己那条发丝线。
+ * 批注标签 / 卡片 / 引用列表共用的浮层面的描边色：宿主自己那条发丝线。
  *   `border-l2` 合成后 浅 `#E6E6E6` 1.25:1 / 深 `#4D4E50` 2.19:1（对页面底）
  *
  * 上一轮这里是 `label-tertiary`（浅 3.71 / 深 8.54），依据写的是「1.4.11 要
  * 3:1」——**那条 SC 管不到这里**。它只规范 "user interface components and
- * states"，而胶囊 / 卡片 / 列表是**容器面板**，不是控件；Understanding 还明写：
+ * states"，而标签 / 卡片 / 列表是**容器面板**，不是控件；Understanding 还明写：
  * 控件本身有可见内容时不要求画出边界（"a border or other indication of the
  * overall boundary of the hit area is not required"）。所以这条描边从来不是
  * 合规项，只是可读性判断——而它正是用户看到的「边框线太重」：全产品里没有第二
@@ -628,38 +635,23 @@ const PEEK_CLOSE_MS = 150
 const QUOTE_SURFACE_BORDER_COLOR = 'var(--dsw-alias-border-l2, rgba(0,0,0,.1))'
 
 /**
- * 评论框聚焦时卡片那条边换成的颜色。**1px → 1px，只换色**：不加粗、不位移、
- * 不换色相，观感上就是那道浅灰线"实了一下"。
+ * 三条边框属性写 longhand，不写 `border` 简写：本文件早有一条教训（见上面提示条
+ * 那段长注释）——`border` 简写在赋值那一刻就展开成 12 个具体的 longhand，不是
+ * 持续跟踪的引用，跟逐 key diff 的 React 混用会踩出"覆盖一个 longhand 之后简写
+ * 整条失效"的坑。这里三个 key 在每一帧都显式给值。
  *
- * 依据是 WCAG **1.4.11（AA）**：焦点指示器对相邻色 ≥3:1，没有厚度要求、也没有
- * 「聚焦态相对未聚焦态」的差值要求。实测（`label-tertiary` 对页面底 / 对浮层面）：
- *   浅 3.71:1 / 3.71:1     深 8.54:1 / 5.67:1     —— 两侧都过 AA
+ * **卡片这条边在聚焦前后一个像素、一个色号都不变。** 曾经它在评论框持有焦点时
+ * 换成 `label-tertiary`（再往前是框内一道 3px 蓝环），用户两次点名说边框太重；
+ * 而 1.4.11 只管**焦点指示器自身对相邻色 ≥3:1**，它没有规定"必须有一条画在
+ * 容器上的焦点线"——文本输入框的焦点指示器是**插入符本身**（2.4.7 对文本框的
+ * 常规解读），那是浏览器画的、始终可见、且不占任何边框预算。所以这一档不是
+ * "放弃了一条合规项"，是把焦点信号交还给它本来的承载者。
  *
- * 上一轮那条 3px 蓝带引的是「2.4.11 要求聚焦相对未聚焦 3:1」，两处都错了：
- * WCAG 2.2 的 **2.4.11 是 Focus Not Obscured (Minimum)**（说的是焦点元素不能被
- * 作者内容完全遮挡，与外观无关），而"同像素聚焦/未聚焦 ≥3:1 + 2px 周长面积"是
- * **2.4.13 Focus Appearance，Level AAA**。本文件其余每一处都站在 AA 基线上，
- * 唯独那里被一条 AAA 指标绑架，才推出了一条又粗又蓝的环。
+ * 与之对照，**按钮那圈 `FOCUS_RING` 一个都没动**：按钮没有插入符，键盘焦点在
+ * 它身上时除了这圈环再没有别的可见信号，两者不是同一回事，别顺手一起删。
  *
- * 这一档同像素差（浅 2.97 / 深 3.90）与面积（1px 环 868px² < 1424px²）拿不到
- * AAA。想连 AAA 一起要，就把聚焦边加到 2px（`inset` 阴影叠上去，避免布局位移）
- * 并换 `label-secondary`（同像素 浅 4.65 / 深 5.53）——代价是观感明显变重，与
- * 用户诉求相反，所以默认不做。
- *
- * 顺带钉一句给后来人：宿主自己的主 composer **一个焦点态都没有**
- * （`.input { outline: none }`，全文件 grep 不到 `focus`），所以"跟宿主一致"
- * 这条理由支持不了任何强度的焦点环，别拿它当挡箭牌；而再往浅走（例如
- * `border-l4`，浅 1.45）就是**明确放弃 1.4.11 的焦点指示**，那属于产品取舍，
- * 不该由实现者默默降下去。
- */
-const CARD_FOCUS_BORDER_COLOR = 'var(--dsw-alias-label-tertiary, #81858c)'
-
-/**
- * 三条边框属性写 longhand，不写 `border` 简写：卡片要在聚焦时单独覆盖
- * `borderColor`，而本文件早有一条教训（见上面提示条那段长注释）——`border`
- * 简写在赋值那一刻就展开成 12 个具体的 longhand，不是持续跟踪的引用，跟逐 key
- * diff 的 React 混用会踩出"覆盖一个 longhand 之后简写整条失效"的坑。这里三个
- * key 在每一帧都显式给值，覆盖的也只是其中一个，不存在缺席的那一帧。
+ * 顺带钉一句给后来人：宿主自己的主 composer 也**一个焦点态都没有**
+ * （`.input { outline: none }`，全文件 grep 不到 `focus`）。
  */
 const QUOTE_SURFACE: React.CSSProperties = {
   background: 'var(--dsw-alias-bg-layer-3, #fff)',
@@ -703,45 +695,50 @@ const QUOTE_INPUT_SURFACE =
  * 折叠 ⇄ 展开的状态。**同时只允许一个**：两条 200px 宽的浮层必然互相遮挡，
  * 而徽标那种 `avoidTakenBadges` 式的避让对这个尺寸的盒子不成立。
  *
- * `anchor` 在**打开瞬间冻结**，之后即使锚点状态翻转也不换：打字过程中卡片突然
- * 从段落旁跳到 composer 上方，比"卡片指着一个已经滚走的位置"更糟。
+ * `anchor` 在**打开瞬间冻结**（只有 'card' 需要它：批注标签永远只画在段落旁，
+ * 没有 chip 兜底那条分支），之后即使锚点状态翻转也不换：打字过程中卡片突然从
+ * 段落旁跳到 composer 上方，比"卡片指着一个已经滚走的位置"更糟。
  *
  * `baseline` 是上次保存值。「取消」回退到它 —— 不是清空，所以取消最多丢掉本次
  * 编辑会话的增量，永远不会把一条已保存的评论抹成空。
  *
+ * `'note'` 是**收起态的批注标签**：段落旁写着用户自己那句话（截断显示、完整值
+ * 给 `title`），点它重新开卡。它**不是输入框**，也永远不显示占位符——上一版那枚
+ * 折叠胶囊长得像输入框却不能输入，用户必须再点一次才能打字，那一次点击正是这
+ * 一版要删掉的东西（用户原话：「用户的动作应该是划词 - 点击添加到对话 - 输入
+ * 文字」）。
+ *
  * ── 状态迁移 ──────────────────────────────────────────────────────────────
  *
- *   'none'    ──openCard──────────────────────────────▶ 'card'
- *   'none'    ──悬停任意徽标/胶囊（peekItemId 生效）────▶（不动，仍是 'none'，
- *                                                          胶囊由 peekItemId 单独驱动）
- *   'capsule' ──openCard──────────────────────────────▶ 'card'
- *   'capsule' ──悬停另一条引用的徽标/胶囊──────────────▶ 'none'（见下）
- *   'card'    ──保存成功 / 取消 / 关闭────────────────▶ 'none'（收干净，见下）
- *   'card'    ──保存失败 / 删除失败───────────────────▶ 'card'（原地，带 error）
- *   'card'    ──删除成功──────────────────────────────▶ 'none'
- *   （新增一条引用会直接把 'none'/'capsule' 都改写成新条目的 'capsule'，
- *    见下面 `seen` 那个 effect —— 这是 'capsule' 现在**唯一**的生产者。）
+ *   'none'  ──openCard（徽标 / 引用列表 / 批注标签）───────▶ 'card'
+ *   'none'  ──悬停一条**有评论**的引用（peekItemId 生效）──▶（不动，仍是 'none'，
+ *                                                       标签由 peekItemId 单独驱动）
+ *   'note'  ──openCard───────────────────────────────────▶ 'card'
+ *   'note'  ──悬停另一条引用的徽标/标签──────────────────▶ 'none'（见下）
+ *   'card'  ──保存成功 / 取消 / 关闭 ─ 评论非空 ──────────▶ 'note'
+ *                                   └ 评论为空 ──────────▶ 'none'
+ *   'card'  ──保存失败 / 删除失败────────────────────────▶ 'card'（原地，带 error）
+ *   'card'  ──删除成功───────────────────────────────────▶ 'none'
+ *   （新增一条引用会把任何状态直接改写成新条目的 'card'，焦点落进输入框，见下面
+ *    `seen` 那个 effect —— 这是 'card' 除 `openCard` 之外唯一的生产者。）
  *
- * **卡片收起时回 'none' 而不是 'capsule'。** 旧写法让 `commitCard` 的
- * `collapse()` 与 `onCancel` 都落到 'capsule' 上，于是用户"点了别处"之后段落旁
- * 永远留着一枚 32px 的胶囊（空评论时还写着占位符）——从用户视角这就是「输入框
- * 关不掉」，也正是用户报告的「打开输入框之后只能在下方引用处删掉」。收到 'none'
- * 之后，重新编辑走的是**点正文那枚数字徽标**（`QuoteBadgeLayer.onSelect` →
- * `openCard`）或 chip → 引用列表这两条既有路径，输入过的内容在失焦那一刻就已经
- * 写进草稿聚合，`openCard` 再用 `item.comment` 把它重建回来。
+ * **收起态是 'note' 还是 'none'，由「这条引用有没有评论」决定，不由用户点了哪里
+ * 决定。** 上上一版一律收到 'capsule'：段落旁永远留着一枚 32px 的空胶囊，从用户
+ * 视角就是「输入框关不掉」。上一版矫枉过正，一律收到 'none'：用户写完的批注在
+ * 段落旁看不见，本轮特性（把批注标在被引段落旁边）的目的整个落空。两版都是在用
+ * 一个布尔状态去回答一个数据问题——现在按数据答：有评论就留一条写着那句话的
+ * 标签，没有就什么都不留（正文里那枚数字徽标本来就可点，重新开卡的入口一个没少）。
  *
- * 这也顺手拔掉了本文件曾经自嘲的那枚「只进不出的钉子」：`capsule` 从此只有
- * 「新增引用」一个生产者。`schedulePeek` 里的拔钉分支仍然需要——它现在只服务
- * 这一种情况：**悬停到一条不同的引用**时，如果当前是被钉住的 'capsule'（不是
- * 正在编辑的 'card'——那个绝不能被悬停打断），就把钉子拔回 'none'，让
- * `peekItemId` 重新接管。拔钉子本身不用等 `PEEK_OPEN_MS`：钉子代表的是"上一条
- * 引用还留着"，不是"新一条正在被看"，两件事没有理由绑在同一个延迟上。
+ * `schedulePeek` 里的拔钉分支仍然需要：**悬停到一条不同的引用**时，如果当前是被
+ * 钉住的 'note'（不是正在编辑的 'card'——那个绝不能被悬停打断），就把钉子拔回
+ * 'none'，让 `peekItemId` 重新接管。拔钉子本身不用等 `PEEK_OPEN_MS`：钉子代表的是
+ * "上一条引用还留着"，不是"新一条正在被看"，两件事没有理由绑在同一个延迟上。
  */
 type QuoteAnchorKind = 'quote' | 'chip'
 
 type QuoteUi =
   | { readonly kind: 'none' }
-  | { readonly kind: 'capsule'; readonly itemId: string; readonly anchor: QuoteAnchorKind }
+  | { readonly kind: 'note'; readonly itemId: string }
   | {
     readonly kind: 'card'
     readonly itemId: string
@@ -750,6 +747,19 @@ type QuoteUi =
     readonly baseline: string
     readonly error: string | null
   }
+
+/**
+ * 收起态到底留不留那条批注标签，全产品只有这一个判据：状态迁移（`commitCard` /
+ * 「取消」）与渲染闸门共用它，两边不许各写一份，否则会出现「ui 说有、渲染说
+ * 没有」的空洞状态。
+ *
+ * 只有空白字符的评论等同于没写：`updateSelectionComment` 存的是原样字符串
+ * （`comment.length > 0 ? comment : undefined`，不 trim），而一条只画着空白的
+ * 标签除了占位没有任何信息——与「没有评论就什么都不留」是同一条理由。
+ */
+function hasNote(comment: string): boolean {
+  return comment.trim() !== ''
+}
 
 interface OverlayRect {
   readonly top: number
@@ -846,96 +856,27 @@ function CardButton({ tone, disabled = false, label, describedBy, onClick, child
   )
 }
 
-/** armed 状态多久自动解除。键盘用户可能就停在按钮上不动，armed 不该常驻。 */
-const DELETE_ARM_MS = 4000
-
-/**
- * 删除的「按两次」闸门。
- *
- * 为什么是二次确认而不是可撤销的软删除：**这里根本做不出诚实的撤销。**
- * 删最后一条时 `removeSelectionItem` 会把 composer 草稿里那枚引用 token 连同它的
- * 分隔符一起 `consumeSpan` 掉；把它放回去只有 `appendSelectionReference` 一条路，
- * 而那个函数要的是一个**活的 `ConversationSelection`**（带 DOM Range）——
- * detached 的条目根本给不出来，原文行早就不在对话里了。于是「撤销」必然存在
- * 「点了撤销却失败」的路径，那比压根不给撤销更糟：用户以为救回来了，其实没有。
- * 而删除走的是 CAS 改写草稿，不进浏览器的文本 undo 栈，一击即毁。
- *
- * 二次确认的代价则接近零：**静息态与今天逐字节相同**（不加任何常驻装饰、不加
- * 任何新控件），只有按下第一次之后按钮才点亮成 armed。移开指针 / 失焦 /
- * `DELETE_ARM_MS` 之后自动解除，armed 不会跨交互残留。
- *
- * 屏读侧：第一次按下**不再**只挂一个 `aria-pressed`。`aria-pressed`（「已按下」）
- * 描述的是切换按钮的开关状态，套在一个破坏性的一次性动作上是在撒谎——它在
- * 「删除引用 1」这个按钮名上最自然的解读恰恰是「已经删掉了」，与「还没删、
- * 再按一次才删」完全相反，而且切换按钮的默认隐含语义是"再按一次会切回原状"，
- * 这里再按一次却是不可逆的删除，双重误导。改法是调用方把 armed 时的
- * `aria-label` 换成 `dictionaries.ts` 的 `selection.remove.armed`
- * （「再按一次以删除引用 {n}」），并通过 `onArm` 把同一句话送进 live region——
- * 前者覆盖"该元素本来就有焦点、只是还没换焦点"的情形，后者覆盖"多数屏读不会
- * 因为 aria-label 变了就重新朗读一个仍持有焦点的元素"的情形，两条通道都不
- * 依赖 `aria-pressed`，所以这里索性不再渲染它。
- */
-function useArmedDelete(onConfirm: () => void, onArm?: () => void): {
-  readonly armed: boolean
-  readonly press: () => void
-  readonly disarm: () => void
-} {
-  const [armed, setArmed] = React.useState(false)
-  const timer = React.useRef(0)
-  const stop = React.useCallback(() => {
-    if (timer.current !== 0 && typeof window !== 'undefined') window.clearTimeout(timer.current)
-    timer.current = 0
-  }, [])
-  // 卸载时清掉定时器：卡片收起 / Pane 关闭都会走这里。
-  React.useEffect(() => stop, [stop])
-  const disarm = () => {
-    if (!armed) return
-    stop()
-    setArmed(false)
-  }
-  const press = () => {
-    if (armed) {
-      stop()
-      setArmed(false)
-      onConfirm()
-      return
-    }
-    stop()
-    setArmed(true)
-    onArm?.()
-    if (typeof window === 'undefined') return
-    timer.current = window.setTimeout(() => { timer.current = 0; setArmed(false) }, DELETE_ARM_MS)
-  }
-  return { armed, press, disarm }
-}
-
 interface CardIconButtonProps {
   readonly tone: 'danger' | 'plain'
-  /** armed 时调用方会换成 `selection.remove.armed`；`aria-pressed` 不用于表达
-   * 这个状态（见 `useArmedDelete` 上方注释），颜色/内描边仍然靠 `armed` 变化。 */
   readonly label: string
   /** 指针悬停提示（原生 `title`）。可选——只有可访问名本身不够直白、需要额外
    * 给指针用户一句话时才传（目前只有右上角那颗关闭按钮用到，见调用点注释）。 */
   readonly title?: string
   readonly disabled?: boolean
-  /** 已进入「再按一次就真删」的状态：颜色钉住 danger，再套一圈内描边。 */
-  readonly armed?: boolean
   /** 焦点环画在按钮**内侧**而不是外侧。默认（外侧，`outlineOffset:+2`）只对
    * 卡片 chrome 里有余量的按钮成立；右上角那颗关闭按钮贴着卡片 16px 的圆角，
    * 外环的直角外沿会画到圆角描边之外的空白里（见调用点注释与 QuoteList 里
    * `outlineOffset: -FOCUS_RING_OFFSET` 那个同款先例）。 */
   readonly insetFocusRing?: boolean
-  /** 指针移开 / 失焦 —— armed 在这里解除。 */
-  readonly onIdle?: () => void
   readonly onClick: () => void
   readonly children: React.ReactNode
 }
 
 function CardIconButton({
-  tone, label, title, disabled = false, armed = false, insetFocusRing = false, onIdle, onClick, children,
+  tone, label, title, disabled = false, insetFocusRing = false, onClick, children,
 }: CardIconButtonProps) {
   const { hovered, active, focusRing, handlers } = useInteractive()
-  const hot = !disabled && (hovered || active || armed)
+  const hot = !disabled && (hovered || active)
   // 垃圾桶静息 label-tertiary（图标，3:1 门槛）浅 3.71:1 / 深 5.67:1；
   // hover 换 state-error-primary on interactive-bg-hover-danger 浅 4.50:1 / 深 3.68:1。
   // 「跳到原文」用 label-secondary 浅 5.80:1 / 深 8.03:1。
@@ -959,17 +900,11 @@ function CardIconButton({
       aria-disabled={disabled || undefined}
       onClick={() => { if (!disabled) onClick() }}
       {...handlers}
-      onMouseLeave={() => { handlers.onMouseLeave(); onIdle?.() }}
-      onBlur={() => { handlers.onBlur(); onIdle?.() }}
       style={{
         display: 'grid', placeItems: 'center', width: 28, height: 28, padding: 0,
         border: 0, borderRadius: 999, background, color,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.5 : 1,
-        // armed 的内描边是非文本指示器（门槛 3:1）。armed ⊂ hot，所以填充这时是
-        // danger hover 那块：描边外侧对浮层面 浅 4.50:1 / 深 3.68:1，内侧对填充
-        // 浅 4.15:1 / 深 3.11:1，两侧都过。
-        boxShadow: armed ? 'inset 0 0 0 1px var(--dsw-alias-state-error-primary, #ec1313)' : undefined,
         outlineOffset: insetFocusRing ? -FOCUS_RING_OFFSET : FOCUS_RING_OFFSET,
         outline: focusRing ? FOCUS_RING : 'none',
       }}
@@ -1024,83 +959,76 @@ function CloseIcon() {
   )
 }
 
-/* ── 折叠态胶囊 ─────────────────────────────────────────────────────────── */
+/* ── 收起态批注标签 ─────────────────────────────────────────────────────── */
 
-interface QuoteCapsuleLayerProps {
+interface QuoteNoteLayerProps {
   readonly ordinal: string
   readonly top: number
   readonly left: number
   readonly width: number
-  /** 已保存的评论。空串 = 这条引用还没有评论，只有这时才显示占位符。 */
-  readonly comment: string
-  readonly placeholder: string
+  /** 用户写下的那句话。**调用方保证非空**（`hasNote`）——没有评论时整层不渲染，
+   * 所以这里没有、也不该有任何占位符分支。 */
+  readonly note: string
   readonly onOpen: () => void
   readonly onHoverChange: (hovering: boolean) => void
 }
 
 /**
- * 浮在被引用段落末行下方的圆角胶囊。
+ * 浮在被引用段落末行下方的批注标签：一条**已经写好的**评论贴在它所属的段落旁。
+ *
+ * **它是标签，不是输入框。** 上一版这里是一枚写着「添加可选评论...」的折叠胶囊：
+ * 长得像输入框、却必须再点一次才能打字。用户的原话是「图 1 那个小输入框的意义
+ * 是什么呢，用户的动作应该是划词 - 点击添加到对话 - 输入文字」——所以占位符那条
+ * 分支连同它服务的那次点击一起删掉了：想打字的人在「添加到对话」之后**已经**
+ * 站在展开的卡片里（见 `seen` 那个 effect），而这里只剩「把写好的批注展示在
+ * 原文旁边」这一个职责。没有评论时整条标签不画（渲染闸门在 `showNote`）。
  *
  * 整层 `aria-hidden` + `role="presentation"`，与徽标层同一条论证：它 portal 在
  * `document.body`，屏读会在**完全错误的文档顺序**上读到它。因此里面**没有任何
  * 可聚焦控件** —— aria-hidden 容器里放 `<button>` 会造出「能 Tab 到但读不出来」
- * 的黑洞。键盘的等价路径是 chip → 引用列表 → 卡片，而且它比胶囊更强：
- * offscreen / detached 时胶囊根本不画，列表永远在。
+ * 的黑洞。键盘的等价路径是 chip → 引用列表 → 卡片，而且它比标签更强：
+ * offscreen / detached 时标签根本不画，列表永远在（评论正文也在列表行里读得到，
+ * 见 `QuoteListRow` 的 `aria-labelledby`）。
  *
- * **胶囊显示的是评论本身，不是占位符。** 本轮特性的整个目的就是「把批注标在被
- * 引段落旁边」——旧写法把 `selection.comment.placeholder` 写死传进来，于是保存完
- * 评论后段落旁那枚胶囊仍写着「添加可选评论...」，用户必须重新展开卡片才能看到
- * 自己写了什么，等于这轮 UI 的核心目的没有实现。
- *
- * 两种状态的前景色分开（都在 `bg-layer-3` 浮层面上量）：
- *   已保存评论  label-primary    浅 18.90:1  深 11.57:1
- *   占位符      label-secondary  浅  5.80:1  深  8.03:1
- * 13px 正文的门槛是 4.5:1，两者都过；占位符按语义弱一档，但没有弱到不达标。
- * 截断交给 `text-overflow: ellipsis`，完整值挂 `title`（本层对 AT 隐藏，`title`
- * 在这里纯粹是指针悬停的提示，不参与可访问名）。
+ * 前景色 `label-primary`（在 `bg-layer-3` 浮层面上 浅 18.90:1 / 深 11.57:1）：
+ * 这是用户自己写的正文，13px 的门槛 4.5:1 远远过关。截断交给
+ * `text-overflow: ellipsis`，完整值挂 `title`（本层对 AT 隐藏，`title` 在这里
+ * 纯粹是指针悬停的提示，不参与可访问名）。
  */
-function QuoteCapsuleLayer({
-  ordinal, top, left, width, comment, placeholder, onOpen, onHoverChange,
-}: QuoteCapsuleLayerProps) {
-  const hasComment = comment !== ''
+function QuoteNoteLayer({ ordinal, top, left, width, note, onOpen, onHoverChange }: QuoteNoteLayerProps) {
   if (typeof document === 'undefined') return null
   return createPortal(
     <div
-      data-dsh-quote-capsule-layer
+      data-dsh-quote-note-layer
       aria-hidden="true"
       role="presentation"
-      style={{ position: 'fixed', top: 0, left: 0, width: 0, height: 0, zIndex: Z_QUOTE_CAPSULE }}
+      style={{ position: 'fixed', top: 0, left: 0, width: 0, height: 0, zIndex: Z_QUOTE_NOTE }}
     >
       <div
-        data-dsh-quote-capsule={ordinal}
+        data-dsh-quote-note={ordinal}
+        title={note}
         onClick={onOpen}
         onMouseEnter={() => onHoverChange(true)}
         onMouseLeave={() => onHoverChange(false)}
         style={{
           ...QUOTE_SURFACE,
-          position: 'absolute', top, left, width, height: CAPSULE_HEIGHT,
+          position: 'absolute', top, left, width, height: NOTE_HEIGHT,
           boxSizing: 'border-box', borderRadius: 999,
           display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px',
           cursor: 'pointer', userSelect: 'none',
           fontFamily: 'inherit', fontSize: 13, lineHeight: '30px',
-          color: 'var(--dsw-alias-label-secondary, #61666b)',
+          color: 'var(--dsw-alias-label-primary, #0f1115)',
         }}
       >
         {/* 编号徽标就是那个"图标位"。参考产品右边放的是它自己的语音能力，我们
-            没有——放个假图标或留个空槽都是在骗用户。徽标反而是胶囊 ↔ 正文 ↔
+            没有——放个假图标或留个空槽都是在骗用户。徽标反而是标签 ↔ 正文 ↔
             引用列表三者之间唯一的连接机制，多条引用挨得近时零成本消歧。 */}
         <QuoteBadge label={ordinal} state="anchored" emphasis={false} />
         <span
-          data-dsh-quote-capsule-text={hasComment ? 'comment' : 'placeholder'}
-          title={hasComment ? comment : undefined}
-          style={{
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            color: hasComment
-              ? 'var(--dsw-alias-label-primary, #0f1115)'
-              : 'var(--dsw-alias-label-secondary, #61666b)',
-          }}
+          data-dsh-quote-note-text
+          style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
         >
-          {hasComment ? comment : placeholder}
+          {note}
         </span>
       </div>
     </div>,
@@ -1132,9 +1060,6 @@ interface QuoteCommentCardProps {
   readonly onCancel: () => void
   /** 删除并收起。返回 false = 删除失败，卡片必须留在原地（父级已经写好错误）。 */
   readonly onRemove: () => boolean
-  /** 删除按钮第一次按下（进入 armed）时报给 dock 级的 live region——「再按一次
-   * 以删除」必须在这一刻就说出口，不能等到真删掉才发声（那时已经晚了）。 */
-  readonly onAnnounce: (text: string) => void
   readonly onReveal: () => void
   /** 卡片因**卡片内的显式动作**（保存 / 取消 / Esc / 组合键）收起时，把焦点还回
    * 一个合理落点。指针点到外面、focusout 到别的元素这两条路径**不**调用它 ——
@@ -1171,11 +1096,10 @@ interface QuoteCommentCardProps {
 function QuoteCommentCard({
   itemId, ordinal, excerpt, stateNote, canReveal, draft, baseline, error,
   top, left, width, maxHeight,
-  onDraftChange, onCommit, onCancel, onRemove, onAnnounce, onReveal, onRestoreFocus, onMeasure, t,
+  onDraftChange, onCommit, onCancel, onRemove, onReveal, onRestoreFocus, onMeasure, t,
 }: QuoteCommentCardProps) {
   const card = React.useRef<HTMLDivElement | null>(null)
   const textarea = React.useRef<HTMLTextAreaElement | null>(null)
-  const [focusedInput, setFocusedInput] = React.useState(false)
   // 卸载时尽力提交：这几个 ref 让清理函数读到**最后一帧**的值，而不是闭包里
   // 捕获的第一帧。`settled` 由显式的保存成功 / 取消 / 删除置位。
   const settled = React.useRef(false)
@@ -1217,12 +1141,19 @@ function QuoteCommentCard({
    * 位。删除失败时（CAS 竞争）父级那边又已经先把卡片收起了，于是卡片卸载 →
    * 卸载清理里的「尽力提交」被 settled 挡掉 → 条目没删掉、用户刚打的字没了。
    * 本文件其它每条失败路径都精心保住了草稿，唯独这条没有。
+   *
+   * **单击立即删除，不再二次确认。** 上一轮加过「按两次才删」（`useArmedDelete`），
+   * 用户实测后反馈这个交互是错的：第一次按下只点亮一圈内描边，视觉上跟"聚焦了"
+   * 完全撞脸，被读成"已经点开了"而不是"再按一次才真删"；可访问性验证在屏读侧
+   * 发现过同源问题——`aria-pressed` 套在删除按钮上会被念成"已按下"=已经删了。
+   * 视觉与屏读两侧都读反了，说明这个表达本身就不对，不是哪一侧没做好。而它要
+   * 保护的场景本来就选错了对象：误删代价很低（原文还在对话里，重新划一次词就
+   * 能再加回来），真正不可逆的只有 detached 条目（原文行已经不在对话里，见上面
+   * `appendSelectionReference` 那条论证），而那是少数情形——为了防住少数情形，
+   * 让**每一次**删除都变成两步，不划算。
    */
   const remove = () => { if (onRemove()) settled.current = true }
-  const removeGate = useArmedDelete(remove, () => onAnnounce(t('selection.remove.armed', { n: ordinal })))
-  const removeLabel = removeGate.armed
-    ? t('selection.remove.armed', { n: ordinal })
-    : t('selection.remove.aria', { n: ordinal, excerpt })
+  const removeLabel = t('selection.remove.aria', { n: ordinal, excerpt })
 
   // 评论框的高度上限：6 行封顶，且不许把卡片撑出可见带（`maxHeight` 已经是
   // `pinQuoteCard` 收紧过的、这个朝向上的剩余空间）。至少留一行。有错误提示行
@@ -1324,12 +1255,9 @@ function QuoteCommentCard({
         // 裸 Enter 是换行：评论是多行文本，不提交。
       }}
       style={{
+        // 边框整条来自 QUOTE_SURFACE，聚焦前后不做任何变化——这张卡片没有"聚焦
+        // 态"（论证见 QUOTE_SURFACE 上方那段：焦点信号是输入框自己的插入符）。
         ...QUOTE_SURFACE,
-        // 静息是宿主那条发丝线；评论框持有焦点时**只换色**，1px 不动、不位移。
-        // 焦点信号整条搬到卡片外沿之后，输入框自己一点 chrome 都不剩（见
-        // CARD_FOCUS_BORDER_COLOR 上方的论证）。两态都显式给值，不会出现某一帧
-        // 缺 key、React 把它清成 '' 再回退到初始值那条老坑（见提示条那段注释）。
-        borderColor: focusedInput ? CARD_FOCUS_BORDER_COLOR : QUOTE_SURFACE_BORDER_COLOR,
         // `position:fixed` 本身就是绝对定位子元素的包含块，右上角那颗 X 直接
         // 落在这个 padding box 里，不需要再写 position:relative。
         position: 'fixed', top, left, width, maxHeight,
@@ -1355,8 +1283,6 @@ function QuoteCommentCard({
         value={draft}
         placeholder={t('selection.comment.placeholder')}
         onChange={(event) => onDraftChange(event.target.value)}
-        onFocus={() => setFocusedInput(true)}
-        onBlur={() => setFocusedInput(false)}
         style={{
           // height 由上面那个 layout effect 直接写在 node.style 上（React 只 diff
           // 它自己给过的 key，从没给过 height 就不会去清它）。这里不写 minHeight：
@@ -1372,9 +1298,9 @@ function QuoteCommentCard({
           resize: 'none', overflowY: 'auto',
           padding: `${COMMENT_PADDING_Y}px 10px`,
           borderRadius: 10,
-          // **框内不留描边、不留独立的聚焦环**——聚焦信号仍然整条画在卡片外沿
-          // （`focusedInput` 只换 `CARD_FOCUS_BORDER_COLOR`，见上面卡片自己那条
-          // `borderColor`），这一段与宿主 `ui-primitives/Input.module.css` 的
+          // **框内不留描边、不留焦点环，卡片外沿也不再跟着换色**——聚焦信号只剩
+          // 插入符本身（论证见 QUOTE_SURFACE 上方那段），这一段与宿主
+          // `ui-primitives/Input.module.css` 的
           // `.input { border:none; outline:none }` 同款。但**静息态的边界不再
           // 完全交给卡片那条发丝线**——那条线圈的是整张卡片（五颗按钮 + 输入框
           // 共用），输入框自己需要一点自身的边界，交给背景（`QUOTE_INPUT_SURFACE`，
@@ -1412,9 +1338,7 @@ function QuoteCommentCard({
         <CardIconButton
           tone="danger"
           label={removeLabel}
-          armed={removeGate.armed}
-          onIdle={removeGate.disarm}
-          onClick={removeGate.press}
+          onClick={remove}
         >
           <TrashIcon />
         </CardIconButton>
@@ -1480,9 +1404,6 @@ interface QuoteListProps {
   readonly onMeasure: (size: { readonly width: number; readonly height: number }) => void
   readonly onEdit: (itemId: string) => void
   readonly onRemove: (itemId: string) => void
-  /** 转给每一行的删除闸门：armed 那一刻把「再按一次以删除」送进 dock 的
-   * live region（见 `QuoteCommentCard` 同名 prop 的注释）。 */
-  readonly onAnnounce: (text: string) => void
   readonly onClose: () => void
   readonly t: Translate
 }
@@ -1497,7 +1418,7 @@ interface QuoteListProps {
  * 永远打开列表，即使只有 1 条：一条代码路径，可预测。
  */
 function QuoteList({
-  items, states, anchor, top, left, width, onMeasure, onEdit, onRemove, onAnnounce, onClose, t,
+  items, states, anchor, top, left, width, onMeasure, onEdit, onRemove, onClose, t,
 }: QuoteListProps) {
   const box = React.useRef<HTMLDivElement | null>(null)
   const first = React.useRef<HTMLButtonElement | null>(null)
@@ -1557,7 +1478,6 @@ function QuoteList({
           state={states.get(item.id) ?? 'detached'}
           onEdit={() => onEdit(item.id)}
           onRemove={() => onRemove(item.id)}
-          onAnnounce={onAnnounce}
           t={t}
         />
       ))}
@@ -1572,16 +1492,14 @@ interface QuoteListRowProps {
   readonly state: QuoteAnchorState
   readonly onEdit: () => void
   readonly onRemove: () => void
-  readonly onAnnounce: (text: string) => void
   readonly t: Translate
 }
 
 const QuoteListRow = React.forwardRef<HTMLButtonElement, QuoteListRowProps>(function QuoteListRow(
-  { ordinal, item, state, onEdit, onRemove, onAnnounce, t }, ref,
+  { ordinal, item, state, onEdit, onRemove, t }, ref,
 ) {
   const edit = useInteractive()
   const remove = useInteractive()
-  const removeGate = useArmedDelete(onRemove, () => onAnnounce(t('selection.remove.armed', { n: ordinal })))
   const excerpt = quoteExcerpt(item.text)
   const comment = item.comment ?? ''
   const stateId = `dsh-quote-state-${item.id}`
@@ -1598,9 +1516,7 @@ const QuoteListRow = React.forwardRef<HTMLButtonElement, QuoteListRowProps>(func
   const actionId = `dsh-quote-edit-${item.id}`
   const excerptId = `dsh-quote-excerpt-${item.id}`
   const commentId = `dsh-quote-comment-${item.id}`
-  const removeLabel = removeGate.armed
-    ? t('selection.remove.armed', { n: ordinal })
-    : t('selection.remove.aria', { n: ordinal, excerpt })
+  const removeLabel = t('selection.remove.aria', { n: ordinal, excerpt })
   return (
     <div
       data-dsh-quote-list-row={item.id}
@@ -1653,30 +1569,17 @@ const QuoteListRow = React.forwardRef<HTMLButtonElement, QuoteListRowProps>(func
       <button
         type="button"
         aria-label={removeLabel}
-        onClick={removeGate.press}
+        onClick={onRemove}
         {...remove.handlers}
-        onMouseLeave={() => { remove.handlers.onMouseLeave(); removeGate.disarm() }}
-        onBlur={() => { remove.handlers.onBlur(); removeGate.disarm() }}
         style={{
           display: 'grid', placeItems: 'center', width: 24, height: 24, padding: 0,
           border: 0, borderRadius: 999, cursor: 'pointer', outlineOffset: -FOCUS_RING_OFFSET,
-          // 三个热态（hover / active / armed）共用 danger 填充，与卡片上的
-          // CardIconButton 逐字节同款。**armed 尤其不能用中性的
-          // `interactive-bg-active`**：那块填充深色合成后是 #515254，armed 的红色
-          // 内描边（#f25a5a）画在它上面只有 2.37:1，低于 1.4.11 对非文本指示器的
-          // 3:1；换成 danger 填充（深 #513b3d）后是 3.11:1，浅色侧 4.15:1。
-          background: remove.hovered || remove.active || removeGate.armed
+          background: remove.hovered || remove.active
             ? 'var(--dsw-alias-interactive-bg-hover-danger, rgba(236,19,19,.05))'
             : 'transparent',
-          color: remove.hovered || remove.active || removeGate.armed
+          color: remove.hovered || remove.active
             ? 'var(--dsw-alias-state-error-primary, #ec1313)'
             : 'var(--dsw-alias-label-tertiary, #81858c)',
-          // armed 的内描边：非文本指示器（3:1）。描边的两侧相邻色都要过：
-          // 外侧是浮层面 bg-layer-3（浅 4.50:1 / 深 3.68:1），内侧是上面那块
-          // danger 填充（浅 4.15:1 / 深 3.11:1）。
-          boxShadow: removeGate.armed
-            ? 'inset 0 0 0 1px var(--dsw-alias-state-error-primary, #ec1313)'
-            : undefined,
           outline: remove.focusRing ? FOCUS_RING : 'none',
         }}
       >
@@ -1698,10 +1601,22 @@ interface SelectionDockProps {
   readonly t: Translate
   /** 测试注入用；生产走 quote-highlight.ts 的模块级单例。 */
   readonly highlights?: QuoteHighlightRegistry
+  /**
+   * 消费一次「这个 itemId 确实是用户刚点『添加到对话』真实新增的」证据。
+   *
+   * 由 `applySelectionActions` 在 `onAdd` 成功之后记一笔（sessionId → 新
+   * itemId），这里传下来的就是"查这笔账、命中就划掉"的读写口子。返回
+   * `true` = 命中且已经消费掉（下一次同一个 itemId 不会再被认成新增）；
+   * `false` = 没有这笔账，这一帧的"items 多了一条"不能采信为用户意图。
+   *
+   * 不传（生产之外的裸渲染 / 老测试）时下面的 `seen` effect 一律当作
+   * "没有证据"处理——宁可不开卡，也不要在没证据的时候瞎猜。
+   */
+  readonly consumeAddSignal?: (itemId: string) => boolean
 }
 
 export function SelectionDock({
-  sessionId, session, input, updateComment, removeItem, t, highlights,
+  sessionId, session, input, updateComment, removeItem, t, highlights, consumeAddSignal,
 }: SelectionDockProps) {
   const owned = session.sessionId === sessionId ? readSelectionAggregate(input) : null
   const ref = owned?.occurrence.ref
@@ -1731,8 +1646,8 @@ export function SelectionDock({
   const announce = React.useCallback((text: string) => {
     setAnnouncement((current) => (text === current ? `${text}​` : text))
   }, [])
-  // 正文徽标的悬停：与"预览胶囊"分开存。徽标一进就点亮强调（即时），胶囊要等
-  // PEEK_OPEN_MS 才浮出来（避免鼠标扫过正文时闪一片胶囊）。
+  // 正文徽标的悬停：与"预览批注"分开存。徽标一进就点亮强调（即时），标签要等
+  // PEEK_OPEN_MS 才浮出来（避免鼠标扫过正文时闪一片标签）。
   const [hoveredItemId, setHoveredItemId] = React.useState<string | null>(null)
   const [peekItemId, setPeekItemId] = React.useState<string | null>(null)
   const [chipRect, setChipRect] = React.useState<OverlayRect | null>(null)
@@ -1751,7 +1666,7 @@ export function SelectionDock({
   // `undefined` = 还没定基线（首次渲染）；`new Set()` = 定过基线，只是当时一条
   // 都没有。**两者必须是不同的值。** 旧写法把「0 条」也编码成 `null`，于是
   // `if (previous === null) return` 把 0→1 这个真实的新增整个吞掉：**第一条**
-  // 引用没有胶囊（本轮 UI 的主入口）、没有「已添加引用 1，共 1 条」播报，
+  // 引用不开卡（本轮 UI 的主入口）、没有「已添加引用 1，共 1 条」播报，
   // 第二条起才正常。
   const seen = React.useRef<ReadonlySet<string> | undefined>(undefined)
 
@@ -1774,8 +1689,53 @@ export function SelectionDock({
     if (peekTimer.current !== 0 && typeof window !== 'undefined') window.clearTimeout(peekTimer.current)
   }, [])
 
-  // 新增一条引用（「添加到对话」成功）→ 直接浮出折叠态胶囊，但**不抢焦点**
-  // （焦点留在 composer：用户刚点完按钮多半是要接着打字）。
+  /**
+   * 新增一条引用（「添加到对话」成功）→ **直接展开卡片**，焦点由卡片自己的
+   * mount effect 放进输入框。
+   *
+   * 上一版浮的是折叠胶囊、并且刻意不抢焦点，于是用户想写批注必须再点一次那枚
+   * 胶囊——用户原话：「图 1 那个小输入框的意义是什么呢，用户的动作应该是划词 -
+   * 点击添加到对话 - 输入文字，现在输入文字前用户还多一步点击」。这里删掉的正是
+   * 那一次点击。
+   *
+   * **这不会打断 composer 里正在输入的内容。** `addSelectionToConversation` 在
+   * 插入引用之后调 `controller.focusSourceComposer()`（焦点回到来源 Pane 的
+   * composer），紧接着这个 effect 把焦点交给评论框——移动焦点不改动任何草稿文本，
+   * 而且这条路径的触发者是用户**用鼠标点了工具条按钮**，那一刻 composer 里不可能
+   * 有正在进行的击键或输入法组词。`focusSourceComposer` 也仍然必须留着：锚点
+   * 解析不出几何（detached / unmeasured）时卡片根本不会渲染，那时它就是唯一的
+   * 焦点落点。
+   *
+   * `anchor: 'quote'` 是刻意的（不查 `anchors.states`）：这一帧 `useQuoteAnchors`
+   * 的解析 effect 还没为新条目跑过，查出来必然是 `undefined` → 会被判成 'chip'，
+   * 把一张本该贴着原文的卡片钉到 chip 上方去。
+   *
+   * 首帧 `openAnchor` 恒为 null（量测 layout effect 还没为新的 `openItemId` 跑过），
+   * 所以这一帧画在哪儿由兜底链决定，两种情况都不会画到**别的引用**旁边：
+   *   · 常态（这次会话还没开过引用列表）：`chipRect` 是 null，`frozenCard` 也刚被
+   *     下面清空 → `cardPoint` 为 null，卡片**干脆不渲染**，等下一帧真几何到位再
+   *     一次性画出来。宁可晚一帧，也不要先闪在错的位置上。
+   *   · 开过引用列表：`chipRect` 还留着 → 这一帧落到既有的 chip 兜底上（卡片出现
+   *     在 chip 上方），下一帧回到原文旁。朝向**不会**被这一帧冻结——那道闸门
+   *     （`quoteAnchor !== null || ui.anchor === 'chip'`）正是为这种帧写的。
+   *
+   * **"items 比上一帧多了一条" 本身不是用户意图的证据，必须再核对
+   * `consumeAddSignal`。** `items` 来自 `readSelectionAggregate(input)`，它在
+   * `occurrences.length !== 1` 或 ref 解码失败时返回 `null`（→ `items` 变成
+   * `NO_ITEMS`，即空数组）。于是任何一帧的短暂空档都会在下一帧被单纯的集合差
+   * 误读成"用户点了添加到对话"：composer 撤销/重做把引用 token 抹掉又还原、
+   * 草稿里瞬间出现 2 个 occurrence、ref 解码短暂失败、`session.sessionId` 与
+   * `sessionId` 有一帧不等（会话切走再切回）——这些情形里 `seen.current` 都会
+   * 先被写成空集合，条目"重新出现"时纯集合差会把它算成新增，开一张不该开的
+   * 卡片，卡片 mount 时的 `node.focus()` 还会把插入符从用户正在写的 composer
+   * 里拽走。
+   *
+   * 真正的证据是 `applySelectionActions` 里的 `onAdd`：它在
+   * `addSelectionToConversation` 成功之后，把 `(sessionId, 新 itemId)` 记一笔
+   * 待认领的账，`consumeAddSignal(itemId)` 就是查这笔账、命中即消费（一次性，
+   * 防止同一个 id 被后续巧合的空档复用）。集合差只用来算出"新增的是哪一个
+   * id"，不再单独作为"要不要开卡"的判据——两者都成立才开卡。
+   */
   React.useEffect(() => {
     const ids = items.map((item) => item.id)
     const previous = seen.current
@@ -1784,15 +1744,43 @@ export function SelectionDock({
     const added = ids.filter((id) => !previous.has(id))
     if (added.length !== 1) return
     const itemId = added[0]!
-    setUi({ kind: 'capsule', itemId, anchor: 'quote' })
+    if (consumeAddSignal?.(itemId) !== true) return
+    if (peekTimer.current !== 0 && typeof window !== 'undefined') window.clearTimeout(peekTimer.current)
+    peekTimer.current = 0
+    // 开卡前把上一张卡片留下的两个冻结值清干净——不清的话首帧会用**别的条目**的
+    // 落点/朝向画一帧（`openCard` 里同款，论证见那里）。
+    frozenCard.current = null
+    frozenFacing.current = null
+    setPeekItemId(null)
+    setListOpen(false)
+    // 刚添加的条目一定还没有评论，draft/baseline 都是空串。
+    setUi({ kind: 'card', itemId, anchor: 'quote', draft: '', baseline: '', error: null })
     announce(t('selection.announce.added', {
       n: String(ids.indexOf(itemId) + 1), total: String(ids.length),
     }))
   }, [ref])
 
-  // chip 的矩形：只在真要用（列表打开 / 浮层锚在 chip 上）的那段时间里量，
-  // 顺带跟随窗口尺寸变化。用完即撤，不留常驻监听。
-  const needsChipRect = listOpen || (ui.kind !== 'none' && ui.anchor === 'chip')
+  // chip 的矩形：只在真要用（列表打开 / 任意卡片开着）的那段时间里量，顺带
+  // 跟随窗口尺寸变化。用完即撤，不留常驻监听。批注标签不在这条清单里：它只画
+  // 在段落旁（几何全部来自 `anchors.openAnchor`），没有 chip 兜底。
+  //
+  // **任意卡片**（不再局限于 `ui.anchor === 'chip'`）：`anchor:'quote'` 的卡片
+  // 量不出真几何时，下面 `cardPoint` 那段本来就有一条「退到 chipRect」的兜底
+  // 分支（quoteAnchor === null 时看 chipRect），只是旧版只在"列表打开过"或
+  // "锚本来就是 chip" 时才量 chipRect —— 本次会话第一次开卡（比如"添加到
+  // 对话"之后直接开卡，见下面 `seen` 那个 effect）时列表还没开过，chipRect
+  // 恰好是 null，兜底链条断在最后一环：真几何量不出来 + chipRect 也是 null
+  // → `cardPoint` 整个是 null → 卡片干脆不渲染。用户点了"添加到对话"，
+  // 什么反馈都没有。
+  //
+  // 选择「卡片锚到 chip」而不是「播报一句提示」：前者复用的正是下面
+  // `cardPoint` 里那条早就写好、也早就考虑过朝向判据（above 恒为 false，见
+  // "freezes the card facing…" 那条测试的注释）的兜底路径，只需要把测量门槛
+  // 打开，不用再新开一条"提示用户去点徽标/chip"的旁路；后者对着一个视觉上
+  // 什么都没发生的界面播报，屏读用户能听到，但更大多数的指针用户还是会
+  // 觉得"点了没反应"。宁可卡片先贴着 chip 显示、下一帧量到真几何再跳过去，
+  // 也不留一次完全无声的点击。
+  const needsChipRect = listOpen || ui.kind === 'card'
   React.useLayoutEffect(() => {
     if (!needsChipRect || typeof window === 'undefined') return
     const measure = () => {
@@ -1820,11 +1808,11 @@ export function SelectionDock({
 
   const schedulePeek = (itemId: string | null) => {
     setHoveredItemId(itemId)
-    // 悬停到「跟当前钉住的胶囊不同」的另一条引用时先拔钉子：不拔的话
-    // openItemId 恒等于 ui.itemId，胶囊追不上鼠标，只有 activeItemId（走
-    // hoveredItemId）还在动——正文高亮换了，胶囊没换。只在 'capsule' 时拔，
+    // 悬停到「跟当前钉住的标签不同」的另一条引用时先拔钉子：不拔的话
+    // openItemId 恒等于 ui.itemId，标签追不上鼠标，只有 activeItemId（走
+    // hoveredItemId）还在动——正文高亮换了，标签没换。只在 'note' 时拔，
     // 'card' 打开时绝不能被单纯的悬停打断（状态迁移见 QuoteUi 上方的注释）。
-    if (itemId !== null && ui.kind === 'capsule' && ui.itemId !== itemId) {
+    if (itemId !== null && ui.kind === 'note' && ui.itemId !== itemId) {
       setUi({ kind: 'none' })
     }
     if (typeof window === 'undefined') return
@@ -1860,15 +1848,16 @@ export function SelectionDock({
    *  - 指针路径：卡片自己在 capture 阶段挂了 `document.pointerdown`，点徽标 /
    *    点 chip 都会**先**触发它 → `commitCard` → `ui` 已经收成了 `none`，之后
    *    click 才走到这里。
-   *  - 键盘路径不存在：徽标是 `aria-hidden` 的 `<span>`（不可聚焦），胶囊里没有
-   *    任何 `<button>`，而引用列表在卡片打开时是关着的（下面就 `setListOpen(false)`）。
+   *  - 键盘路径不存在：徽标是 `aria-hidden` 的 `<span>`（不可聚焦），批注标签里
+   *    没有任何 `<button>`，而引用列表在卡片打开时是关着的（下面就
+   *    `setListOpen(false)`）。
    *
    * 曾经这里有一段「切换时替旧卡片补写一次」的兜底，删掉了：它不可达，而且一旦
    * 可达就是错的。写完之后 `setUi` 换掉 `itemId` → `QuoteCommentCard` 的
    * `key`（= `ui.itemId`）变化 → 旧卡片卸载 → 卸载清理里 `settled` 仍是 false、
    * `draft !== baseline` 仍成立 → **第二次** `commit.current(draft)`；而那个
    * `commit.current` 是旧渲染帧的 `commitCard` 闭包，成功后会
-   * `setUi({kind:'capsule', itemId: 旧id})`，把刚打开的新卡片打回旧条目的胶囊。
+   * `setUi({kind:'note', itemId: 旧id})`，把刚打开的新卡片打回旧条目的标签。
    * 见测试 `saves the previous card exactly once when the user switches quotes`。
    *
    * `draft` 用 `item.comment` 重建：评论在失焦那一刻就已经写进草稿聚合（那才是
@@ -1885,6 +1874,14 @@ export function SelectionDock({
     peekTimer.current = 0
     // 朝向只在开卡后的第一帧算，所以每次开卡都要把上一次的冻结值丢掉 ——
     // 同一条引用先后两次打开，两次的原文位置可能已经不同了。
+    //
+    // `frozenCard` 同理，而且它更凶：它是**上一张卡片**（很可能是别的条目）的
+    // 落点，而开卡后的第一帧 `anchors.openAnchor` 恒为 null（量测 layout effect
+    // 还没为新的 `openItemId` 跑过）——那一帧的 `frozen` 分支会拿着旧条目的坐标
+    // 把新卡片画出来，下一帧真几何到位再跳过去。清掉之后这一帧要么落到 chip
+    // 兜底（列表路径，chipRect 已量过），要么干脆不渲染（徽标/标签路径），
+    // 都不会出现"先在别的引用旁边闪一下"。
+    frozenCard.current = null
     frozenFacing.current = null
     setPeekItemId(null)
     setListOpen(false)
@@ -1899,27 +1896,29 @@ export function SelectionDock({
   }
 
   /**
-   * 保存并收起。返回 false = 提交失败，卡片留在原地。
+   * 收起卡片。**落到 'note' 还是 'none' 只看这条引用收起后有没有评论**（`hasNote`），
+   * 与用户是点了保存、关闭、取消还是外面无关：有批注就在段落旁留下写着那句话的
+   * 标签，没有就什么都不留（论证见 `QuoteUi` 上方的状态迁移表）。
    *
-   * **收起 = `'none'`，不是 `'capsule'`。** 用户点了别处就该看不见这张卡片，
-   * 段落旁不留那枚只进不出的钉子（论证见 `QuoteUi` 上方的状态迁移表）。
-   *
-   * 每一次 `setUi` 都走函数式更新并**先核对当前打开的还是不是这张卡片**：
-   * 卸载路径上 `commit.current` 拿到的是上一帧的 `commitCard` 闭包，而这时 `ui`
-   * 可能已经被「新增引用自动浮胶囊」那个 effect 换成了另一条的胶囊。无条件
-   * `setUi({kind:'none'})` 会把刚浮出来的新胶囊一起抹掉 —— 没有数据丢失，但
-   * 用户刚添加的那条引用旁边什么都没有了。
+   * 走函数式更新并**先核对当前打开的还是不是这张卡片**：卸载路径上
+   * `commit.current` 拿到的是上一帧的 `commitCard` 闭包，而这时 `ui` 可能已经被
+   * 「新增引用直接开卡」那个 effect 换成了另一条的卡片。无条件 `setUi` 会把刚
+   * 打开的那张新卡片顶掉 —— 没有数据丢失，但用户刚添加的那条引用旁边就不是
+   * 他正在编辑的东西了。
    */
+  const collapseCard = (itemId: string, comment: string) => setUi((current) => (
+    current.kind === 'card' && current.itemId === itemId
+      ? (hasNote(comment) ? { kind: 'note', itemId } : { kind: 'none' })
+      : current
+  ))
+
+  /** 保存并收起。返回 false = 提交失败，卡片留在原地。 */
   const commitCard = (value: string): boolean => {
     if (ui.kind !== 'card') return true
     const { itemId, baseline } = ui
-    const collapse = () => setUi((current) => (
-      current.kind === 'card' && current.itemId === itemId
-        ? { kind: 'none' }
-        : current
-    ))
     if (value === baseline) {
-      collapse()
+      // 没改过：收起态按**已保存值**决定留不留标签，不是按这次有没有写东西。
+      collapseCard(itemId, baseline)
       return true
     }
     const result = updateComment(itemId, value)
@@ -1929,7 +1928,7 @@ export function SelectionDock({
         : current))
       return false
     }
-    collapse()
+    collapseCard(itemId, value)
     announce(t('selection.announce.saved', { n: String(indexOf(itemId) + 1) }))
     return true
   }
@@ -2026,21 +2025,29 @@ export function SelectionDock({
     }
   }
 
-  const capsuleWidth = clampWidth(band, 160, CAPSULE_MAX_WIDTH)
-  const capsulePoint = anchors.openAnchor === null
+  const noteText = openItem?.comment ?? ''
+  const noteWidth = clampWidth(band, 160, NOTE_MAX_WIDTH)
+  const notePoint = anchors.openAnchor === null
     ? null
     : placeQuoteCard(
       anchors.openAnchor,
       { left: anchors.openAnchor.rowLeft },
-      { width: capsuleWidth, height: CAPSULE_HEIGHT },
+      { width: noteWidth, height: NOTE_HEIGHT },
       anchors.openAnchor.band,
     )
-  // 未聚焦的胶囊只是预览，不承载未保存内容：锚点滚出可见带就隐藏它。卡片
-  // **不**看 inBand —— 正在打字的浮层不许因为滚动而消失。
-  const showCapsule = (ui.kind === 'capsule' || (ui.kind === 'none' && peekItemId !== null))
+  /**
+   * 批注标签只是**展示已保存内容**，不承载未保存的字：锚点滚出可见带就隐藏它。
+   * 卡片**不**看 inBand —— 正在打字的浮层不许因为滚动而消失。
+   *
+   * `hasNote` 这道闸门管着两条来源：被钉住的 'note'（刚编辑完那条）和悬停预览
+   * （`peekItemId`）。悬停一条没有评论的引用不再浮出任何盒子——那时能显示的只有
+   * 占位符，而占位符正是这一版删掉的东西；徽标的强调环仍然照亮，悬停反馈没丢。
+   */
+  const showNote = (ui.kind === 'note' || (ui.kind === 'none' && peekItemId !== null))
+    && hasNote(noteText)
     && anchors.openAnchor !== null
     && anchors.openAnchor.inBand
-    && capsulePoint !== null
+    && notePoint !== null
 
   const listPoint = chipRect === null
     ? null
@@ -2086,19 +2093,17 @@ export function SelectionDock({
           ))}
           onEdit={openCard}
           onRemove={removeQuote}
-          onAnnounce={announce}
           onClose={() => { setListOpen(false); chip.current?.focus() }}
           t={t}
         />
       )}
-      {showCapsule && openItemId !== null && capsulePoint !== null && (
-        <QuoteCapsuleLayer
+      {showNote && openItemId !== null && notePoint !== null && (
+        <QuoteNoteLayer
           ordinal={openOrdinal}
-          top={capsulePoint.top}
-          left={capsulePoint.left}
-          width={capsuleWidth}
-          comment={openItem?.comment ?? ''}
-          placeholder={t('selection.comment.placeholder')}
+          top={notePoint.top}
+          left={notePoint.left}
+          width={noteWidth}
+          note={noteText}
           onOpen={() => openCard(openItemId)}
           onHoverChange={(hovering) => schedulePeek(hovering ? openItemId : null)}
         />
@@ -2125,13 +2130,14 @@ export function SelectionDock({
             current.kind === 'card' ? { ...current, draft: value } : current
           ))}
           onCommit={commitCard}
-          // 「取消」= 丢弃本次编辑、回退到上次保存值、**收干净**（不留胶囊）。
-          onCancel={() => setUi({ kind: 'none' })}
+          // 「取消」= 丢弃本次编辑、回退到上次保存值。收起态因此按 **baseline**
+          // 判（不是按用户刚打的字）：取消之后段落旁留下的必须是那条**已保存**的
+          // 批注，或者什么都没有。
+          onCancel={() => collapseCard(ui.itemId, ui.baseline)}
           onRemove={() => removeQuote(ui.itemId)}
-          onAnnounce={announce}
           onReveal={() => reveal(openItem)}
-          // 焦点落点选 chip：卡片 portal 在 document.body，收起就是卸载。胶囊层
-          // 是 aria-hidden 且里面一个可聚焦控件都没有，正文徽标同理；chip 是
+          // 焦点落点选 chip：卡片 portal 在 document.body，收起就是卸载。批注标签
+          // 层是 aria-hidden 且里面一个可聚焦控件都没有，正文徽标同理；chip 是
           // 「chip → 引用列表 → 卡片」这条键盘路径的起点，而且只要坞还在它就在。
           // removeQuote 与 QuoteList.onClose 早就落在这里 —— 所有收起路径归一。
           onRestoreFocus={() => chip.current?.focus()}
@@ -2231,9 +2237,26 @@ export function applySelectionActions(
       if (!result.ok) throw new Error(`side-chat reference insertion failed: ${result.reason}`)
     },
   })
-  const onAdd = (selection: ConversationSelection) => addSelectionToConversation(
-    controller, services, selection, itemIdFactory(), t,
-  )
+  // sessionId → 最近一次经由 onAdd 真实新增、尚未被 SelectionDock 认领的
+  // itemId。这是「seen effect 不能只靠集合差判断用户意图」的证据来源——见
+  // SelectionDock 里 `consumeAddSignal` 参数与它上方的注释。同一个 session 只
+  // 记最新一笔（连续两次真实新增之间来不及被认领的情形极罕见，且旧的一笔
+  // 被覆盖也不会误判——它从来不会被拿去跟一个它没产生过的 itemId 匹配）。
+  const pendingAdds = new Map<string, string>()
+  const onAdd = (selection: ConversationSelection) => {
+    const itemId = itemIdFactory()
+    const result = addSelectionToConversation(controller, services, selection, itemId, t)
+    // `revalidate` 内部只在 selection 仍是当前激活的那一份时才返回非 null，
+    // 且返回的正是同一个对象（identity 不变）——见 SelectionController.revalidate。
+    // 所以这里读 `selection.parentSessionId` 而不是重新解一次 current，两者
+    // 恒相等，不需要 addSelectionToConversation 额外把它吐出来。
+    // 只在真正插入成功时记账：失败路径（stale selection / composer 找不到 /
+    // CAS 竞争）根本没有新 occurrence 写进草稿，`items` 集合差不会把这个
+    // itemId 判成新增，留一笔认领不到的账毫无意义，还会在同一 session 后续
+    // 一次失败又成功之间白白占住 `pendingAdds` 的那一格。
+    if (result.ok) pendingAdds.set(selection.parentSessionId, itemId)
+    return result
+  }
   // “添加到对话”（路径 3）没有 fork，唯一的语义标记就是这份散文标签，之前
   // 这里调用 createSelectionReferenceSource() 不传参，codec 永远回退到
   // SELECTION_QUOTE_COPY.en——中文宿主也会把 "Quoting from above:" 这类英文
@@ -2286,6 +2309,11 @@ export function applySelectionActions(
         const result = removeSelectionItem(input, itemId, t('selection.reference.label'))
         if (!result.ok) input.notify?.('error', failureMessage(result, t))
         return result
+      },
+      consumeAddSignal: (itemId: string) => {
+        if (pendingAdds.get(sessionId) !== itemId) return false
+        pendingAdds.delete(sessionId)
+        return true
       },
     }),
   }, SelectionDock))
