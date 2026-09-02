@@ -557,6 +557,8 @@ const Z_QUOTE_NOTE = 898
 const Z_QUOTE_CARD = 899
 
 const NOTE_HEIGHT = 32
+/** 批注标签的宽度**上限**，不再是字面宽度——标签本身按内容用 `width:max-content`
+ * 撑开，这个数字只封顶（配合 `clampWidth` 收进可见带），防止长批注横穿屏幕。 */
 const NOTE_MAX_WIDTH = 280
 const CARD_MIN_WIDTH = 240
 const CARD_MAX_WIDTH = 360
@@ -695,6 +697,43 @@ const QUOTE_SURFACE: React.CSSProperties = {
  */
 const QUOTE_INPUT_SURFACE =
   'color-mix(in srgb, var(--dsw-alias-bg-layer-3, #fff) 90%, var(--dsw-alias-label-primary, #0f1115) 10%)'
+
+/**
+ * 批注标签自己的底——不描边、不投影，靠这道填充把它从原文里托出来。
+ *
+ * 用户原话「为啥输入完，会有一个小输入框固定在这」，元凶有两个，都在
+ * `QUOTE_SURFACE` 身上：那圈 `QUOTE_SURFACE_BORDER_COLOR` 实心描边（键盘/鼠标
+ * 用户见过的每一个"可输入"控件都是描边勾出来的矩形），和曾经的定宽（见
+ * `QuoteNoteLayer` 调用点，已经改成 `width:max-content`）。形状本来就是徽标+
+ * 文字的胶囊、不是矩形，把描边也去掉，两个"像输入框"的信号一起消失。
+ *
+ * 底色**直接复用** `QUOTE_INPUT_SURFACE` 那道 color-mix 配方（bg-layer-3 混
+ * 10% label-primary），不是重新调一个数字：这张标签飘在原文旁边，没有一张
+ * "卡面"在它下面，`bg-layer-3` 与页面 `bg-base` 在浅色主题下逐字节相同，直接
+ * 借用现成配方就是"比页面深一档/浅一档"，且已经在 `QUOTE_INPUT_SURFACE` 那段
+ * 注释里验证过浅色端的数字（下面 1.24:1 与它逐字相同）。
+ *
+ * 对比度（这不是 1.4.11 要求的边界——标签是容器，不是控件，论证见
+ * `QUOTE_SURFACE_BORDER_COLOR` 上方那段——纯粹是可读性判断）：
+ *   底 vs 页面 bg-base       浅 1.24:1   深 ≈2.05:1   （旧描边同一用途是
+ *                                                     1.25:1 / 2.19:1，同一
+ *                                                     量级，不是"没了边界"）
+ *   标签文字 label-primary vs 底   浅 15.86:1  深 8.52:1   （13px 门槛 4.5:1，
+ *                                                     旧底 bg-layer-3 是
+ *                                                     18.90/11.57，换底后
+ *                                                     仍留足余量）
+ *
+ * 换底之后，画在这张底上的 `QuoteBadge` 自己那圈 1px 描边（对表面 3:1 的
+ * 1.4.11 判据）也要重新过一遍——它原来是照 `bg-layer-3` 算的
+ * （quote-overlay.tsx 那张四表面表格里的"标签"行）：
+ *   浅 4.87:1（原 5.80）   深 5.91:1（原 8.03）
+ * 两个都仍在 3:1 之上，只是余量变薄；这张标签自己不做 hover/pressed 背景变化
+ * （不是可交互控件，只有 `cursor:pointer` 和 `title`），所以只有静息一档，
+ * quote-overlay.tsx 里那张表格已经同步拆出这一行。
+ */
+const QUOTE_NOTE_SURFACE: React.CSSProperties = {
+  background: QUOTE_INPUT_SURFACE,
+}
 
 /**
  * 折叠 ⇄ 展开的状态。**同时只允许一个**：两条 200px 宽的浮层必然互相遮挡，
@@ -963,7 +1002,14 @@ interface QuoteNoteLayerProps {
   readonly ordinal: string
   readonly top: number
   readonly left: number
-  readonly width: number
+  /** 宽度**上限**，不是字面宽度——标签自己按内容用 `width:max-content` 撑开，
+   * 短批注不再留一截空白。调用方拿去算 `left`（`placeQuoteCard` 的
+   * `size.width`）时仍然当成"这条标签可能有多宽"的保守估计：真实渲染宽度只会
+   * 更窄（不会更宽，因为 CSS `max-width` 封了顶），而 `placeQuoteCard` 只在
+   * 靠近带子右缘时才用它把 `left` 往左夹——用上限算出的 `left` 因此永远不会让
+   * 一个更窄的真实盒子越出带子，只会在盒子本来就没那么宽时，右边多留一点点
+   * 用不上的夹算余量，纯视觉上无感。 */
+  readonly maxWidth: number
   /** 用户写下的那句话。**调用方保证非空**（`hasNote`）——没有评论时整层不渲染，
    * 所以这里没有、也不该有任何占位符分支。 */
   readonly note: string
@@ -988,12 +1034,25 @@ interface QuoteNoteLayerProps {
  * offscreen / detached 时标签根本不画，列表永远在（评论正文也在列表行里读得到，
  * 见 `QuoteListRow` 的 `aria-labelledby`）。
  *
- * 前景色 `label-primary`（在 `bg-layer-3` 浮层面上 浅 18.90:1 / 深 11.57:1）：
- * 这是用户自己写的正文，13px 的门槛 4.5:1 远远过关。截断交给
- * `text-overflow: ellipsis`，完整值挂 `title`（本层对 AT 隐藏，`title` 在这里
- * 纯粹是指针悬停的提示，不参与可访问名）。
+ * 前景色 `label-primary`（在批注标签自己的底 `QUOTE_NOTE_SURFACE` 上 浅
+ * 15.86:1 / 深 8.52:1）：这是用户自己写的正文，13px 的门槛 4.5:1 远远过关。
+ * 截断交给 `text-overflow: ellipsis`，完整值挂 `title`（本层对 AT 隐藏，
+ * `title` 在这里纯粹是指针悬停的提示，不参与可访问名）。
+ *
+ * **宽度按内容收缩，不再定宽。** 用户对着截图问的原话是「为啥输入完，会有一个
+ * 小输入框固定在这」——盒子本身定宽是这句话的另一半元凶（另一半是描边，见
+ * `QUOTE_NOTE_SURFACE`）：短批注撑不满那个宽度，视觉上就是一段空白，跟一个
+ * "等着被打字"的输入框长得一模一样。`width:max-content` 让盒子跟着 `note`
+ * 这段真实文字走，`maxWidth` 只负责在批注很长时封顶，不许它横穿屏幕。
+ *
+ * flex 容器里 `width:max-content` 单独用不够：子元素默认的 `min-width:auto`
+ * 会按自己的内容撑到底，长批注撞上 `maxWidth` 那道顶时，文字 span 会被这条
+ * 默认值挡住、不肯收缩，`overflow:hidden` + `text-overflow:ellipsis` 就形同
+ * 虚设——盒子被 `maxWidth` 卡死之后，文字反而会溢出圆角画到盒子外面。下面文字
+ * span 上的 `minWidth: 0` 就是解这个的：允许它缩到比自身内容还窄，ellipsis
+ * 才有地方生效。
  */
-function QuoteNoteLayer({ ordinal, top, left, width, note, onOpen, onHoverChange }: QuoteNoteLayerProps) {
+function QuoteNoteLayer({ ordinal, top, left, maxWidth, note, onOpen, onHoverChange }: QuoteNoteLayerProps) {
   if (typeof document === 'undefined') return null
   return createPortal(
     <div
@@ -1009,8 +1068,8 @@ function QuoteNoteLayer({ ordinal, top, left, width, note, onOpen, onHoverChange
         onMouseEnter={() => onHoverChange(true)}
         onMouseLeave={() => onHoverChange(false)}
         style={{
-          ...QUOTE_SURFACE,
-          position: 'absolute', top, left, width, height: NOTE_HEIGHT,
+          ...QUOTE_NOTE_SURFACE,
+          position: 'absolute', top, left, width: 'max-content', maxWidth, height: NOTE_HEIGHT,
           boxSizing: 'border-box', borderRadius: 999,
           display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px',
           cursor: 'pointer', userSelect: 'none',
@@ -1024,7 +1083,10 @@ function QuoteNoteLayer({ ordinal, top, left, width, note, onOpen, onHoverChange
         <QuoteBadge label={ordinal} state="anchored" emphasis={false} />
         <span
           data-dsh-quote-note-text
-          style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          // minWidth: 0 —— 见上面函数级注释那段 flex 收缩的坑：没有它，长批注
+          // 撞上 maxWidth 时这个 span 会拒绝缩到比自身文字还窄，ellipsis 生效
+          // 不了，文字会溢出标签的圆角画到盒子外面。
+          style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}
         >
           {note}
         </span>
@@ -2016,13 +2078,18 @@ export function SelectionDock({
   }
 
   const noteText = openItem?.comment ?? ''
-  const noteWidth = clampWidth(band, 160, NOTE_MAX_WIDTH)
+  // `noteMaxWidth` 现在是标签的宽度**上限**（标签自己按内容 `width:max-content`）。
+  // 拿它当 `placeQuoteCard` 的 `size.width` 仍然安全：那个函数只在标签贴近带子
+  // 右缘时才会把 `left` 往左夹，用上限（而不是真实、更窄的渲染宽度）算出的
+  // `left` 只会夹得更保守，真实盒子永远落在算出的带子里——不会因为改用上限而
+  // 越出带子，最多是短批注右边多出一点用不上的夹算余量，纯视觉上无感。
+  const noteMaxWidth = clampWidth(band, 160, NOTE_MAX_WIDTH)
   const notePoint = anchors.openAnchor === null
     ? null
     : placeQuoteCard(
       anchors.openAnchor,
       { left: anchors.openAnchor.rowLeft },
-      { width: noteWidth, height: NOTE_HEIGHT },
+      { width: noteMaxWidth, height: NOTE_HEIGHT },
       anchors.openAnchor.band,
     )
   /**
@@ -2092,7 +2159,7 @@ export function SelectionDock({
           ordinal={openOrdinal}
           top={notePoint.top}
           left={notePoint.left}
-          width={noteWidth}
+          maxWidth={noteMaxWidth}
           note={noteText}
           onOpen={() => openCard(openItemId)}
           onHoverChange={(hovering) => schedulePeek(hovering ? openItemId : null)}

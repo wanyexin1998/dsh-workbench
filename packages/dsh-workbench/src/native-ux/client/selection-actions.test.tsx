@@ -1767,6 +1767,101 @@ describe('SelectionDock', () => {
     expect(document.body.textContent).not.toContain(zh['selection.comment.placeholder'])
   })
 
+  it('shrinks the note tag to a short comment instead of a fixed-width box', () => {
+    // 用户真机反馈：「为啥输入完，会有一个小输入框固定在这」——定宽是元凶的一半
+    // （另一半是描边，见下一条测试）。短批注撑不满 160–280px 的老宽度，视觉上
+    // 就是一截空白，长得像一个空输入框。这一版改成 `width:max-content`，标签
+    // 自己按 `note` 这几个字撑开，`maxWidth`（下面 280px）只封顶，不再是字面宽度。
+    // 杀法：把 `width: 'max-content', maxWidth,` 改回 `width: maxWidth,`
+    // （即 QuoteNoteLayer 调用点传入的 noteMaxWidth 当字面宽度用）——第一条
+    // 断言从 'max-content' 变成 '280px'，红。
+    installRangeRects()
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
+    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
+    const note = '太短'
+    renderDock(aggregateOf([{ ...twoItems.items[0]!, comment: note }]))
+    openCard('1')
+    fireEvent.pointerDown(document.body)
+
+    const label = document.querySelector<HTMLElement>('[data-dsh-quote-note]')!
+    expect(label, '收起后段落旁没有批注标签').not.toBeNull()
+    expect(label.style.width, '标签宽度是写死的像素数，不是按内容收缩的 max-content').toBe('max-content')
+    // 上限还在——只是从「宽度」搬到了「maxWidth」：mountConversation 的
+    // scrollport 右缘 800、左缘 0，clampWidth(band, 160, 280) 的可用宽度
+    // 800-0-32=768 远大于 280，夹出来的就是 NOTE_MAX_WIDTH 本身。
+    expect(label.style.maxWidth).toBe('280px')
+
+    // 宽度策略换了，点击重新打开卡片这条动作链不能被带坏。
+    fireEvent.click(label)
+    expect(commentBox('对引用 1 的评论：first').value).toBe(note)
+  })
+
+  it('clamps a long note under NOTE_MAX_WIDTH and keeps ellipsis alive despite the flex min-width:auto trap', () => {
+    // 长批注不能横穿屏幕：标签仍然吃 clampWidth(band, 160, NOTE_MAX_WIDTH) 算出
+    // 来的上限（这里是 280px，算法同上一条测试）。这里专门要测到实现注释里点名
+    // 的那个坑——flex 容器里 `width:max-content` 撞上 `maxWidth` 那道顶之后，
+    // 文字 span 默认的 `min-width:auto` 会拒绝缩到比自身内容还窄，
+    // `overflow:hidden` + `text-overflow:ellipsis` 形同虚设，文字反而会溢出
+    // 标签的圆角画到盒子外面——`minWidth: 0` 就是解这个坑的那一行。
+    // 杀法：删掉文字 span 上的 `minWidth: 0` —— minWidth 那条断言从 '0px' 变
+    // 成 ''，红；其余三条 overflow/textOverflow/whiteSpace 断言钉住 ellipsis
+    // 本身没有被顺手删掉。
+    installRangeRects()
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
+    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
+    const note = '这是一段很长很长的批注，长到必须被 NOTE_MAX_WIDTH 截断——用来验证标签' +
+      '不会横穿整个屏幕，也用来验证省略号所在的文字层没有被 flex 默认的 ' +
+      'min-width:auto 卡住而失去截断能力，这句话还要再写长一点才够稳当地撑爆上限。'
+    const commented = aggregateOf([{ ...twoItems.items[0]!, comment: note }])
+    renderDock(commented)
+    openCard('1')
+    fireEvent.pointerDown(document.body)
+
+    const label = document.querySelector<HTMLElement>('[data-dsh-quote-note]')!
+    expect(label.style.maxWidth, '长批注没有被 NOTE_MAX_WIDTH 封顶，会横穿屏幕').toBe('280px')
+    expect(label.style.width).toBe('max-content')
+
+    const text = label.querySelector<HTMLElement>('[data-dsh-quote-note-text]')!
+    expect(text.style.minWidth, 'flex 的 min-width:auto 没被显式清零，长批注会撑破 maxWidth 溢出圆角').toBe('0px')
+    expect(text.style.overflow).toBe('hidden')
+    expect(text.style.textOverflow).toBe('ellipsis')
+    expect(text.style.whiteSpace).toBe('nowrap')
+
+    // 截断只发生在视觉上（CSS ellipsis）：DOM 里的文字与 title 都是完整原文，
+    // 用户仍然能通过悬停看到全文。
+    expect(text.textContent).toBe(note)
+    expect(label.getAttribute('title')).toBe(note)
+  })
+
+  it('no longer paints the note tag like an input box: fill instead of a solid stroke', () => {
+    // 用户看到的「像输入框」除了定宽，另一半元凶是 QUOTE_SURFACE 那圈实心描边——
+    // 键盘/鼠标用户见过的每一个"可输入"控件都是描边勾出来的矩形。这一版换成
+    // QUOTE_NOTE_SURFACE：不描边、不投影，靠一道比页面深一档/浅一档的填充色把
+    // 标签从原文里托出来。
+    // 杀法：把标签 style 里的 `...QUOTE_NOTE_SURFACE,` 换回 `...QUOTE_SURFACE,`——
+    // borderStyle/borderWidth/boxShadow 三条断言从空字符串变成非空，红；
+    // background 断言因为 QUOTE_SURFACE 的背景是不带 color-mix 的纯 var()，
+    // 同样红。
+    installRangeRects()
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
+    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
+    const note = '不该再有实心描边了'
+    renderDock(aggregateOf([{ ...twoItems.items[0]!, comment: note }]))
+    openCard('1')
+    fireEvent.pointerDown(document.body)
+
+    const label = document.querySelector<HTMLElement>('[data-dsh-quote-note]')!
+    expect(label.style.borderStyle, '标签又画出了描边，回到了看起来像输入框的老样子').toBe('')
+    expect(label.style.borderWidth).toBe('')
+    expect(label.style.borderColor).toBe('')
+    expect(label.style.boxShadow, '标签又带上了投影，跟卡片/列表那圈"浮层感"混为一谈').toBe('')
+    // 底色是 QUOTE_INPUT_SURFACE 那道 color-mix 配方（与评论输入框共用同一个
+    // 数字，见 QUOTE_NOTE_SURFACE 的注释），不是 QUOTE_SURFACE 那种纯色。
+    expect(label.style.background).toContain('color-mix')
+    expect(label.style.background).toContain('var(--dsw-alias-bg-layer-3, #fff)')
+    expect(label.style.background).toContain('var(--dsw-alias-label-primary, #0f1115)')
+  })
+
   it('lets a hover on a different quote take the pinned note with it, instead of leaving it stuck', async () => {
     // 收起卡片会把标签钉在**刚编辑完的那一条**上（'note'）。钉住时
     // openItemId = ui.itemId 恒成立，peekItemId 被挡在公式外面 —— 之后悬停别的

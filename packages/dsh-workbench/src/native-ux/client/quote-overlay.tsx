@@ -389,11 +389,15 @@ export interface QuoteBadgeProps {
  *   徽标底 #4868b2 对表面             浅            深
  *   正文层      bg-base              5.39 #ffffff  3.39 #151517
  *   代码块      markdown-code-block  5.15 #f9fafb  3.20 #1b1b1c
- *   标签        bg-layer-3           5.39 #ffffff  2.25 #353638   ✗
+ *   标签        note-tag 底（见下）   4.52 #ebebec  1.65 #484a4c   ✗
  *   引用列表行  bg-layer-3           5.39 #ffffff  2.25 #353638   ✗
  *
  * （上一版注释把浅色代码块记成 4.10:1。`markdown-code-block` 浅色是
- * `neutral-bluish-50` #f9fafb，实算 5.15:1——记低了不改变结论，数值在此更正。）
+ * `neutral-bluish-50` #f9fafb，实算 5.15:1——记低了不改变结论，数值在此更正。
+ * 「标签」这一行也不再是 `bg-layer-3`：批注标签去掉了实心描边，改成填充色
+ * 把自己从原文里托出来，底色是 `color-mix(bg-layer-3 90%, label-primary 10%)`
+ * ——浅 #ebebec、深 #484a4c，定义与推导见 selection-actions.tsx 的
+ * `QUOTE_NOTE_SURFACE`。「引用列表行」的 `bg-layer-3` 没有变。）
  *
  * 补的是一圈 1px 实心描边，取随主题翻的 `label-secondary`（浅 #61666b /
  * 深 #cfd3d6）。上一版描边只给「标签、引用列表行」算了 hover/pressed 叠加层，
@@ -405,7 +409,13 @@ export interface QuoteBadgeProps {
  *   描边对表面（浅｜深）        静息          ＋hover        ＋pressed
  *   正文层 bg-base             5.80｜12.11    5.21｜9.81     4.84｜8.04
  *   代码块 markdown-code-block 5.55｜11.43    4.99｜9.10     4.63｜7.44
- *   标签/列表 bg-layer-3       5.80｜8.03     5.21｜6.26     4.84｜5.18
+ *   标签 note-tag 底           4.87｜5.91     不适用          不适用
+ *   列表 bg-layer-3            5.80｜8.03     5.21｜6.26     4.84｜5.18
+ *
+ * 「标签」只有静息一档：批注标签自己的底是静态填充色，不像列表行那样有
+ * hover/pressed 的交互态背景（它的可点提示只是 `cursor:pointer` 与 `title`），
+ * 所以没有 hover/pressed 列可算，也不需要算——`bg-layer-3` 那一路的
+ * hover/pressed 现在只描述「列表」。
  *
  * 最低 **4.63:1**——浅色代码块面 × pressed（`#f9fafb` 叠 10% 的
  * `rgba(38,49,72,.1)` ≈ `#e4e6e9`）。上一版把「标签/列表面 pressed 4.82:1」
