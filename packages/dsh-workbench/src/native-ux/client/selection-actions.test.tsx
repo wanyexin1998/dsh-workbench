@@ -655,28 +655,6 @@ describe('SelectionDock', () => {
 
   /* ── 草稿不能丢：三条核心状态机测试 ─────────────────────────────────── */
 
-  it('NEVER writes the draft when the user presses Cancel, and rolls back to the last saved value', () => {
-    // 杀法：把卡片级 focusout 判据换回 textarea 自己的 onBlur —— 鼠标按在「取消」
-    // 上会**先**让 textarea blur，于是"先提交再回退"，两次写 aggregate；第二次
-    // 撞上 CAS stale-draft 时不想要的文字就永久留在了草稿里。
-    const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
-    renderDock(twoItems, { updateComment })
-    openCard('1')
-    const box = commentBox('对引用 1 的评论：first')
-    fireEvent.change(box, { target: { value: '不该被保存' } })
-    const cancel = screen.getByRole('button', { name: '取消编辑第 1 条引用的评论' })
-    // 真实的事件顺序：指针按下 → textarea 失焦（relatedTarget 是取消按钮）→ click。
-    fireEvent.pointerDown(cancel)
-    fireEvent.focusOut(box, { relatedTarget: cancel })
-    fireEvent.click(cancel)
-    expect(updateComment).not.toHaveBeenCalled()
-    // 卡片收起（空评论 → 段落旁不留东西）；重新展开时回到上次保存值（空串），
-    // 不是那段被丢弃的文字。
-    expect(screen.queryByRole('dialog')).toBeNull()
-    openCard('1')
-    expect(commentBox('对引用 1 的评论：first').value).toBe('')
-  })
-
   it('saves the draft when focus leaves the whole card (Tab out), exactly once', () => {
     const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
     renderDock(twoItems, { updateComment })
@@ -837,15 +815,13 @@ describe('SelectionDock', () => {
 
   it('reaches a detached quote through the chip when the body draws no badge at all', () => {
     // 行没了 → 正文侧无徽标 → chip 列表仍有该行 → 激活后卡片打开（锚在 chip
-    // 上方）、焦点在 textarea。detached 时不 reveal（没有可滚的行），「跳到原文」
-    // 也随之禁用。
+    // 上方）、焦点在 textarea。detached 时不 reveal（没有可滚的行）。
     renderDock(twoItems)
     expect(document.querySelectorAll('[data-dsh-quote-badge-anchor]').length).toBe(0)
     openCard('1')
     const dialog = card()
     expect(dialog.getAttribute('aria-label')).toBe('第 1 条引用的评论：first')
     expect(document.activeElement).toBe(commentBox('对引用 1 的评论：first'))
-    expect(screen.getByRole('button', { name: '跳到引用 1 的原文' }).getAttribute('aria-disabled')).toBe('true')
     expect(document.getElementById(commentBox('对引用 1 的评论：first').getAttribute('aria-describedby')!)!.textContent)
       .toBe(zh['selection.anchor.detached'])
   })
@@ -1119,8 +1095,7 @@ describe('SelectionDock', () => {
     expect(recorder.published[recorder.published.length - 1]!.ranges).toBe(0)
     expect(document.getElementById('dsh-quote-card-state-one')!.textContent)
       .toBe(zh['selection.anchor.detached'])
-    // 原文没了 —— 「跳到原文」随之禁用，但引用本身照旧有效、照旧能编辑。
-    expect(screen.getByRole('button', { name: '跳到引用 1 的原文' }).getAttribute('aria-disabled')).toBe('true')
+    // 原文没了，但引用本身照旧有效、照旧能编辑。
   })
 
   it('never observes document.body, even with no pane and no scrollport (GA-031)', () => {
@@ -1256,7 +1231,9 @@ describe('SelectionDock', () => {
     expect(dialog.style.zIndex).toBe('899')
   })
 
-  it('lays the card out in DOM order matching the screenshot, with the trash on the left', () => {
+  it('lays the card out in DOM order matching the screenshot, with the trash beside save', () => {
+    // 「跳到原文」与「取消」都已删除：动作行现在只剩删除、保存两颗按钮，删除
+    // 挪到了紧邻保存左侧（原来「取消」的位置）。
     renderDock(twoItems)
     openCard('1')
     const names = Array.from(card().querySelectorAll('textarea, button'), (node) => (
@@ -1270,10 +1247,30 @@ describe('SelectionDock', () => {
       // 改成如实描述，见 selection-actions.tsx）。
       '关闭并保存第 1 条评论',
       '删除引用 1：first',
-      '跳到引用 1 的原文',
-      '取消编辑第 1 条引用的评论',
       '保存第 1 条引用的评论',
     ])
+  })
+
+  it('keeps a wider gap between delete and save than the row’s default 4px, to blunt the misclick risk of the new layout', () => {
+    // 删除刚从"按两次"改回"单击立即执行"，又紧接着挪到了保存左侧——两个变化
+    // 叠加会推高误触概率。防御手段之一是留出比动作行默认 `gap:4`明显更宽的
+    // 间距（另外两条是删除维持图标态、hover/active 用危险色，分别由
+    // "lays the card out..." 与 CardIconButton 自己的样式覆盖）。
+    // 杀法：把 DELETE_SAVE_GAP 改回 0（或删掉那个 spacer `<span>`）——宽度断言
+    // 变红。
+    renderDock(twoItems)
+    openCard('1')
+    const trash = screen.getByRole('button', { name: '删除引用 1：first' })
+    const save = screen.getByRole('button', { name: '保存第 1 条引用的评论' })
+    const row = trash.parentElement!
+    expect(row).toBe(save.parentElement)
+    const children = Array.from(row.children)
+    const spacer = children[children.indexOf(trash) + 1] as HTMLElement
+    expect(children[children.indexOf(trash) + 2], '删除和保存之间必须只隔着这一个间距元素').toBe(save)
+    expect(spacer.getAttribute('aria-hidden'), '间距元素本身不该被屏读念出来').toBe('true')
+    const width = Number.parseInt(spacer.style.width, 10)
+    expect(width, '删除紧邻保存之后，两者之间的额外间距应明显大于动作行默认的 4px gap')
+      .toBeGreaterThan(8)
   })
 
   it('announces discrete results, and keeps the anchor states out of the live region', () => {
@@ -1760,14 +1757,6 @@ describe('SelectionDock', () => {
     fireEvent.click(label)
     expect(commentBox('对引用 1 的评论：first').value).toBe(note)
 
-    // 「取消」按**上次保存值**决定收起态，不是按用户刚打的字：清空输入框再取消，
-    // 草稿没被改写，段落旁那条标签当然也不该跟着消失。
-    // 杀法：把 onCancel 的 `collapseCard(ui.itemId, ui.baseline)` 换成 `ui.draft`。
-    fireEvent.change(commentBox('对引用 1 的评论：first'), { target: { value: '' } })
-    fireEvent.click(screen.getByRole('button', { name: '取消编辑第 1 条引用的评论' }))
-    expect(document.querySelector('[data-dsh-quote-note]'), '取消之后已保存的批注标签不见了')
-      .not.toBeNull()
-
     cleanup()
     // 没有评论：收起之后段落旁一个盒子都不留（数字徽标本来就在，入口没少）。
     renderDock(aggregateOf([twoItems.items[0]!]))
@@ -1848,13 +1837,6 @@ describe('SelectionDock', () => {
     expect(screen.queryByRole('dialog'), '点别处之后卡片还在').toBeNull()
     expect(document.querySelector('[data-dsh-quote-note]'), '空评论收起后段落旁还钉着盒子').toBeNull()
     expect(screen.queryByRole('textbox'), '收起之后段落旁还留着一个输入框').toBeNull()
-
-    // 「取消」也一样收干净：回退到上次保存值（空串）→ 不留标签。
-    openCard('1')
-    fireEvent.change(commentBox('对引用 1 的评论：first'), { target: { value: '待会儿要丢掉的' } })
-    fireEvent.click(screen.getByRole('button', { name: '取消编辑第 1 条引用的评论' }))
-    expect(screen.queryByRole('dialog')).toBeNull()
-    expect(document.querySelector('[data-dsh-quote-note]'), '取消后段落旁留下了刚被丢弃的字').toBeNull()
   })
 
   it('reopens the card from the body badge with the text the user had typed', () => {
@@ -1890,7 +1872,8 @@ describe('SelectionDock', () => {
     // X 的语义是「保存并收起」——「点外面」的可见形态，不是丢弃。卡片上同时有一个
     // 可见的「保存」按钮，所以一个光秃秃的「关闭」必然被读成"丢弃"，可访问名里
     // 必须把「并保存」写死。
-    // 杀法：把 X 接到 onCancel 上 —— updateComment 不会被调用，第二条断言红。
+    // 杀法：把 X 的 onClick 换成只 `onRestoreFocus()`（不先 `save()`）——
+    // updateComment 不会被调用，第一条断言红。
     const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
     renderDock(twoItems, { updateComment })
     const chip = screen.getByRole('button', { name: '查看 2 条引用' })
@@ -1923,8 +1906,9 @@ describe('SelectionDock', () => {
     expect(document.querySelectorAll('[data-dsh-quote-list-row]').length).toBe(0)
   })
 
-  it('hands focus back to the chip on Save / Cancel / Esc instead of dropping it on <body>', () => {
-    // 卡片 portal 在 document.body，收起就是卸载 —— 三条显式路径都得还焦点。
+  it('hands focus back to the chip on Save / Esc instead of dropping it on <body>', () => {
+    // 卡片 portal 在 document.body，收起就是卸载 —— 两条显式路径都得还焦点。
+    // 「取消」已经删除，不再是第三条路径。
     const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
     renderDock(twoItems, { updateComment })
     const chip = screen.getByRole('button', { name: '查看 2 条引用' })
@@ -1934,10 +1918,6 @@ describe('SelectionDock', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存第 1 条引用的评论' }))
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(document.activeElement, '保存后焦点掉了').toBe(chip)
-
-    openCard('1')
-    fireEvent.click(screen.getByRole('button', { name: '取消编辑第 1 条引用的评论' }))
-    expect(document.activeElement, '取消后焦点掉了').toBe(chip)
 
     openCard('1')
     const box = commentBox('对引用 1 的评论：first')
@@ -2520,8 +2500,7 @@ describe('引用浮层文案（zh/en）', () => {
   const added = [
     'selection.chip.label', 'selection.chip.aria', 'selection.list.label', 'selection.list.edit',
     'selection.card.aria', 'selection.comment.empty',
-    'selection.comment.save', 'selection.comment.saveAria', 'selection.comment.cancel',
-    'selection.comment.cancelAria', 'selection.comment.saveEmpty',
+    'selection.comment.save', 'selection.comment.saveAria', 'selection.comment.saveEmpty',
     // 卡片右上角那颗 X 的可访问名。名字里必须带「并保存」/"and save"，否则它会被
     // 读成"丢弃"——同一张卡片上还有一个可见的「保存」按钮。
     'selection.comment.closeAria',

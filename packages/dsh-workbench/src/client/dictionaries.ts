@@ -50,8 +50,6 @@ export const zh = {
   'selection.comment.empty': '未添加评论',
   'selection.comment.save': '保存',
   'selection.comment.saveAria': '保存第 {n} 条引用的评论',
-  'selection.comment.cancel': '取消',
-  'selection.comment.cancelAria': '取消编辑第 {n} 条引用的评论',
   // 卡片右上角那个 X。**名字里必须带「并保存」**：同一张卡片上还有一个可见的
   // 「保存」按钮，一个光秃秃的「关闭」会被读成「丢弃」，而它真正的语义是
   // 「点外面」的可见形态 —— 保存并收起。这是本轮唯一有误读风险的地方，可访问名
@@ -78,9 +76,6 @@ export const zh = {
   // 几个长得一样的框），身份属于 name，聚焦时立刻朗读。
   'selection.comment.aria': '对引用 {n} 的评论：{excerpt}',
   'selection.remove.aria': '删除引用 {n}：{excerpt}',
-  // 「跳到原文」的可访问名。摘要**不**进这句：同一行的 title 已经把摘要给了
-  // 指针用户，而屏读用户在同一行的评论框名里已经听过一次，再念一遍就是复读。
-  'selection.reveal.aria': '跳到引用 {n} 的原文',
   // 锚点三态里需要说出口的两个。anchored 不发声（滚动会让它与 offscreen 频繁
   // 翻转，任何提示都会变噪音）。detached 那句后半段是关键：色带没了不等于引用
   // 失效——发送时序列化的是捕获时冻结的文本快照。
@@ -151,8 +146,6 @@ export const en = {
   'selection.comment.empty': 'No comment yet',
   'selection.comment.save': 'Save',
   'selection.comment.saveAria': 'Save the comment on quote {n}',
-  'selection.comment.cancel': 'Cancel',
-  'selection.comment.cancelAria': 'Cancel editing the comment on quote {n}',
   'selection.comment.closeAria': 'Close and save comment {n}',
   'selection.comment.saveEmpty': 'Nothing to save yet',
   'selection.announce.added': 'Quote {n} added, {total} in total',
@@ -161,7 +154,6 @@ export const en = {
   'selection.comment.placeholder': 'Add an optional comment…',
   'selection.comment.aria': 'Comment on quote {n}: {excerpt}',
   'selection.remove.aria': 'Remove quote {n}: {excerpt}',
-  'selection.reveal.aria': 'Jump to the source of quote {n}',
   'selection.anchor.offscreen': 'The quoted passage is currently out of view.',
   'selection.anchor.unmeasured': 'The quoted passage’s position cannot be read right now. The quote itself is still valid.',
   'selection.anchor.detached': 'The quoted passage is no longer in this conversation. The quote is still sent with your message.',

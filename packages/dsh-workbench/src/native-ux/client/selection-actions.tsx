@@ -560,6 +560,11 @@ const NOTE_HEIGHT = 32
 const NOTE_MAX_WIDTH = 280
 const CARD_MIN_WIDTH = 240
 const CARD_MAX_WIDTH = 360
+/** 删除按钮与保存按钮之间**额外**的间距（叠加在动作行本身的 `gap:4` 之上，
+ * 合计 16px）。删除挪到了紧邻保存左侧的位置之后单加的防误触手段之一——见动作行
+ * 那段 JSX 注释；不是随手选的数字，是与卡片其余间距同一量级（卡片内边距 12、
+ * 评论框内边距 10）的一档，够形成视觉停顿，又不至于让两颗按钮看起来像分属两组。 */
+const DELETE_SAVE_GAP = 12
 
 /* ── 评论框的高度 ───────────────────────────────────────────────────────────
    旧写法是固定的 `minHeight: 64`（三行多）：收起态那条标签只有 32px，点开就
@@ -699,8 +704,11 @@ const QUOTE_INPUT_SURFACE =
  * 没有 chip 兜底那条分支），之后即使锚点状态翻转也不换：打字过程中卡片突然从
  * 段落旁跳到 composer 上方，比"卡片指着一个已经滚走的位置"更糟。
  *
- * `baseline` 是上次保存值。「取消」回退到它 —— 不是清空，所以取消最多丢掉本次
- * 编辑会话的增量，永远不会把一条已保存的评论抹成空。
+ * `baseline` 是上次保存值——不是清空。「取消」已经删除（所有退出路径现在都是
+ * 保存），但 `baseline` 没有跟着变成死字段：`commitCard` 用它判断"这次真的
+ * 改了吗"（`value === baseline` 时跳过一次没意义的 aggregate 写入，只做收起态
+ * 判定），卸载时的"尽力提交"也拿它跟 `draft` 比对同一件事。两处都与"取消"无关，
+ * 纯粹是"有没有变化"的判据。
  *
  * `'note'` 是**收起态的批注标签**：段落旁写着用户自己那句话（截断显示、完整值
  * 给 `title`），点它重新开卡。它**不是输入框**，也永远不显示占位符——上一版那枚
@@ -715,8 +723,8 @@ const QUOTE_INPUT_SURFACE =
  *                                                       标签由 peekItemId 单独驱动）
  *   'note'  ──openCard───────────────────────────────────▶ 'card'
  *   'note'  ──悬停另一条引用的徽标/标签──────────────────▶ 'none'（见下）
- *   'card'  ──保存成功 / 取消 / 关闭 ─ 评论非空 ──────────▶ 'note'
- *                                   └ 评论为空 ──────────▶ 'none'
+ *   'card'  ──保存成功 / 关闭 ─ 评论非空 ──────────────────▶ 'note'
+ *                          └ 评论为空 ──────────────────▶ 'none'
  *   'card'  ──保存失败 / 删除失败────────────────────────▶ 'card'（原地，带 error）
  *   'card'  ──删除成功───────────────────────────────────▶ 'none'
  *   （新增一条引用会把任何状态直接改写成新条目的 'card'，焦点落进输入框，见下面
@@ -749,9 +757,9 @@ type QuoteUi =
   }
 
 /**
- * 收起态到底留不留那条批注标签，全产品只有这一个判据：状态迁移（`commitCard` /
- * 「取消」）与渲染闸门共用它，两边不许各写一份，否则会出现「ui 说有、渲染说
- * 没有」的空洞状态。
+ * 收起态到底留不留那条批注标签，全产品只有这一个判据：状态迁移（`commitCard`）
+ * 与渲染闸门共用它，两边不许各写一份，否则会出现「ui 说有、渲染说没有」的空洞
+ * 状态。
  *
  * 只有空白字符的评论等同于没写：`updateSelectionComment` 存的是原样字符串
  * （`comment.length > 0 ? comment : undefined`，不 trim），而一条只画着空白的
@@ -814,7 +822,9 @@ function CardButton({ tone, disabled = false, label, describedBy, onClick, child
   // 保存 · 启用   button-primary-fill + label-primary-foreground  浅 18.90:1 深 18.08:1
   // 保存 · 禁用   button-primary-dimmed + label-secondary         浅  4.98:1 深  6.37:1
   //               （禁用态本可豁免 4.5，这一对仍然过）
-  // 取消 ghost    label-secondary on 卡面                          浅  5.80:1 深  8.03:1
+  // ghost 态目前没有调用点（原来的「取消」按钮已删除）——`tone` 仍留着两个值，
+  // 这颗按钮眼下只以 primary 态出现，数字留作这条分支复活时的参照：
+  // ghost      label-secondary on 卡面                             浅  5.80:1 深  8.03:1
   const background = tone === 'primary'
     ? disabled
       ? 'var(--dsw-alias-button-primary-dimmed, #ebeef2)'
@@ -879,7 +889,7 @@ function CardIconButton({
   const hot = !disabled && (hovered || active)
   // 垃圾桶静息 label-tertiary（图标，3:1 门槛）浅 3.71:1 / 深 5.67:1；
   // hover 换 state-error-primary on interactive-bg-hover-danger 浅 4.50:1 / 深 3.68:1。
-  // 「跳到原文」用 label-secondary 浅 5.80:1 / 深 8.03:1。
+  // plain 态（右上角关闭按钮）用 label-secondary 浅 5.80:1 / 深 8.03:1。
   const color = disabled
     ? 'var(--dsw-alias-label-tertiary, #81858c)'
     : tone === 'danger'
@@ -920,18 +930,6 @@ function TrashIcon() {
       <path
         d="M3 4h8M5.5 4V2.8h3V4M4.2 4l.5 7h4.6l.5-7"
         fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
-function RevealIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden focusable="false">
-      <circle cx="7" cy="7" r="3.1" fill="none" stroke="currentColor" strokeWidth="1.2" />
-      <path
-        d="M7 1.4v1.6M7 11v1.6M1.4 7H3M11 7h1.6"
-        fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"
       />
     </svg>
   )
@@ -1046,7 +1044,6 @@ interface QuoteCommentCardProps {
   readonly ordinal: string
   readonly excerpt: string
   readonly stateNote: string
-  readonly canReveal: boolean
   readonly draft: string
   readonly baseline: string
   readonly error: string | null
@@ -1057,11 +1054,9 @@ interface QuoteCommentCardProps {
   readonly onDraftChange: (value: string) => void
   /** 保存并收起。返回 false = 提交失败，卡片必须留在原地（父级已经写好错误）。 */
   readonly onCommit: (value: string) => boolean
-  readonly onCancel: () => void
   /** 删除并收起。返回 false = 删除失败，卡片必须留在原地（父级已经写好错误）。 */
   readonly onRemove: () => boolean
-  readonly onReveal: () => void
-  /** 卡片因**卡片内的显式动作**（保存 / 取消 / Esc / 组合键）收起时，把焦点还回
+  /** 卡片因**卡片内的显式动作**（保存 / Esc / 组合键）收起时，把焦点还回
    * 一个合理落点。指针点到外面、focusout 到别的元素这两条路径**不**调用它 ——
    * 那是用户自己在挪焦点。 */
   readonly onRestoreFocus: () => void
@@ -1072,15 +1067,18 @@ interface QuoteCommentCardProps {
 /**
  * 展开态卡片。
  *
- * **失焦 = 保存。全流程没有任何一条路径会丢弃用户已输入的文字；唯一的丢弃
- * 入口是显式的「取消」按钮，且它只回退到上次保存值。** 三条实现细节，缺一条
- * 就会踩到数据丢失：
+ * **失焦 = 保存，也是现在唯一的退出结果：没有任何路径会丢弃用户已输入的文字。**
+ * 「取消」按钮已经删除——上一版它是唯一的丢弃入口，且只回退到上次保存值；删掉
+ * 之后失焦 / 点外面 / 关闭 X / Esc / 保存这些出口字面意义上全部收敛成同一件事，
+ * 语义反而更简单：不再需要区分"这条路径保存、那条路径丢弃"。三条实现细节，
+ * 缺一条就会踩到数据丢失：
  *
  *  1. 用**卡片级 `focusout` + `relatedTarget`** 判「离开整张卡片」，不用
- *     textarea 的 `onBlur`。加了按钮之后，鼠标按在「取消」上会**先**让 textarea
- *     blur —— 旧写法（`input.onBlur → onCommentCommit`）会"先提交再回退"，两次
- *     写 aggregate；第二次撞上 CAS `stale-draft` 时，不想要的文字就永久留在了
- *     草稿里。判据必须是 `!card.contains(relatedTarget)`。
+ *     textarea 的 `onBlur`。卡片内任何按钮被点击时，鼠标按下都会**先**让
+ *     textarea blur —— 若直接用 `input.onBlur → onCommentCommit`，紧接着按钮
+ *     自己的 onClick 又会再提交一次，两次写 aggregate；第二次撞上 CAS
+ *     `stale-draft` 时，不想要的文字就永久留在了草稿里。判据必须是
+ *     `!card.contains(relatedTarget)`——按钮在卡片内，这次 blur 什么都不做。
  *  2. `relatedTarget === null` **一律不动作**。窗口失焦、点到不可聚焦的空白都
  *     会给 null。真正的"点了外面"由独立的 capture 阶段 `pointerdown` 负责，
  *     它同样走保存分支。
@@ -1088,20 +1086,19 @@ interface QuoteCommentCardProps {
  *     `{ok:false, reason:'stale-draft'}`，旧代码只 notify 就算完；卡片必须把
  *     错误显示在自己身上并留住文字。
  *
- * `Esc = 保存并收起`，是本组件唯一一处刻意违反惯例的地方：这张浮层的 Esc 语义
- * 是"从浮层里出来"，而不是"销毁我打的字"。显式的「取消」按钮就在一个 Tab 之外，
- * 把"丢弃"这个动词只留给一个带标签的按钮，比让一个手滑的按键拥有破坏力更符合
- * 本轮的优先级。
+ * `Esc = 保存并收起`：不少界面里 Esc 约定俗成地表示"放弃刚才的改动"，这里仍然
+ * 刻意选择让它跟其它退出路径一致——保存。这不是遗漏了一条丢弃路径，是本轮
+ * 拍板删掉的：防数据丢失优先于"给手滑一个后悔药"。
  */
 function QuoteCommentCard({
-  itemId, ordinal, excerpt, stateNote, canReveal, draft, baseline, error,
+  itemId, ordinal, excerpt, stateNote, draft, baseline, error,
   top, left, width, maxHeight,
-  onDraftChange, onCommit, onCancel, onRemove, onReveal, onRestoreFocus, onMeasure, t,
+  onDraftChange, onCommit, onRemove, onRestoreFocus, onMeasure, t,
 }: QuoteCommentCardProps) {
   const card = React.useRef<HTMLDivElement | null>(null)
   const textarea = React.useRef<HTMLTextAreaElement | null>(null)
   // 卸载时尽力提交：这几个 ref 让清理函数读到**最后一帧**的值，而不是闭包里
-  // 捕获的第一帧。`settled` 由显式的保存成功 / 取消 / 删除置位。
+  // 捕获的第一帧。`settled` 由显式的保存成功 / 删除置位。
   const settled = React.useRef(false)
   const latest = React.useRef({ draft, baseline })
   latest.current = { draft, baseline }
@@ -1115,10 +1112,6 @@ function QuoteCommentCard({
   // 显式入口。
   const nothingToSave = draft.trim() === '' && baseline === ''
 
-  const finish = (run: () => void) => {
-    settled.current = true
-    run()
-  }
   /**
    * 返回 true = 已落定，卡片可以收起。
    *
@@ -1137,8 +1130,8 @@ function QuoteCommentCard({
   /**
    * 删除。**删成功了才算落定。**
    *
-   * 旧写法是 `finish(onRemove)` —— 在不知道删除成不成功之前就把 `settled` 置了
-   * 位。删除失败时（CAS 竞争）父级那边又已经先把卡片收起了，于是卡片卸载 →
+   * 旧写法在不知道删除成不成功之前就把 `settled` 置了位。删除失败时（CAS
+   * 竞争）父级那边又已经先把卡片收起了，于是卡片卸载 →
    * 卸载清理里的「尽力提交」被 settled 挡掉 → 条目没删掉、用户刚打的字没了。
    * 本文件其它每条失败路径都精心保住了草稿，唯独这条没有。
    *
@@ -1266,11 +1259,13 @@ function QuoteCommentCard({
         display: 'grid', gap: 8,
       }}
     >
-      {/* DOM 顺序（= Tab 顺序）：输入 → 关闭 → 删除 → 跳到原文 → 取消 → 保存。
-          这**不等于**视觉阅读顺序——关闭那颗 X 是绝对定位在卡片右上角的（见下面
-          `top:4,right:4` 那个 div），视觉上它比输入框的正文更早入眼；这里保证的
+      {/* DOM 顺序（= Tab 顺序）：输入 → 关闭 → 删除 → 保存。「跳到原文」和「取消」
+          两颗按钮已经删除——动作行现在只剩删除和保存，DOM 顺序与视觉顺序
+          （删除紧邻保存左侧）逐字一致，不再需要额外论证。
+          唯一还留着的不一致是关闭 X：它是绝对定位在卡片右上角的（见下面
+          `top:4,right:4` 那个 div），视觉上比输入框的正文更早入眼；这里保证的
           只是键盘可达性（从输入框一次 Tab 就到 X），不是"DOM 先后 = 屏幕先后"。
-          两者不一致的实害很低（X 的位置符合"关闭按钮在右上角"的通用直觉，
+          这条不一致的实害很低（X 的位置符合"关闭按钮在右上角"的通用直觉，
           键盘用户也不依赖视觉顺序），所以没有为了让两者字面一致而去改 DOM
           顺序或断开当前这条更符合操作直觉的 Tab 路径。 */}
       <textarea
@@ -1334,7 +1329,17 @@ function QuoteCommentCard({
           <CloseIcon />
         </CardIconButton>
       </div>
+      {/* 动作行现在只剩两颗按钮：删除、保存。「跳到原文」（✧，卡片上本来就贴着
+          被引段落浮着，这颗按钮在这里基本冗余）与「取消」（移除后所有出口都变成
+          保存，见上面 QuoteCommentCard 顶部的论证）都已删除。
+          删除挪到了原来「取消」的位置——紧邻保存左侧——但删除刚从"按两次"改回
+          "单击立即执行"，两个变化叠加会明显推高误触概率，所以这里没有照搬旧的
+          `gap:4`：`DELETE_SAVE_GAP` 在它与保存之间单开一段明显更宽的间距，删除
+          维持**图标态**而不是文字按钮（视觉体量天然更小），hover/active 也仍是
+          单独的危险色（见 CardIconButton 里 tone="danger" 的对比度注释）——三层
+          加在一起把"手滑点错"的概率往下压，同时不引入产品已经否决过的二次确认。 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <span style={{ flex: 1 }} />
         <CardIconButton
           tone="danger"
           label={removeLabel}
@@ -1342,22 +1347,7 @@ function QuoteCommentCard({
         >
           <TrashIcon />
         </CardIconButton>
-        <span style={{ flex: 1 }} />
-        <CardIconButton
-          tone="plain"
-          label={t('selection.reveal.aria', { n: ordinal })}
-          disabled={!canReveal}
-          onClick={onReveal}
-        >
-          <RevealIcon />
-        </CardIconButton>
-        <CardButton
-          tone="ghost"
-          label={t('selection.comment.cancelAria', { n: ordinal })}
-          onClick={() => { finish(onCancel); onRestoreFocus() }}
-        >
-          {t('selection.comment.cancel')}
-        </CardButton>
+        <span aria-hidden style={{ width: DELETE_SAVE_GAP }} />
         <CardButton
           tone="primary"
           disabled={nothingToSave}
@@ -1897,8 +1887,8 @@ export function SelectionDock({
 
   /**
    * 收起卡片。**落到 'note' 还是 'none' 只看这条引用收起后有没有评论**（`hasNote`），
-   * 与用户是点了保存、关闭、取消还是外面无关：有批注就在段落旁留下写着那句话的
-   * 标签，没有就什么都不留（论证见 `QuoteUi` 上方的状态迁移表）。
+   * 与用户是点了保存、关闭还是外面无关（「取消」已经删除）：有批注就在段落旁
+   * 留下写着那句话的标签，没有就什么都不留（论证见 `QuoteUi` 上方的状态迁移表）。
    *
    * 走函数式更新并**先核对当前打开的还是不是这张卡片**：卸载路径上
    * `commit.current` 拿到的是上一帧的 `commitCard` 闭包，而这时 `ui` 可能已经被
@@ -1938,9 +1928,9 @@ export function SelectionDock({
    *
    * **顺序是刻意的：先看结果，再动 UI。** 旧写法在 `if (!result.ok) return`
    * *之前*就 `setUi({kind:'none'})` + `setListOpen(false)`，于是删除失败时：
-   *  - 卡片照样卸载 → 卸载清理的「尽力提交」又被 `finish()` 提前置位的 `settled`
-   *    挡掉 → 条目没删掉、用户刚打的评论也没了（本文件其它每条失败路径都精心
-   *    保住了草稿，唯独这条没有）；
+   *  - 卡片照样卸载 → 卸载清理的「尽力提交」又被提前置位的 `settled` 挡掉 →
+   *    条目没删掉、用户刚打的评论也没了（本文件其它每条失败路径都精心保住了
+   *    草稿，唯独这条没有）；
    *  - 承载焦点的元素（卡片里的垃圾桶 / 列表行的 X）被卸载，焦点掉进 `<body>`
    *    ——成功路径的焦点归还很仔细，失败路径漏了。
    * 现在失败 = 什么都不收：卡片留在原地、草稿留住、错误画在卡片上（与提交失败
@@ -2115,7 +2105,6 @@ export function SelectionDock({
           ordinal={openOrdinal}
           excerpt={quoteExcerpt(openItem.text)}
           stateNote={anchorNote(openState, t)}
-          canReveal={openState !== 'detached'}
           draft={ui.draft}
           baseline={ui.baseline}
           error={ui.error}
@@ -2130,12 +2119,7 @@ export function SelectionDock({
             current.kind === 'card' ? { ...current, draft: value } : current
           ))}
           onCommit={commitCard}
-          // 「取消」= 丢弃本次编辑、回退到上次保存值。收起态因此按 **baseline**
-          // 判（不是按用户刚打的字）：取消之后段落旁留下的必须是那条**已保存**的
-          // 批注，或者什么都没有。
-          onCancel={() => collapseCard(ui.itemId, ui.baseline)}
           onRemove={() => removeQuote(ui.itemId)}
-          onReveal={() => reveal(openItem)}
           // 焦点落点选 chip：卡片 portal 在 document.body，收起就是卸载。批注标签
           // 层是 aria-hidden 且里面一个可聚焦控件都没有，正文徽标同理；chip 是
           // 「chip → 引用列表 → 卡片」这条键盘路径的起点，而且只要坞还在它就在。
