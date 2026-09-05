@@ -749,43 +749,39 @@ const QUOTE_NOTE_SURFACE: React.CSSProperties = {
  * 判定），卸载时的"尽力提交"也拿它跟 `draft` 比对同一件事。两处都与"取消"无关，
  * 纯粹是"有没有变化"的判据。
  *
- * `'note'` 是**收起态的批注标签**：段落旁写着用户自己那句话（截断显示、完整值
- * 给 `title`），点它重新开卡。它**不是输入框**，也永远不显示占位符——上一版那枚
- * 折叠胶囊长得像输入框却不能输入，用户必须再点一次才能打字，那一次点击正是这
- * 一版要删掉的东西（用户原话：「用户的动作应该是划词 - 点击添加到对话 - 输入
- * 文字」）。
+ * **收起态只有 'none'：卡片关掉之后，段落旁一个常驻的盒子都不留。** 用户原话
+ * 「划词输入，保存后，不应该在划词的下面还停有一个小框，只应该出现在主输入框上
+ * 的引用，在划词附近会遮挡其他内容」——常驻浮层的落点由 `placeQuoteCard` 算在
+ * 段落末行的正下方，那里通常正是下一段正文，盖住的是用户真正在读的东西。
+ *
+ * 批注没有因此变得看不见，只是换了三个不遮挡的出口：composer 上那枚 chip 展开的
+ * 引用列表（每行都读得到评论正文）、正文里那枚 16px 数字徽标（点开即编辑）、以及
+ * 悬停徽标时**临时**浮出的那条标签（`peekItemId` 驱动，指针移开即收）。
+ * **"悬停时浮出"与"保存后停住"是两件事，被否掉的只有后者。**
  *
  * ── 状态迁移 ──────────────────────────────────────────────────────────────
  *
- *   'none'  ──openCard（徽标 / 引用列表 / 批注标签）───────▶ 'card'
+ *   'none'  ──openCard（徽标 / 引用列表 / 悬停浮出的标签）─▶ 'card'
  *   'none'  ──悬停一条**有评论**的引用（peekItemId 生效）──▶（不动，仍是 'none'，
  *                                                       标签由 peekItemId 单独驱动）
- *   'note'  ──openCard───────────────────────────────────▶ 'card'
- *   'note'  ──悬停另一条引用的徽标/标签──────────────────▶ 'none'（见下）
- *   'card'  ──保存成功 / 关闭 ─ 评论非空 ──────────────────▶ 'note'
- *                          └ 评论为空 ──────────────────▶ 'none'
+ *   'card'  ──保存成功 / 关闭 / 删除成功──────────────────▶ 'none'
  *   'card'  ──保存失败 / 删除失败────────────────────────▶ 'card'（原地，带 error）
- *   'card'  ──删除成功───────────────────────────────────▶ 'none'
  *   （新增一条引用会把任何状态直接改写成新条目的 'card'，焦点落进输入框，见下面
  *    `seen` 那个 effect —— 这是 'card' 除 `openCard` 之外唯一的生产者。）
  *
- * **收起态是 'note' 还是 'none'，由「这条引用有没有评论」决定，不由用户点了哪里
- * 决定。** 上上一版一律收到 'capsule'：段落旁永远留着一枚 32px 的空胶囊，从用户
- * 视角就是「输入框关不掉」。上一版矫枉过正，一律收到 'none'：用户写完的批注在
- * 段落旁看不见，本轮特性（把批注标在被引段落旁边）的目的整个落空。两版都是在用
- * 一个布尔状态去回答一个数据问题——现在按数据答：有评论就留一条写着那句话的
- * 标签，没有就什么都不留（正文里那枚数字徽标本来就可点，重新开卡的入口一个没少）。
+ * 这条线走过四版，写下来免得再绕回去：① 一律收成一枚定宽空胶囊 → 用户读成
+ * 「输入框关不掉」；② 一律收成 'none' → 写好的批注在段落旁看不见；③ 有评论就钉
+ * 一条写着那句话的标签 → 标签仍然压着下一段正文；④ 就是现在这版。①③ 共同的错处
+ * 是**把"能看到批注"这件事交给一个常驻浮层**，② 的错处是把出口一起砍了。现在
+ * 出口有三个（列表 / 徽标 / 悬停），常驻浮层零个。
  *
- * `schedulePeek` 里的拔钉分支仍然需要：**悬停到一条不同的引用**时，如果当前是被
- * 钉住的 'note'（不是正在编辑的 'card'——那个绝不能被悬停打断），就把钉子拔回
- * 'none'，让 `peekItemId` 重新接管。拔钉子本身不用等 `PEEK_OPEN_MS`：钉子代表的是
- * "上一条引用还留着"，不是"新一条正在被看"，两件事没有理由绑在同一个延迟上。
+ * 因为收起态不再钉任何东西，`schedulePeek` 也就不需要"拔钉子"分支了：`peekItemId`
+ * 是段落旁那条标签的**唯一**驱动源，悬停切到另一条引用时它自己就会跟过去。
  */
 type QuoteAnchorKind = 'quote' | 'chip'
 
 type QuoteUi =
   | { readonly kind: 'none' }
-  | { readonly kind: 'note'; readonly itemId: string }
   | {
     readonly kind: 'card'
     readonly itemId: string
@@ -796,9 +792,9 @@ type QuoteUi =
   }
 
 /**
- * 收起态到底留不留那条批注标签，全产品只有这一个判据：状态迁移（`commitCard`）
- * 与渲染闸门共用它，两边不许各写一份，否则会出现「ui 说有、渲染说没有」的空洞
- * 状态。
+ * 悬停时到底浮不浮出那条批注标签，全产品只有这一个判据（渲染闸门 `showNote`）。
+ * 收起态本身不再看它——卡片关掉一律收成 'none'，与这条引用有没有评论无关
+ * （论证见 `QuoteUi` 上方的状态迁移表）。
  *
  * 只有空白字符的评论等同于没写：`updateSelectionComment` 存的是原样字符串
  * （`comment.length > 0 ? comment : undefined`，不 trim），而一条只画着空白的
@@ -1742,6 +1738,27 @@ export function SelectionDock({
   }, [])
 
   /**
+   * 整个坞被 `owned === null` 收掉的那一帧**不是卸载**：组件还在树上，上面那个
+   * 卸载清理不会跑，徽标层与标签层只是从渲染结果里消失了——浏览器不会为"没被
+   * 卸载、只是不再渲染"的元素补发 `mouseleave`，所以 `schedulePeek(null)` 永远
+   * 不会被调用，`peekItemId` 这个闩就这么留在原位。等聚合回来（撤销/重做把
+   * composer 里的引用 token 抹掉又写回、ref 一帧解码失败、切走再切回同一个
+   * session——`seen` 那个 effect 上方的注释把这些都列成"真的会发生"），标签就
+   * 凭空重新挂回段落下方，中间指针一次都没动过。
+   *
+   * 与 `schedulePeek` 里那道闸门同一条道理：闩只能由真实的指针动作置位。这一帧
+   * 里连"被悬停的那个东西"都不在页面上了，意图必须跟着作废。
+   */
+  const blanked = owned === null
+  React.useEffect(() => {
+    if (!blanked) return
+    if (peekTimer.current !== 0 && typeof window !== 'undefined') window.clearTimeout(peekTimer.current)
+    peekTimer.current = 0
+    setPeekItemId(null)
+    setHoveredItemId(null)
+  }, [blanked])
+
+  /**
    * 新增一条引用（「添加到对话」成功）→ **直接展开卡片**，焦点由卡片自己的
    * mount effect 放进输入框。
    *
@@ -1860,15 +1877,35 @@ export function SelectionDock({
 
   const schedulePeek = (itemId: string | null) => {
     setHoveredItemId(itemId)
-    // 悬停到「跟当前钉住的标签不同」的另一条引用时先拔钉子：不拔的话
-    // openItemId 恒等于 ui.itemId，标签追不上鼠标，只有 activeItemId（走
-    // hoveredItemId）还在动——正文高亮换了，标签没换。只在 'note' 时拔，
-    // 'card' 打开时绝不能被单纯的悬停打断（状态迁移见 QuoteUi 上方的注释）。
-    if (itemId !== null && ui.kind === 'note' && ui.itemId !== itemId) {
-      setUi({ kind: 'none' })
-    }
+    // 这里曾经有一段「拔钉子」：收起态会把某条引用钉成 'note'，悬停到另一条时
+    // 得先把钉子拔掉，否则 openItemId 恒等于 ui.itemId，标签追不上鼠标。收起态
+    // 改成一律 'none' 之后（论证见 QuoteUi 上方），peekItemId 成了标签的唯一
+    // 驱动源，悬停切换自己就会跟过去，那段分支连同它要修的 bug 一起没有了。
     if (typeof window === 'undefined') return
     if (peekTimer.current !== 0) window.clearTimeout(peekTimer.current)
+    peekTimer.current = 0
+    /**
+     * **卡片开着的时候绝不给悬停上膛。** 这一条不是防御性编程，是用户那句抱怨
+     * 的另一条通路：`peekItemId` 是个闩，只有后续的指针事件能把它拨开。旧写法
+     * 里悬停在卡片打开期间照样计时、照样置位，只是被 `showNote` 的
+     * `ui.kind === 'none'` 挡着看不见；等 `collapseCard` 把 ui 收成 'none' 的
+     * 那一刻闸门放开，标签就**凭空**挂到段落下方——指针一步没动，用户也没有做
+     * 任何"悬停"的动作，画面上就是「保存后划词下面停了一个小框」。
+     *
+     * 现实里踩中它一点也不刁钻：新增引用会自动开卡并把焦点放进输入框，用户打完
+     * 字顺手把鼠标搁在那枚徽标上（它就在被引段落旁边），再用键盘 Esc / Ctrl+Enter
+     * 保存——三步全是正常操作。
+     *
+     * 所以上膛的前提收紧成「此刻什么都没开」，并且顺手把闩拨回去：卡片开着期间
+     * 攒下的悬停意图一律作废，不留到关卡之后。指针真的还停在徽标上的话，用户挪
+     * 开再回来就会重新触发 —— 一次真实的悬停动作换一次浮出，这才是这层的语义。
+     *
+     * `itemId === null`（收起）不受此限：关标签在任何状态下都该照常走。
+     */
+    if (itemId !== null && ui.kind !== 'none') {
+      setPeekItemId(null)
+      return
+    }
     peekTimer.current = window.setTimeout(() => {
       peekTimer.current = 0
       setPeekItemId(itemId)
@@ -1948,9 +1985,10 @@ export function SelectionDock({
   }
 
   /**
-   * 收起卡片。**落到 'note' 还是 'none' 只看这条引用收起后有没有评论**（`hasNote`），
-   * 与用户是点了保存、关闭还是外面无关（「取消」已经删除）：有批注就在段落旁
-   * 留下写着那句话的标签，没有就什么都不留（论证见 `QuoteUi` 上方的状态迁移表）。
+   * 收起卡片：**一律落到 'none'**，段落旁不留任何常驻浮层。与用户点的是保存、
+   * 关闭还是外面无关，也与这条引用有没有评论无关（论证见 `QuoteUi` 上方的状态
+   * 迁移表）。写好的批注仍然能从 chip 的引用列表读到、悬停徽标时浮出、点徽标
+   * 重新编辑。
    *
    * 走函数式更新并**先核对当前打开的还是不是这张卡片**：卸载路径上
    * `commit.current` 拿到的是上一帧的 `commitCard` 闭包，而这时 `ui` 可能已经被
@@ -1958,9 +1996,9 @@ export function SelectionDock({
    * 打开的那张新卡片顶掉 —— 没有数据丢失，但用户刚添加的那条引用旁边就不是
    * 他正在编辑的东西了。
    */
-  const collapseCard = (itemId: string, comment: string) => setUi((current) => (
+  const collapseCard = (itemId: string) => setUi((current) => (
     current.kind === 'card' && current.itemId === itemId
-      ? (hasNote(comment) ? { kind: 'note', itemId } : { kind: 'none' })
+      ? { kind: 'none' }
       : current
   ))
 
@@ -1969,8 +2007,8 @@ export function SelectionDock({
     if (ui.kind !== 'card') return true
     const { itemId, baseline } = ui
     if (value === baseline) {
-      // 没改过：收起态按**已保存值**决定留不留标签，不是按这次有没有写东西。
-      collapseCard(itemId, baseline)
+      // 没改过：跳过一次没意义的 aggregate 写入，直接收起。
+      collapseCard(itemId)
       return true
     }
     const result = updateComment(itemId, value)
@@ -1980,7 +2018,7 @@ export function SelectionDock({
         : current))
       return false
     }
-    collapseCard(itemId, value)
+    collapseCard(itemId)
     announce(t('selection.announce.saved', { n: String(indexOf(itemId) + 1) }))
     return true
   }
@@ -2011,6 +2049,12 @@ export function SelectionDock({
       return false
     }
     setUi({ kind: 'none' })
+    // 计时器要跟 `setPeekItemId(null)` 一起掐——另外两处清 peek 的地方
+    // （`seen` effect、`openCard`）都是这么写的。漏掉它今天不出事，纯粹是因为
+    // 被删条目的 `noteText` 是空串、`hasNote` 在渲染闸门那里又挡了一道；
+    // 也就是说这条不变量现在靠巧合成立，不是靠构造成立。
+    if (peekTimer.current !== 0 && typeof window !== 'undefined') window.clearTimeout(peekTimer.current)
+    peekTimer.current = 0
     setPeekItemId(null)
     setListOpen(false)
     announce(t('selection.announce.removed', { n: ordinal }))
@@ -2093,14 +2137,15 @@ export function SelectionDock({
       anchors.openAnchor.band,
     )
   /**
-   * 批注标签只是**展示已保存内容**，不承载未保存的字：锚点滚出可见带就隐藏它。
-   * 卡片**不**看 inBand —— 正在打字的浮层不许因为滚动而消失。
+   * 批注标签只在**悬停**时浮出，来源只剩 `peekItemId` 一条：保存后不再钉住任何
+   * 东西（论证见 `QuoteUi` 上方）。它只展示已保存内容、不承载未保存的字，所以
+   * 锚点滚出可见带就隐藏。卡片**不**看 inBand —— 正在打字的浮层不许因为滚动
+   * 而消失。
    *
-   * `hasNote` 这道闸门管着两条来源：被钉住的 'note'（刚编辑完那条）和悬停预览
-   * （`peekItemId`）。悬停一条没有评论的引用不再浮出任何盒子——那时能显示的只有
-   * 占位符，而占位符正是这一版删掉的东西；徽标的强调环仍然照亮，悬停反馈没丢。
+   * `hasNote` 挡掉「悬停一条没有评论的引用」：那时能显示的只有占位符，而占位符
+   * 正是前几版删掉的东西；徽标的强调环仍然照亮，悬停反馈没丢。
    */
-  const showNote = (ui.kind === 'note' || (ui.kind === 'none' && peekItemId !== null))
+  const showNote = ui.kind === 'none' && peekItemId !== null
     && hasNote(noteText)
     && anchors.openAnchor !== null
     && anchors.openAnchor.inBand

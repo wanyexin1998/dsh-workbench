@@ -620,6 +620,46 @@ describe('SelectionDock', () => {
     return screen.getByLabelText(name) as HTMLTextAreaElement
   }
 
+  /** 段落旁那条批注标签。**收起态不会有它**：保存/关闭之后段落旁一个常驻浮层都
+   * 不留（见 parks nothing beside the paragraph…），它只在悬停一条有评论的引用时
+   * 临时浮出来，指针移开即收。 */
+  function noteTag(): HTMLElement {
+    return document.querySelector<HTMLElement>('[data-dsh-quote-note]')!
+  }
+
+  function badgeAnchor(itemId: string): HTMLElement {
+    return document.querySelector<HTMLElement>(`[data-dsh-quote-badge-anchor="${itemId}"]`)!
+  }
+
+  /**
+   * 悬停正文里某条引用的徽标，等到批注标签真的浮出来为止。保存后段落旁不再钉任何
+   * 东西，这是把那条标签叫上屏的唯一途径。
+   *
+   * **不要换回「睡够 PEEK_OPEN_MS 再断言」。** 上一版是
+   * `fireEvent.mouseEnter(...); await sleep(150)`，对着 120ms 的定时器只留 30ms
+   * 余量：单文件跑 100/100 全绿，一进整套并行 worker 就随机红，同一条命令连跑
+   * 两次红的条数都不一样（5 failed / 2 failed）。**一条会因为机器忙就变红的测试，
+   * 比没有这条测试更糟**——它训练人把红当噪音。
+   *
+   * 轮询到出现为止：等待上限由 waitFor 兜底（默认 1s，远大于 120ms），正常情况下
+   * 它在第一次重试就返回，比睡死 150ms 还快。
+   *
+   * `ordinal` 是必填的，不给默认值：轮询条件必须点名**等哪一条**。写成"等到有
+   * 任意一条标签"就会在"从第 1 条挪到第 2 条"那种场景里当场返回——第 1 条的标签
+   * 还挂在屏幕上，条件立刻成立，断言跑在切换发生之前。这不是假设，是改成轮询的
+   * 第一版真的这么红了一次。
+   */
+  async function hoverBadge(itemId: string, ordinal: string) {
+    fireEvent.mouseEnter(badgeAnchor(itemId))
+    await waitFor(() => expect(document.querySelector(`[data-dsh-quote-note="${ordinal}"]`)).not.toBeNull())
+  }
+
+  /** 指针移开徽标，等标签收回去。同上：等"消失"也用轮询，不用定长 sleep。 */
+  async function leaveBadge(itemId: string) {
+    fireEvent.mouseLeave(badgeAnchor(itemId))
+    await waitFor(() => expect(document.querySelector('[data-dsh-quote-note]')).toBeNull())
+  }
+
   it('replaces the row list with one chip that carries the count', () => {
     renderDock(twoItems)
     const chip = screen.getByRole('button', { name: '查看 2 条引用' })
@@ -787,7 +827,7 @@ describe('SelectionDock', () => {
     // —— 它不可达（pointerdown 已经把 ui 收起来了），可一旦可达就会写第二
     // 次：setUi 换掉 itemId → 卡片 key 变化 → 旧卡片卸载 → 卸载清理里 settled 仍
     // 是 false、draft !== baseline 仍成立 → 第二次 commit，且那个闭包成功后会
-    // setUi({kind:'note', itemId:'one'})，把刚打开的第 2 张卡片打回第 1 条的收起态。
+    // collapseCard('one') → setUi({kind:'none'})，把刚打开的第 2 张卡片直接关掉。
     // 所以这条测试同时钉住"只写一次"和"落在第 2 条上"。
     const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
     renderDock(twoItems, { updateComment })
@@ -1326,8 +1366,9 @@ describe('SelectionDock', () => {
     // 添加到对话 - 输入文字，现在输入文字前用户还多一步点击」。所以「添加到对话」
     // 之后**直接**是展开的卡片、焦点就在输入框里——中间那枚"长得像输入框却不能
     // 输入"的折叠胶囊，连同它索要的那次点击，一起没了。
-    // 杀法（各自独立）：把 seen 那个 effect 换回 `setUi({kind:'note', …})`（第二
-    // 条断言红：根本没有 dialog）；或去掉卡片 mount 时那次 `node.focus()`（第三
+    // 杀法（各自独立）：把 seen 那个 effect 里的 `setUi({kind:'card', …})` 换成
+    // `setUi({kind:'none'})`（第二条断言红：根本没有 dialog）；或去掉卡片 mount 时
+    // 那次 `node.focus()`（第三
     // 条红：焦点还在 body）；或让新增时不清 frozenCard/frozenFacing（这条测试
     // 看不出来，见下面那条 "opens the fresh card on its own geometry…"）；或去掉
     // `consumeAddSignal` 那道证据闸门（这条测试因为下面真的喂了匹配的证据，看不
@@ -1721,57 +1762,160 @@ describe('SelectionDock', () => {
     sentinel.remove()
   })
 
-  it('collapses to the note the user wrote, and to nothing at all without one', () => {
-    // 用户原话：「保存并收起后，段落旁显示的是用户写的那句话……它是一条批注标签，
-    // 不是输入框——不要再显示占位符文案」「没有评论时收起不留任何标签」。
-    // 杀法（各自独立）：把 collapseCard 换回无条件 `{kind:'none'}`（第一组全红：
-    // 段落旁什么都没有）；换回无条件留标签（第二组红：空评论又留下一枚空壳）；
-    // 把标签里的 `note` 换回 placeholder 分支（第二条断言红）。
+  it('parks nothing beside the paragraph after a save, and still keeps the note reachable', async () => {
+    // 本轮最直接的一条用户投诉：「划词输入，保存后，不应该在划词的下面还停有一个
+    // 小框，只应该出现在主输入框上的引用，在划词附近会遮挡其他内容」。常驻标签的
+    // 落点由 placeQuoteCard 算在段落末行的正下方，那里通常正是下一段正文——所以
+    // **收起态那条批注标签是被有意删掉的，不是漏画**：保存之后段落旁只剩那枚
+    // 16px 数字徽标，一个盒子都不停。
+    //
+    // 批注没有因此变得看不见，只是换了三个不遮挡的出口，这条测试把三个都走一遍：
+    // ① chip 展开的引用列表，每行都读得到评论正文；② 悬停徽标时**临时**浮出的
+    // 标签（指针移开即收，见 follows the pointer from one quote…）；③ 点那条浮出
+    // 的标签重新开卡编辑，带着已保存的那句话。
+    //
+    // 杀法（各自独立）：
+    //  · **收起态重新钉标签**：给 QuoteUi 加回 `{ kind: 'note'; itemId }`、collapseCard
+    //    改成 `hasNote(comment) ? { kind: 'note', itemId } : { kind: 'none' }`，**并且**
+    //    把 showNote 的闸门放回 `(ui.kind === 'note' || (ui.kind === 'none' && …))`
+    //    —— 第一段的 toBeNull 红：划词下面又停住了那个小框。
+    //    两处**必须一起改**才杀得掉：showNote 自己就写着 `ui.kind === 'none'`，只回退
+    //    collapseCard 的话渲染闸门照样把标签挡在外面，第一条断言仍是绿的（红的会是
+    //    出口 ② —— 那是另一条性质）。这一句是审查抓出来的：上一版这段杀法只写了
+    //    collapseCard，读的人会以为那一行就是护住用户投诉的地方，其实不是。
+    //  · openItemId 换成 `ui.kind === 'none' ? null : ui.itemId`（砍掉悬停这条出口）
+    //    —— 出口 ②③ 的断言红。
+    //  · QuoteListRow 里评论那一段永远渲染 `selection.comment.empty`
+    //    —— 出口 ① 的断言红。
     installRangeRects()
     rangeRects.set('first', [{ top: 200, bottom: 216 }])
     mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
-    const note = '这段的推理跳步了，第二段和第三段之间缺一个前提'
-    const commented = aggregateOf([{ ...twoItems.items[0]!, comment: note }])
-    renderDock(commented)
+    const note = '这段的推理跳步了，缺一个前提'
 
-    // 有评论：开卡 → 点别处收起 → 段落旁留下的是那句话本身。
+    // 第一段：用户投诉里那条动作链本身 —— 开卡 → 打字 → 保存。
+    //
+    // 这一段的种法有两个约束，缺一条这条测试就杀不掉真正的回归：
+    //
+    // ① **必须真的走一次写入。** 种一条已经带评论的引用、开卡、什么都不改就收起，
+    //    draft 与 baseline 逐字相等，commitCard 走 `value === baseline` 那条短路，
+    //    updateComment 根本不会被调用——"只在保存成功那条分支上重新钉标签"的回归就能
+    //    从底下整个溜过去。所以这里真打一次字，并断言 updateComment 确实被调用过。
+    // ② **种下去的 item 必须本来就有评论。** updateComment 是 mock，写回去的聚合不会
+    //    回灌成新的 props，组件读到的 `openItem.comment` 始终是种下去那一份。要是从
+    //    空评论起手，就算真的钉了标签，`hasNote(noteText)` 也是 false，渲染闸门先一步
+    //    把它挡掉——断言看到的仍然是 null，假绿。
+    //
+    // 两条合起来：种一条**已有**评论的引用，然后把它改成另一句话再保存。
+    const edited = `${note}（补了一句）`
+    const updateComment = vi.fn(() => ({ ok: true as const, aggregate: twoItems }))
+    renderDock(aggregateOf([{ ...twoItems.items[0]!, comment: note }]), { updateComment })
     openCard('1')
+    fireEvent.change(commentBox('对引用 1 的评论：first'), { target: { value: edited } })
+    // 点别处（capture 阶段的 document.pointerdown = 保存并收起）。
     fireEvent.pointerDown(document.body)
+    expect(updateComment, '这条测试没走真正的保存路径——又被 value === baseline 短路了')
+      .toHaveBeenCalledWith('one', edited)
     expect(screen.queryByRole('dialog')).toBeNull()
-    const label = document.querySelector<HTMLElement>('[data-dsh-quote-note]')!
-    expect(label, '保存并收起后段落旁没有批注标签').not.toBeNull()
-    expect(label.dataset.dshQuoteNote).toBe('1')
-    expect(label.querySelector('[data-dsh-quote-note-text]')!.textContent).toBe(note)
+    expect(
+      document.querySelector('[data-dsh-quote-note]'),
+      '保存后划词下面又停住了一个小框——正是用户说的"会遮挡其他内容"的那个',
+    ).toBeNull()
+    expect(screen.queryByRole('textbox'), '收起之后段落旁还留着一个输入框').toBeNull()
+    // 允许留在正文旁的只有那枚数字徽标（16px，压不住下一段正文）。
+    expect(document.querySelector('[data-dsh-quote-badge-anchor="one"]')).not.toBeNull()
+
+    // 第二段：三个出口都还读得到已保存的那句话。不用重挂——props 里的 comment 从头到
+    // 尾就是 `note`（mock 不回灌聚合），组件读的正是它。
+
+    // 出口 ①：chip 的引用列表，评论正文就写在行里（可访问名逐字断言见
+    // puts the excerpt and the comment into the list button's accessible name）。
+    openChipList()
+    expect(screen.getByRole('button', { name: `编辑第 1 条引用的评论 first ${note}` })).toBeTruthy()
+    openChipList()
+
+    // 出口 ②：悬停徽标，标签**临时**浮出来。
+    await hoverBadge('one', '1')
+    const tag = noteTag()
+    expect(tag, '悬停一条有批注的引用，标签没有浮出来——三个出口去了一个').not.toBeNull()
+    expect(tag.dataset.dshQuoteNote).toBe('1')
+    expect(tag.querySelector('[data-dsh-quote-note-text]')!.textContent).toBe(note)
     // 截断交给 ellipsis，完整值挂 title（本层对 AT 隐藏，title 只服务指针用户）。
-    expect(label.getAttribute('title')).toBe(note)
-    expect(label.querySelector<HTMLElement>('[data-dsh-quote-note-text]')!.style.textOverflow)
+    expect(tag.getAttribute('title')).toBe(note)
+    expect(tag.querySelector<HTMLElement>('[data-dsh-quote-note-text]')!.style.textOverflow)
       .toBe('ellipsis')
     // 它是标签不是输入框：没有占位符、没有可聚焦控件、整层对 AT 隐藏。
-    expect(label.textContent).not.toContain(zh['selection.comment.placeholder'])
+    expect(tag.textContent).not.toContain(zh['selection.comment.placeholder'])
     const layer = document.querySelector<HTMLElement>('[data-dsh-quote-note-layer]')!
     expect(layer.getAttribute('aria-hidden')).toBe('true')
     expect(layer.getAttribute('role')).toBe('presentation')
     expect(layer.querySelectorAll('button, a, input, textarea, [tabindex]').length).toBe(0)
     expect(layer.style.zIndex).toBe('898')
-    // 点它重新开卡编辑，带着已保存的那句话。
-    fireEvent.click(label)
+
+    // 出口 ③：点那条浮出的标签，带着已保存的那句话重新开卡。
+    fireEvent.click(tag)
     expect(commentBox('对引用 1 的评论：first').value).toBe(note)
 
     cleanup()
-    // 没有评论：收起之后段落旁一个盒子都不留（数字徽标本来就在，入口没少）。
+    // 第三段：一个字都没写就收起，同样什么都不留（这是更早那条投诉「输入框关不掉」
+    // 的回归位，另见 never leaves a pinned input behind…）。
     renderDock(aggregateOf([twoItems.items[0]!]))
     openCard('1')
     fireEvent.pointerDown(document.body)
     expect(screen.queryByRole('dialog')).toBeNull()
-    expect(document.querySelector('[data-dsh-quote-note]'), '空评论也留下了一枚空标签').toBeNull()
+    expect(document.querySelector('[data-dsh-quote-note]'), '空评论也在段落旁停了一个盒子').toBeNull()
     expect(document.body.textContent).not.toContain(zh['selection.comment.placeholder'])
   })
 
-  it('shrinks the note tag to a short comment instead of a fixed-width box', () => {
+  it('does not park the note when the pointer rested on the badge while the card was open', async () => {
+    // 用户那句投诉的**第二条通路**，"收起态一律 none"堵不住它。
+    //
+    // `peekItemId` 是一个闩：只有后续的指针事件能把它拨开。上一版 schedulePeek 在
+    // 卡片打开期间照样计时、照样置位，只是被 showNote 的 `ui.kind === 'none'` 挡着
+    // 看不见；等 collapseCard 把 ui 收成 'none' 的那一刻闸门放开，标签就**凭空**挂到
+    // 段落下方（placeQuoteCard 的下方分支，正是下一段正文的位置）——指针一步没动，
+    // 用户也没做任何"悬停"的动作，画面上就是「保存后划词下面停了一个小框」。
+    //
+    // 这条路径一点都不刁钻：新增引用会自动开卡并把焦点放进输入框（见 opens the card
+    // with the caret already in it…），用户打完字顺手把鼠标搁在旁边那枚徽标上，再用
+    // 键盘 Esc 保存——三步全是正常操作。
+    //
+    // 杀法：去掉 schedulePeek 里 `if (itemId !== null && ui.kind !== 'none')` 那道
+    // 闸门 —— 最后一条 toBeNull 立刻红。
+    installRangeRects()
+    rangeRects.set('first', [{ top: 200, bottom: 216 }])
+    mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
+    renderDock(aggregateOf([{ ...twoItems.items[0]!, comment: '卡片开着的时候先攒下的悬停' }]))
+
+    openCard('1')
+    expect(screen.queryByRole('dialog'), '前置条件没成立：卡片没开起来').not.toBeNull()
+
+    // 卡片开着时把指针放到徽标上，等**远超** PEEK_OPEN_MS(120ms) 的时间。
+    // 这里是"应当保持为空"的负向断言，不能用 waitFor 轮询——只能等够。
+    await act(async () => {
+      fireEvent.mouseEnter(badgeAnchor('one'))
+      await new Promise((resolve) => setTimeout(resolve, 400))
+    })
+    expect(document.querySelector('[data-dsh-quote-note]'), '卡片开着的时候标签就浮出来了').toBeNull()
+
+    // 键盘保存：**指针一次都没动**，所以旧代码里没有任何东西会去拨那个闩。
+    fireEvent.keyDown(commentBox('对引用 1 的评论：first'), { key: 'Escape' })
+    expect(screen.queryByRole('dialog'), '卡片没有收起来').toBeNull()
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 400)) })
+    expect(
+      document.querySelector('[data-dsh-quote-note]'),
+      '保存那一刻标签凭空挂回了段落下方——指针一步没动，这就是用户说的那个小框',
+    ).toBeNull()
+  })
+
+  it('shrinks the note tag to a short comment instead of a fixed-width box', async () => {
     // 用户真机反馈：「为啥输入完，会有一个小输入框固定在这」——定宽是元凶的一半
-    // （另一半是描边，见下一条测试）。短批注撑不满 160–280px 的老宽度，视觉上
+    // （另一半是描边，见下面那条测试）。短批注撑不满 160–280px 的老宽度，视觉上
     // 就是一截空白，长得像一个空输入框。这一版改成 `width:max-content`，标签
     // 自己按 `note` 这几个字撑开，`maxWidth`（下面 280px）只封顶，不再是字面宽度。
+    //
+    // 标签本身已经不再钉在段落旁（保存后一律收干净，见上一条测试），只在悬停时
+    // 浮出——但"浮出来的那条不能长得像一个定宽空输入框"这条约束原样还在，所以这条
+    // 测试只换了把标签叫上屏的方式，断言一条没动。
     // 杀法：把 `width: 'max-content', maxWidth,` 改回 `width: maxWidth,`
     // （即 QuoteNoteLayer 调用点传入的 noteMaxWidth 当字面宽度用）——第一条
     // 断言从 'max-content' 变成 '280px'，红。
@@ -1780,29 +1924,29 @@ describe('SelectionDock', () => {
     mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
     const note = '太短'
     renderDock(aggregateOf([{ ...twoItems.items[0]!, comment: note }]))
-    openCard('1')
-    fireEvent.pointerDown(document.body)
+    await hoverBadge('one', '1')
 
-    const label = document.querySelector<HTMLElement>('[data-dsh-quote-note]')!
-    expect(label, '收起后段落旁没有批注标签').not.toBeNull()
+    const label = noteTag()
+    expect(label, '悬停一条有批注的引用，标签没有浮出来').not.toBeNull()
     expect(label.style.width, '标签宽度是写死的像素数，不是按内容收缩的 max-content').toBe('max-content')
     // 上限还在——只是从「宽度」搬到了「maxWidth」：mountConversation 的
     // scrollport 右缘 800、左缘 0，clampWidth(band, 160, 280) 的可用宽度
     // 800-0-32=768 远大于 280，夹出来的就是 NOTE_MAX_WIDTH 本身。
     expect(label.style.maxWidth).toBe('280px')
 
-    // 宽度策略换了，点击重新打开卡片这条动作链不能被带坏。
+    // 宽度策略换了，点标签重新打开卡片这条动作链不能被带坏。
     fireEvent.click(label)
     expect(commentBox('对引用 1 的评论：first').value).toBe(note)
   })
 
-  it('clamps a long note under NOTE_MAX_WIDTH and keeps ellipsis alive despite the flex min-width:auto trap', () => {
+  it('clamps a long note under NOTE_MAX_WIDTH and keeps ellipsis alive despite the flex min-width:auto trap', async () => {
     // 长批注不能横穿屏幕：标签仍然吃 clampWidth(band, 160, NOTE_MAX_WIDTH) 算出
     // 来的上限（这里是 280px，算法同上一条测试）。这里专门要测到实现注释里点名
     // 的那个坑——flex 容器里 `width:max-content` 撞上 `maxWidth` 那道顶之后，
     // 文字 span 默认的 `min-width:auto` 会拒绝缩到比自身内容还窄，
     // `overflow:hidden` + `text-overflow:ellipsis` 形同虚设，文字反而会溢出
     // 标签的圆角画到盒子外面——`minWidth: 0` 就是解这个坑的那一行。
+    // （标签改成悬停浮出之后，这一坑一行原样还在，只是换了叫它上屏的方式。）
     // 杀法：删掉文字 span 上的 `minWidth: 0` —— minWidth 那条断言从 '0px' 变
     // 成 ''，红；其余三条 overflow/textOverflow/whiteSpace 断言钉住 ellipsis
     // 本身没有被顺手删掉。
@@ -1812,12 +1956,10 @@ describe('SelectionDock', () => {
     const note = '这是一段很长很长的批注，长到必须被 NOTE_MAX_WIDTH 截断——用来验证标签' +
       '不会横穿整个屏幕，也用来验证省略号所在的文字层没有被 flex 默认的 ' +
       'min-width:auto 卡住而失去截断能力，这句话还要再写长一点才够稳当地撑爆上限。'
-    const commented = aggregateOf([{ ...twoItems.items[0]!, comment: note }])
-    renderDock(commented)
-    openCard('1')
-    fireEvent.pointerDown(document.body)
+    renderDock(aggregateOf([{ ...twoItems.items[0]!, comment: note }]))
+    await hoverBadge('one', '1')
 
-    const label = document.querySelector<HTMLElement>('[data-dsh-quote-note]')!
+    const label = noteTag()
     expect(label.style.maxWidth, '长批注没有被 NOTE_MAX_WIDTH 封顶，会横穿屏幕').toBe('280px')
     expect(label.style.width).toBe('max-content')
 
@@ -1833,11 +1975,11 @@ describe('SelectionDock', () => {
     expect(label.getAttribute('title')).toBe(note)
   })
 
-  it('no longer paints the note tag like an input box: fill instead of a solid stroke', () => {
+  it('no longer paints the note tag like an input box: fill instead of a solid stroke', async () => {
     // 用户看到的「像输入框」除了定宽，另一半元凶是 QUOTE_SURFACE 那圈实心描边——
     // 键盘/鼠标用户见过的每一个"可输入"控件都是描边勾出来的矩形。这一版换成
     // QUOTE_NOTE_SURFACE：不描边、不投影，靠一道比页面深一档/浅一档的填充色把
-    // 标签从原文里托出来。
+    // 标签从原文里托出来。（标签改成悬停浮出之后，这条外观约束原样还在。）
     // 杀法：把标签 style 里的 `...QUOTE_NOTE_SURFACE,` 换回 `...QUOTE_SURFACE,`——
     // borderStyle/borderWidth/boxShadow 三条断言从空字符串变成非空，红；
     // background 断言因为 QUOTE_SURFACE 的背景是不带 color-mix 的纯 var()，
@@ -1845,12 +1987,10 @@ describe('SelectionDock', () => {
     installRangeRects()
     rangeRects.set('first', [{ top: 200, bottom: 216 }])
     mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
-    const note = '不该再有实心描边了'
-    renderDock(aggregateOf([{ ...twoItems.items[0]!, comment: note }]))
-    openCard('1')
-    fireEvent.pointerDown(document.body)
+    renderDock(aggregateOf([{ ...twoItems.items[0]!, comment: '不该再有实心描边了' }]))
+    await hoverBadge('one', '1')
 
-    const label = document.querySelector<HTMLElement>('[data-dsh-quote-note]')!
+    const label = noteTag()
     expect(label.style.borderStyle, '标签又画出了描边，回到了看起来像输入框的老样子').toBe('')
     expect(label.style.borderWidth).toBe('')
     expect(label.style.borderColor).toBe('')
@@ -1862,39 +2002,43 @@ describe('SelectionDock', () => {
     expect(label.style.background).toContain('var(--dsw-alias-label-primary, #0f1115)')
   })
 
-  it('lets a hover on a different quote take the pinned note with it, instead of leaving it stuck', async () => {
-    // 收起卡片会把标签钉在**刚编辑完的那一条**上（'note'）。钉住时
-    // openItemId = ui.itemId 恒成立，peekItemId 被挡在公式外面 —— 之后悬停别的
-    // 引用的徽标，hoveredItemId 照常更新（正文高亮跟着走），标签却纹丝不动。
-    // 杀法：把 schedulePeek 里"悬停到另一条时松开钉子"那段删掉（或把
-    // `setUi({kind:'none'})` 换成什么都不做）——标签仍停在第 2 条上，最后一条
-    // 断言变红。
+  it('follows the pointer from one quote to the next, and retracts when it leaves', async () => {
+    // 这条测试原本测的是「收起态钉住的那条标签能不能被悬停拖走」。钉住这件事整个
+    // 没有了（用户原话：保存后不该在划词下面还停一个小框），于是 `peekItemId` 成了
+    // 那条标签的**唯一**驱动源。留下来的是真正还成立、也真正值得钉住的那条性质：
+    // 标签跟着指针走，没有任何"钉子"跟它抢——悬停第 1 条浮出第 1 条的批注，指针挪
+    // 到第 2 条就整个换成第 2 条，指针离开正文就收回去，段落旁重新一无所有。
+    // 杀法：把 schedulePeek 里的 `setPeekItemId(itemId)` 换成
+    // `setPeekItemId((current) => current ?? itemId)`（人为造一颗"钉子"）——标签
+    // 停在第 1 条上不走，「跟到第 2 条」和「移开后收回」两组断言都红。
     installRangeRects()
     rangeRects.set('first', [{ top: 200, bottom: 216 }])
     rangeRects.set('second', [{ top: 300, bottom: 316 }])
     mountConversation('s', [{ nodeKey: 'n1', text: 'first' }, { nodeKey: 'n2', text: 'second' }])
-    // 两条都已经有批注：没有批注的引用收起后不留标签，也就没有"钉子"可谈。
-    const both = aggregateOf([
+    // 两条都已经有批注：没有批注的引用悬停也不浮标签（hasNote 挡掉，见
+    // shows nothing at all while hovering a quote that has no comment）。
+    renderDock(aggregateOf([
       { ...twoItems.items[0]!, comment: '第一条的批注' },
       { ...twoItems.items[1]!, comment: '第二条的批注' },
-    ])
-    renderDock(both)
+    ]))
 
-    // 编辑第 2 条再收起 → 标签钉在条目 2 上。
-    openCard('2')
-    fireEvent.pointerDown(document.body)
-    const label = () => document.querySelector<HTMLElement>('[data-dsh-quote-note]')!
-    expect(label(), '收起之后正文旁应该留下批注标签').not.toBeNull()
-    expect(label().dataset.dshQuoteNote, '标签应该钉在刚编辑完的条目 2 上').toBe('2')
+    await hoverBadge('one', '1')
+    expect(noteTag(), '悬停第 1 条，它的批注没有浮出来').not.toBeNull()
+    expect(noteTag().dataset.dshQuoteNote).toBe('1')
+    expect(noteTag().textContent).toContain('第一条的批注')
 
-    // 悬停第 1 条的正文徽标，等悬停预览的开启延迟（PEEK_OPEN_MS）跑完。
-    await act(async () => {
-      fireEvent.mouseEnter(document.querySelector<HTMLElement>('[data-dsh-quote-badge-anchor="one"]')!)
-      await new Promise((resolve) => setTimeout(resolve, 150))
-    })
-    expect(label(), '悬停到另一条引用后标签应该换成新的这一条').not.toBeNull()
-    expect(label().dataset.dshQuoteNote, '悬停到另一条引用后标签没有跟过去').toBe('1')
-    expect(label().textContent).toContain('第一条的批注')
+    // 指针挪到第 2 条。真实路径是 mouseleave 紧接着 mouseenter，两次 schedulePeek
+    // 共用同一个定时器句柄，后一次必须把前一次那记"收起"取消掉。
+    fireEvent.mouseLeave(badgeAnchor('one'))
+    await hoverBadge('two', '2')
+    expect(document.querySelectorAll('[data-dsh-quote-note]').length, '两条批注标签同时浮在正文上').toBe(1)
+    expect(noteTag().dataset.dshQuoteNote, '标签没有跟着指针挪到第 2 条上').toBe('2')
+    expect(noteTag().textContent).toContain('第二条的批注')
+    expect(noteTag().textContent, '第 1 条的批注赖在原地没走').not.toContain('第一条的批注')
+
+    // 指针离开正文：PEEK_CLOSE_MS 之后标签收回去，段落旁重新一无所有。
+    await leaveBadge('two')
+    expect(document.querySelector('[data-dsh-quote-note]'), '指针移开之后标签没有收回去，又变成常驻浮层了').toBeNull()
   })
 
   it('shows nothing at all while hovering a quote that has no comment', async () => {
@@ -1907,19 +2051,24 @@ describe('SelectionDock', () => {
     rangeRects.set('first', [{ top: 200, bottom: 216 }])
     mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
     renderDock(aggregateOf([twoItems.items[0]!]))
+    // 负向断言只能等够，不能轮询：等不够的失败模式是**假绿**（定时器还没到，标签
+    // 本来就不在）。所以余量给到 PEEK_OPEN_MS 的三倍以上，而不是上一版的 150/120。
     await act(async () => {
-      fireEvent.mouseEnter(document.querySelector<HTMLElement>('[data-dsh-quote-badge-anchor="one"]')!)
-      await new Promise((resolve) => setTimeout(resolve, 150))
+      fireEvent.mouseEnter(badgeAnchor('one'))
+      await new Promise((resolve) => setTimeout(resolve, 400))
     })
     expect(document.querySelector('[data-dsh-quote-note]'), '悬停一条没有批注的引用也浮出了标签').toBeNull()
   })
 
-  it('never leaves a pinned input behind: the collapsed thing is a label or nothing', () => {
+  it('never leaves a pinned input behind: the collapsed state parks nothing at all', () => {
     // 用户报告的第三件事：「打开输入框之后只能在下方引用处删掉」。真因是收起态
     // 落回了一枚 32px 的胶囊：空评论时还写着占位符，从用户视角就是"输入框关不掉"。
-    // 现在收起态要么是写着用户那句话的标签，要么什么都没有——两者都不是输入框。
-    // 杀法：把 collapseCard 换回无条件 `{kind:'capsule'|'note', …}`，两条
-    // toBeNull 立刻红。
+    // 后来那一版改成"有评论就留一条写着那句话的标签"，用户又说那条标签遮挡正文
+    // （见 parks nothing beside the paragraph…）。现在收起态**一律什么都不留**：
+    // 段落旁只剩那枚 16px 数字徽标。
+    // 杀法：让 collapseCard 无条件浮一个盒子回来（当年是
+    // `{kind:'capsule'|'note', …}`，那两个变体已经从 QuoteUi 删掉了，所以要连类型
+    // 一起加回来才编得过）——两条 toBeNull 立刻红。
     installRangeRects()
     rangeRects.set('first', [{ top: 200, bottom: 216 }])
     mountConversation('s', [{ nodeKey: 'n1', text: 'first' }])
