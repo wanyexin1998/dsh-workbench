@@ -120,6 +120,34 @@ contract. Three checks now close that class:
   `WORKBENCH_VERSION` and release URL against the contract. That assertion had
   been written as a deferred TODO because the contract used to lag the scripts.
 
+## Verified
+
+Measured on the `0.2.0-rc.3` release run, not carried over:
+
+- Package unit tests: 42 files / 714 passing (`dsh-workbench` 40/707,
+  `dsh-workbench-panel-compat` 2/7). `tsc --noEmit` clean. The rc.2 note said
+  36 files / 515; that figure was stale by roughly two releases of work.
+- Installer script tests: 32/32 (was 31 — the deferred installer-version
+  assertion is now one of them). Install-result contract tests: 47/47.
+  Secrets-scanner unit tests: 67/67.
+- `node scripts/release-contract-check.mjs`: 52 checks, all passing (was 50 —
+  the document version and pinned-commit sweeps are the two new ones).
+- `pnpm release:check` is 9 steps and exits 0.
+- The packed Workbench TGZ hashed identically across the release's two bundle
+  passes. Those passes ran from different commits, differing only in the
+  installer scripts, which are outside the package's `files` list — which is
+  precisely what makes the stamp-then-rebuild loop terminate rather than chase
+  its own tail.
+- Both installers' embedded TGZ digest, version, and release URL are asserted
+  against the packed artifact by the bundler itself. The unflagged build failed
+  on the stale rc.2 digest before it was stamped, which is the check doing its
+  job on its first real release.
+
+Not verified, and unchanged from rc.2: no isolated end-to-end run has been
+performed for this release on any platform. The only such run that has ever
+happened exercised the rc.2 installer, which pinned a different Harness commit.
+See `docs/COMPATIBILITY_MATRIX.md` § Outstanding verification.
+
 ## Distribution boundary
 
 The repository is public source, not an official DeepSeek Harness
