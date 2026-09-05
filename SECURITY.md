@@ -2,7 +2,7 @@
 
 ## Supported version
 
-Only the current `0.2.0-rc.2` source preview is reviewed. It is not a stable release and requires the exact source commits in `release-contract.json`.
+Only the current `0.2.0-rc.3` source preview is reviewed. It is not a stable release and requires the exact source commits in `release-contract.json`.
 
 ## Report a vulnerability
 

@@ -1,6 +1,6 @@
 {
   "name": "dsh-workbench-source",
-  "version": "0.2.0-rc.2",
+  "version": "0.2.0-rc.3",
   "private": true,
   "description": "Source workspace for DSH Workbench and its optional pane-panel compatibility adapter",
   "type": "module",

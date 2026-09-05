@@ -254,6 +254,118 @@ check('README states protocol 2', /protocol 2/i.test(readme))
 check('install guide forbids automatic third-party install', /不会自动安装|does not automatically install/i.test(install))
 check('install guide contains no npm publish command', !/npm\s+publish/i.test(install))
 
+/* ── 文档对账：版本号与固定提交 ──────────────────────────────────────────────
+ *
+ * 这两条检查是补上来的，补的是一个**已经连着两个版本溜过去**的错误类别：
+ * 用户文档里的版本号或固定提交哈希过期了，而九步发布门禁全绿。rc.3 之前最后一次
+ * 是 README 兼容性表把分支 `feat/toggle-settings-verb` 和它的**父提交**
+ * `1a8cf5b…` 配在了一起——照着那一行去 pin 的人，装到的是一个没有
+ * `toggleSettings()` 的 Harness。推进 pin 那次改了分支名，漏了哈希，而当时这个
+ * 文件对两个 README 只做两条散文正则（"source preview"、"protocol 2"），对
+ * INSTALL.md 才比对提交字面量。
+ *
+ * ── 豁免为什么必须是"看得见"的 ────────────────────────────────────────────
+ * 有些文档**理应**写着旧版本：端到端证据说的是那次运行实际验的那个构建，
+ * RELEASE_NOTES 的历史小节按定义就是历史。但"整个文件跳过"这种豁免，正是这类
+ * bug 活下来的方式——它在调用点看不见，加了就再也没人回头看。所以豁免写成下面
+ * 这张表：一行一个文件，附带理由，任何人读 diff 都会看到它，而且**只豁免版本
+ * 号、不豁免固定提交**。
+ */
+const DOC_VERSION_SCAN = [
+  'README.md',
+  'README_EN.md',
+  'docs/INSTALL.md',
+  'docs/COMPATIBILITY_MATRIX.md',
+  'docs/KNOWN_ISSUES.md',
+  'docs/SECURITY_STATEMENT.md',
+  'SECURITY.md',
+]
+// 豁免粒度：文件 + 那一个具体版本号 + **那一行必须包含的字样**。
+//
+// 三个维度缺一不可，这是调试这条检查时现场踩出来的：先写成"按文件放行"，然后拿
+// 「把 README 兼容性表里的 rc.3 改回 rc.2」去验它能不能杀——**没杀掉**。因为
+// README 本来就为了截图说明那一行豁免了 rc.2，于是同一个文件里任何地方真的写错
+// 成 rc.2 也一并静默——正是这条检查要堵的那类 bug。钉到行上之后，豁免只盖得住
+// 它自己那句话。
+const DOC_VERSION_EXEMPT = [
+  {
+    file: 'docs/COMPATIBILITY_MATRIX.md',
+    version: '0.2.0-rc.2',
+    context: 'end-to-end',
+    reason: 'Windows end-to-end evidence names the release it was actually gathered against',
+  },
+  {
+    file: 'docs/KNOWN_ISSUES.md',
+    version: '0.2.0-rc.2',
+    context: 'end-to-end',
+    reason: 'same end-to-end evidence, restated for readers of the issue list',
+  },
+  {
+    file: 'README.md',
+    version: '0.2.0-rc.2',
+    context: '截图',
+    reason: 'the shortcuts screenshot caption dates the image to the release it was captured against',
+  },
+  {
+    file: 'README_EN.md',
+    version: '0.2.0-rc.2',
+    context: 'screenshot',
+    reason: 'same screenshot caption, English side of the pair',
+  },
+]
+// 版本形如 0.2.0-rc.3；shields.io 徽章里连字符要转义成 `--`，两种都扫。
+const VERSION_PATTERN = /\b\d+\.\d+\.\d+-rc\.\d+\b/g
+const BADGE_PATTERN = /\b\d+\.\d+\.\d+--rc\.\d+\b/g
+const staleVersions = []
+for (const file of DOC_VERSION_SCAN) {
+  const lines = read(file).split(/\r?\n/)
+  for (const [index, line] of lines.entries()) {
+    const found = new Set([
+      ...(line.match(VERSION_PATTERN) ?? []),
+      ...(line.match(BADGE_PATTERN) ?? []).map(badge => badge.replace('--rc.', '-rc.')),
+    ])
+    for (const version of found) {
+      if (version === contract.workbenchVersion) continue
+      // 下面两个是别的产物的版本号，形状相同而已，不归这条检查管。
+      if (version === contract.harness.upstreamVersion) continue
+      if (version === contract.panelCompatibility.packageVersion) continue
+      const exempt = DOC_VERSION_EXEMPT.some(entry => entry.file === file
+        && entry.version === version
+        && line.includes(entry.context))
+      if (exempt) continue
+      staleVersions.push(`${file}:${index + 1}: ${version}`)
+    }
+  }
+}
+check('user-facing docs name the contract workbenchVersion', staleVersions.length === 0,
+  `${staleVersions.join('; ')} (contract says ${contract.workbenchVersion}; `
+  + `exempt: ${DOC_VERSION_EXEMPT.map(entry => `${entry.file}@${entry.version} only on lines saying `
+  + `"${entry.context}" — ${entry.reason}`).join('; ')})`)
+
+/* 固定提交没有豁免名单：一个缩写只要是契约里那个 40 位哈希的前缀就算对，不是
+ * 前缀就是错。README 写 `82de604a…`、INSTALL 写完整 40 位，两种都覆盖。
+ * 只认长度 >= 7 的十六进制串——再短的容易撞上普通英文单词。 */
+const PINNED = [
+  { label: 'Harness', commit: contract.harness.implementationCommit },
+  { label: 'Better Sidebar', commit: contract.panelCompatibility.implementationCommit },
+]
+const COMMITISH = /`([0-9a-f]{7,40})[….]{0,3}`/g
+const stalePins = []
+for (const file of ['README.md', 'README_EN.md', 'docs/COMPATIBILITY_MATRIX.md']) {
+  const text = read(file)
+  for (const [, candidate] of text.matchAll(COMMITISH)) {
+    const matchesSomePin = PINNED.some(pin => pin.commit.startsWith(candidate))
+    // 历史 pin 是可以出现的（"上一版固定的是 X"），但必须**显式**说自己是旧的。
+    // 判据：同一行提到 rc.2 / previous / 旧 pin 之类的字样。
+    const line = text.split(/\r?\n/).find(row => row.includes(candidate)) ?? ''
+    const declaredHistorical = /rc\.\d+|previous|earlier|旧|上一版/i.test(line)
+    if (matchesSomePin || declaredHistorical) continue
+    stalePins.push(`${file}: \`${candidate}\``)
+  }
+}
+check('user-facing docs name the contract pinned commits', stalePins.length === 0,
+  `${stalePins.join('; ')} (contract pins ${PINNED.map(pin => `${pin.label} ${pin.commit.slice(0, 8)}`).join(', ')})`)
+
 if (failures.length > 0) {
   console.error(`\nrelease-contract consistency: ${failures.length} failure(s)`)
   process.exit(1)

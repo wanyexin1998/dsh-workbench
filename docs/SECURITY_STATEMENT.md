@@ -1,6 +1,6 @@
 # Security statement
 
-This statement covers the `0.2.0-rc.2` source preview.
+This statement covers the `0.2.0-rc.3` source preview.
 
 ## Runtime boundary
 
@@ -12,6 +12,7 @@ This statement covers the `0.2.0-rc.2` source preview.
   - The marker makes seeding a one-time act. Once it exists and `chat/` does not, Workbench reads the absence as user intent and never re-creates the preset.
   - Seeding is fail-soft: any filesystem error degrades to a console warning and never blocks Host composition.
 - It does not create telemetry or persist prompt, tool, or Session content outside Harness-owned storage.
+- A quote's user-written note is new user data this release introduces. It is held in the composer draft's selection aggregate and travels only where that draft travels: clearing the draft discards it, sending consumes it into the message. Workbench writes it to no file of its own and to no path outside the chat-preset exception above.
 - Panel Compatibility starts no observer until an explicit compatible provider registers.
 - The Better Sidebar adapter uses a versioned Pane capability and public Pane host markers; it does not patch private stores or infer unknown DOM.
 

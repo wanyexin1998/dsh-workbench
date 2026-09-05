@@ -303,15 +303,31 @@ test('both bootstrap scripts embed the same Harness branch as release-contract.j
   const branch = releaseContract.harness.branch
   assert.ok(ps1Source.includes(`'${branch}'`), `dsh-workbench-bootstrap.ps1 must embed the same Harness branch as release-contract.json (${branch})`)
   assert.ok(shSource.includes(`'${branch}'`), `dsh-workbench-bootstrap.sh must embed the same Harness branch as release-contract.json (${branch})`)
-  // TODO-A6: workbenchVersion is deliberately NOT asserted here yet.
-  // release-contract.json's workbenchVersion (currently 0.2.0-rc.2) still
-  // lags these scripts' embedded WORKBENCH_VERSION (0.2.0-rc.2) -- a
-  // declared, tracked debt item for A6, not a drift bug (see
-  // plans/260827-workbench-v2/tasks.md §3 A6 and §8's decision record).
-  // Once that version bump lands, add:
-  //   assert.equal(releaseContract.workbenchVersion, '<the embedded WORKBENCH_VERSION>')
-  // for both scripts here, the same way implementationCommit/branch are
-  // checked above.
+})
+
+// A6 当初把这条断言挂成 TODO，理由是发布契约的 workbenchVersion 当时落后于两个
+// 安装器里刻的 WORKBENCH_VERSION。那笔债已经还了，而它空缺的那段时间里，同一
+// 类错误（版本 / 哈希漏扫）连着两个版本满分继续绿灯。
+//
+// 安装器默认从 RELEASE_BASE_URL 下载 WORKBENCH_VERSION 拼出来的那个文件名，
+// 所以这两个常量漏改一个，用户就会静静地装到上一版。TGZ 摘要不在这里查：
+// 它的真值要打包之后才知道，由 build-release-bundle.mjs 拿刚打出来的产物对账。
+test('both bootstrap scripts embed the contract workbenchVersion and release URL (A6)', () => {
+  const version = releaseContract.workbenchVersion
+  const releaseUrl = `https://github.com/wanyexin1998/dsh-workbench/releases/download/v${version}`
+  for (const [name, source] of [['dsh-workbench-bootstrap.ps1', ps1Source], ['dsh-workbench-bootstrap.sh', shSource]]) {
+    const embedded = /WORKBENCH_VERSION\s*=\s*'([^']*)'|\$WorkbenchVersion\s*=\s*'([^']*)'/.exec(source)
+    assert.ok(embedded !== null, `${name} must embed a WORKBENCH_VERSION constant`)
+    assert.equal(
+      embedded[1] ?? embedded[2],
+      version,
+      `${name} embeds a WORKBENCH_VERSION that disagrees with release-contract.json (${version})`,
+    )
+    assert.ok(
+      source.includes(releaseUrl),
+      `${name} must download from the release matching the contract version (${releaseUrl})`,
+    )
+  }
 })
 
 // --- S1: generated launchers are self-relative -- no absolute path baked in ---

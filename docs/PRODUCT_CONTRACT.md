@@ -33,8 +33,8 @@
 | Action | Session and input contract | Stock Harness | Presentation protocol 2 |
 | --- | --- | --- | --- |
 | `Primary+Shift+C` | Reuse the newest same-local-day blank `chat` Session in the resolved Workspace, otherwise create one with `agentPreset: chat` | Open in place and show one degradation notice | Open beside while preserving the captured source Pane |
-| Add to conversation | Aggregate a capture-time selection reference in the source composer; preserve ordinary draft; send only through the normal input path | Available | Available |
-| More details | Fork at the selected node's `anchorSeq`; send one logged boundary + escaped selected context + localized explanation request in the child | Hidden | Available |
+| Add to conversation | Aggregate a capture-time selection reference in the source composer; mark the passage in place and open a note card beside it; preserve ordinary draft; send only through the normal input path | Available | Available |
+| More details | Fork at the selected node's `anchorSeq`; send one logged boundary + the quoted passage as plain text + localized explanation request in the child | Hidden | Available |
 | Ask in side chat | Fork identically; insert one side-chat reference into an empty ordinary draft; do not submit until the user does | Hidden | Available |
 
 - Workspace resolution prefers a Workspace titled `chat`, then the Workspace containing the captured source Session. Workbench does not create a Workspace automatically.
@@ -45,6 +45,10 @@
 - A side child inherits the parent cwd, model target, preset, Workspace, lineage, tools, and approval behavior. Its boundary says inherited history is reference-only and that the current task begins after the boundary.
 - Closing a side Pane retains the Session. If fork/create succeeds and a later Pane/input operation fails, Workbench reports the retained Session id and never deletes it automatically.
 - More Details never steers or interrupts the parent and writes no side-chat question into the parent log. Ask in side chat produces no model call before explicit user submission.
+- **What the model receives is prose, not markup.** A quote is serialized as a localized heading, the quoted text with a `│ ` gutter on every line, and the user's note on a `↳ ` line. No XML-ish wrapper, no session id, node key, sequence number or character offset reaches the model, and the quoted text is not HTML-escaped — those identifiers exist to re-anchor the quote in the UI, nothing downstream ever read them, and putting them in front of the reader and the model was cost with no consumer.
+- **A quote may carry one user-written note, and that note is model-visible.** It is stored in the composer draft's selection aggregate, so it lives and dies with the draft: clearing the draft discards it, sending consumes it. It is not written to the Host filesystem.
+- **The in-place marking never mutates the host Conversation.** Bands are painted by handing the browser a `Range` through the CSS Custom Highlight API; badges, note cards, and the quote list are React portals on `document.body` inside zero-sized positioned containers. Workbench inserts no node, attribute, class, or inline style into host-rendered message DOM, and the marking layer intercepts no pointer event the host would otherwise receive. There is no fallback painter: on a runtime without the API the band is simply absent and every other part of the feature is unaffected.
+- **A quote whose passage has left the conversation is `detached`, not dropped.** Its band and badge disappear, its row stays in the quote list, and it is still serialized into the message. Anchor state never gates whether a quote is sent — only whether it can be shown.
 
 ## Panel compatibility
 

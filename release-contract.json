@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
   "releaseStatus": "source-preview",
-  "workbenchVersion": "0.2.0-rc.2",
+  "workbenchVersion": "0.2.0-rc.3",
   "presentationProtocol": 2,
   "maxVisiblePanes": 2,
   "thirdSessionDisposition": "replace-focused",

@@ -12,14 +12,14 @@
 
 <p align="center">
   <img alt="状态：源码预览" src="https://img.shields.io/badge/status-source%20preview-5865F2">
-  <img alt="版本：0.2.0-rc.2" src="https://img.shields.io/badge/version-0.2.0--rc.2-2563EB">
+  <img alt="版本：0.2.0-rc.3" src="https://img.shields.io/badge/version-0.2.0--rc.3-2563EB">
   <img alt="Session Presentation：protocol 2" src="https://img.shields.io/badge/Session%20Presentation-protocol%202-0891B2">
   <img alt="可见 Pane：2" src="https://img.shields.io/badge/visible%20Panes-2-0F766E">
   <a href="LICENSE"><img alt="许可证：MIT" src="https://img.shields.io/badge/license-MIT-334155"></a>
 </p>
 
 > [!IMPORTANT]
-> 当前版本是 `0.2.0-rc.2` 源码预览，不是即装即用的 npm 正式版。分屏能力依赖固定版本的 Harness fork；Better Sidebar 及其兼容包完全可选。本项目不会自动安装、更新或修改任何第三方插件。
+> 当前版本是 `0.2.0-rc.3` 源码预览，不是即装即用的 npm 正式版。分屏能力依赖固定版本的 Harness fork；Better Sidebar 及其兼容包完全可选。本项目不会自动安装、更新或修改任何第三方插件。
 
 > [!TIP]
 > **一句话安装（Release-first）：复制下面整句发给 DeepSeek Harness Agent**
@@ -28,7 +28,7 @@
 > 请安装 DSH Workbench。先检查当前 Harness：兼容双 Pane 就直接安装；不兼容时保留通用插件功能，并告诉我如何并行安装不覆盖官方 Harness 的自装补丁路径（bootstrap）。若沙箱不能写入 DSH_HOME，只给我一条最终终端命令。
 > ```
 >
-> 完整判定规则与命令见 [`docs/INSTALL.md`](docs/INSTALL.md)。`v0.2.0-rc.2` GitHub Release 已发布，通用插件与分屏 bootstrap 两条路径均可直接使用；当前状态仍是 `0.2.0-rc.2` 源码预览（见 [`release-contract.json`](release-contract.json)），不是 npm 正式版。想自己审计源码可用下方「高级：从源码构建」。
+> 完整判定规则与命令见 [`docs/INSTALL.md`](docs/INSTALL.md)。`v0.2.0-rc.3` GitHub Release 已发布，通用插件与分屏 bootstrap 两条路径均可直接使用；当前状态仍是 `0.2.0-rc.3` 源码预览（见 [`release-contract.json`](release-contract.json)），不是 npm 正式版。想自己审计源码可用下方「高级：从源码构建」。
 
 ## 它解决什么问题
 
@@ -40,7 +40,8 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 | Pane 独立状态 | 草稿、滚动位置、Navigator 和可选面板分别保留 |
 | Navigator | 按真实输入条目显示导航横线，悬浮预览并快速定位消息 |
 | 全局快捷键 | 简体中文 / English 名称随 Harness 全局语言切换，可修改和持久化；新建会话、打开设置、切换上一个会话、跳到最新消息等动作见下方「默认快捷键」 |
-| 随手问 | 快捷打开零工具聊天，并把已完成消息的选区加入原会话或 fork 到侧聊 |
+| 随手问 | 快捷打开零工具聊天，并把已完成消息的选区 fork 到侧聊追问 |
+| 划词批注 | 在正文里就地标出被引用的段落（底色 + 数字徽标），逐条写批注，composer 上只留一枚计数 chip |
 | Pane-local 面板 | 安装兼容包后，每个 Pane 可独立展开右侧、底部面板 |
 | 安全降级 | Presentation protocol 不兼容时不启用双 Pane 容量 |
 
@@ -57,17 +58,21 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 ### 跟随全局语言的快捷键设置
 
 <p align="center">
-  <img src="docs/assets/dsh-workbench-shortcuts.png" width="100%" alt="DSH Workbench 快捷键设置页面，使用简体中文名称展示 Navigator、输入框、侧边栏、停止会话与关闭 Pane 操作">
+  <img src="docs/assets/dsh-workbench-shortcuts.png" width="100%" alt="DSH Workbench 快捷键设置页面，使用简体中文名称列出 Navigator、输入框、侧边栏、停止会话与关闭 Pane 等动作及其按键">
 </p>
 
-快捷键名称跟随 Harness 全局语言切换；冲突、浏览器保留键和持久化状态会在设置界面中明确显示。
+快捷键名称跟随 Harness 全局语言切换，可以改键并持久化。
+
+> 这张截图摄于 `0.2.0-rc.2`，之后设置页被精简过：每个动作下面那行灰色/黄色小字
+> （动作 id 与浏览器保留键提示）已经移除。按键、动作名与改键交互与图中一致，
+> 少掉的只是那两行小字。截图待重拍。
 
 ## 兼容性一览
 
 | 组件 | 是否必需 | 当前支持 | 说明 |
 | --- | --- | --- | --- |
-| DeepSeek Harness | 必需 | fork `feat/toggle-settings-verb`，固定提交 `1a8cf5b…` | 提供 Session Presentation `protocol 2` |
-| DSH Workbench | 必需 | `0.2.0-rc.2` | 最多两个可见 Pane |
+| DeepSeek Harness | 必需 | fork `feat/toggle-settings-verb`，固定提交 `82de604a…` | 提供 Session Presentation `protocol 2`；提供 `ctx.layout.toggleSettings()`，让「打开设置」快捷键可以再按一次关掉 |
+| DSH Workbench | 必需 | `0.2.0-rc.3` | 最多两个可见 Pane |
 | Better Sidebar | 可选 | fork `0.16.1`，固定提交 `1685770…` | 提供 Pane capability `protocol 1`；含面板快捷键 actions（`actionsProtocol 1`） |
 | Panel Compatibility | 可选 | `0.1.0-rc.1` | 只连接显式兼容的面板提供方 |
 
@@ -78,7 +83,7 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 ## 快速开始
 
 > [!NOTE]
-> `v0.2.0-rc.2` GitHub Release 已发布，附带两个 TGZ、两个分屏 bootstrap 脚本、`SHA256SUMS` 与 `release-manifest.json`；下面两条路径今天就能照抄执行。Release 产物经 SHA256 校验，不是 GPG 签名产物（`release-contract.json` 的 `sourceVerification.signedReleaseAvailable` 仍为 `false`）。`release-contract.json` 状态本身仍是 `0.2.0-rc.2` / `source-preview`——这是既定的分发模型（只发源码与本地 TGZ，不发 npm），不代表安装路径不可用。想自己从源码逐字审计，仍可用下方折叠区「高级：从源码构建（审计路径）」（即 [`docs/INSTALL.md` § Advanced: source build](docs/INSTALL.md#advanced-source-build)）。
+> `v0.2.0-rc.3` GitHub Release 已发布，附带两个 TGZ、两个分屏 bootstrap 脚本、`SHA256SUMS` 与 `release-manifest.json`；下面两条路径今天就能照抄执行。Release 产物经 SHA256 校验，不是 GPG 签名产物（`release-contract.json` 的 `sourceVerification.signedReleaseAvailable` 仍为 `false`）。`release-contract.json` 状态本身仍是 `0.2.0-rc.3` / `source-preview`——这是既定的分发模型（只发源码与本地 TGZ，不发 npm），不代表安装路径不可用。想自己从源码逐字审计，仍可用下方折叠区「高级：从源码构建（审计路径）」（即 [`docs/INSTALL.md` § Advanced: source build](docs/INSTALL.md#advanced-source-build)）。
 
 **先选路径**。两条路径互相独立，按你现在手上有什么来选：
 
@@ -98,13 +103,13 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 Windows（PowerShell 7+ / `pwsh`）：
 
 ```
-& { $ErrorActionPreference = 'Stop'; $rel = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2'; Invoke-WebRequest "$rel/dsh-workbench-bootstrap.ps1" -OutFile dsh-workbench-bootstrap.ps1; Invoke-WebRequest "$rel/SHA256SUMS" -OutFile SHA256SUMS; $expectedLine = (Select-String -Path SHA256SUMS -Pattern 'dsh-workbench-bootstrap\.ps1$').Line; if (-not $expectedLine) { throw 'SHA256SUMS 中未找到 dsh-workbench-bootstrap.ps1 的记录，已中止' }; $expected = ($expectedLine -split '\s+')[0].ToLower(); if ($expected -notmatch '^[0-9a-f]{64}$') { throw "SHA256SUMS 中的哈希格式不合法：$expected" }; $actual = (Get-FileHash dsh-workbench-bootstrap.ps1 -Algorithm SHA256).Hash.ToLower(); if ($actual -ne $expected) { throw "SHA256 校验失败：期望 $expected，实际 $actual" }; pwsh -NoProfile -ExecutionPolicy Bypass -File .\dsh-workbench-bootstrap.ps1 }
+& { $ErrorActionPreference = 'Stop'; $rel = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.3'; Invoke-WebRequest "$rel/dsh-workbench-bootstrap.ps1" -OutFile dsh-workbench-bootstrap.ps1; Invoke-WebRequest "$rel/SHA256SUMS" -OutFile SHA256SUMS; $expectedLine = (Select-String -Path SHA256SUMS -Pattern 'dsh-workbench-bootstrap\.ps1$').Line; if (-not $expectedLine) { throw 'SHA256SUMS 中未找到 dsh-workbench-bootstrap.ps1 的记录，已中止' }; $expected = ($expectedLine -split '\s+')[0].ToLower(); if ($expected -notmatch '^[0-9a-f]{64}$') { throw "SHA256SUMS 中的哈希格式不合法：$expected" }; $actual = (Get-FileHash dsh-workbench-bootstrap.ps1 -Algorithm SHA256).Hash.ToLower(); if ($actual -ne $expected) { throw "SHA256 校验失败：期望 $expected，实际 $actual" }; pwsh -NoProfile -ExecutionPolicy Bypass -File .\dsh-workbench-bootstrap.ps1 }
 ```
 
 macOS（Terminal）：
 
 ```
-rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.2'; if curl -fsSLO "$rel/dsh-workbench-bootstrap.sh" && curl -fsSLO "$rel/SHA256SUMS"; then expected=$(grep 'dsh-workbench-bootstrap\.sh$' SHA256SUMS | awk '{print $1}'); actual=$(shasum -a 256 dsh-workbench-bootstrap.sh | awk '{print $1}'); if [ -n "$expected" ] && printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$' && [ "$actual" = "$expected" ]; then chmod +x dsh-workbench-bootstrap.sh && ./dsh-workbench-bootstrap.sh; else echo 'SHA256 校验失败，已中止，不会执行未校验脚本' >&2; false; fi; else echo '下载失败，已中止，不会执行未校验脚本' >&2; false; fi
+rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.3'; if curl -fsSLO "$rel/dsh-workbench-bootstrap.sh" && curl -fsSLO "$rel/SHA256SUMS"; then expected=$(grep 'dsh-workbench-bootstrap\.sh$' SHA256SUMS | awk '{print $1}'); actual=$(shasum -a 256 dsh-workbench-bootstrap.sh | awk '{print $1}'); if [ -n "$expected" ] && printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$' && [ "$actual" = "$expected" ]; then chmod +x dsh-workbench-bootstrap.sh && ./dsh-workbench-bootstrap.sh; else echo 'SHA256 校验失败，已中止，不会执行未校验脚本' >&2; false; fi; else echo '下载失败，已中止，不会执行未校验脚本' >&2; false; fi
 ```
 
 装完后用生成的启动器启动：Windows `%USERPROFILE%\dsh-workbench\dsh-workbench.cmd`，macOS `$HOME/dsh-workbench/dsh-workbench`。启动器把 `DSH_HOME` 固定在 `<target>/home`，所以**第一次打开会是一个全新的空环境**：没有历史会话、没有 Workspace，模型与供应商都要重新配置。这不是装坏了——隔离正是它不动你官方安装的原因，官方 Harness 的数据仍在它自己的 `~/.dsh` 下。
@@ -159,8 +164,10 @@ pnpm release:check
 
 成功后，`dist/` 中会生成：
 
-- `wanyexin1998-dsh-workbench-0.2.0-rc.2.tgz`
+- `wanyexin1998-dsh-workbench-0.2.0-rc.3.tgz`
 - `wanyexin1998-dsh-workbench-panel-compat-0.1.0-rc.1.tgz`
+- `dsh-workbench-bootstrap.ps1`
+- `dsh-workbench-bootstrap.sh`
 - `release-manifest.json`
 - `SHA256SUMS`
 
@@ -192,7 +199,7 @@ pnpm release:check
 | 关闭聚焦 Pane | `Primary+\` | 仅 Presentation protocol 2 可用（需分屏 bootstrap 路径） |
 | 随手问（Workbench Ask） | `Primary+Shift+C` | 与浏览器 DevTools「检查元素」冲突，设置页会提示；默认键位未更换 |
 | 新建会话 | `Primary+N` | 浏览器普通标签页会保留为「新建窗口」，设置页会提示；桌面壳环境下可正常触发 |
-| 打开设置 | `Primary+,` | 需要 Harness 提供 `ctx.layout.openSettings()`，目前只有本项目固定的 Harness fork 提供，stock Harness 上不会注册该动作；早期默认值 `Primary+Space` 在多数中文输入法下会被系统拦截（当作中英文切换热键），实测按下毫无反应，因此不再作为默认值 |
+| 打开 / 关闭设置 | `Primary+,` | 能力分三档：固定的 Harness fork（`82de604a`）提供 `ctx.layout.toggleSettings()`，同一组键按第二下即关闭；只提供 `openSettings()` 的旧 pin 上仍是"只能打开"，动作名也相应显示为「打开设置」；stock Harness 两者都没有，该动作**根本不注册**。早期默认值 `Primary+Space` 在多数中文输入法下被当作中英文切换热键拦截、在 macOS 上被 Spotlight 占用，实测按下毫无反应，因此不再作为默认值 |
 | 切换到上一个会话 | `Alt+Q` | 跨平台从 `event.code` 派生按键，macOS 上不受 Option 字符合成影响 |
 | 跳到最新消息 | `Primary+Shift+L` | |
 
@@ -211,11 +218,37 @@ pnpm release:check
 
 在一条已完成消息中选择文字后，Workbench 提供三项动作：
 
-- **添加到对话**：把选区作为结构化 reference 加入来源 Pane 的 composer；保留普通草稿，可聚合多段并附加评论，不自动发送。原版 Harness 也可用。
+- **添加到对话**：在正文里就地标出这段话，并立刻打开批注卡片让你写下想说的；composer 上只多一枚计数 chip，不重复贴一遍原文。保留普通草稿，可聚合多段，不自动发送。原版 Harness 也可用，细节见下方「划词批注」。
 - **更多详情**：从选区所在会话的已完成 Turn fork child，在第二 Pane 打开，并恰好发送一次带 reference-only boundary 的本地化解释请求。仅 Presentation protocol 2 可用。
 - **在侧边聊天中提问**：同样 fork child，但只放入带 boundary 的选区 reference 和空普通草稿；用户显式输入问题并发送前，不发生模型调用。仅 Presentation protocol 2 可用。
 
 侧聊 child 继承父会话的 cwd、模型、预设、Workspace、工具与 approval 流程。它不是零工具聊天；任何工具副作用都是真实的。关闭 Pane 只关闭呈现，Session 继续保留在侧栏。fork 已成功但 Pane 或输入操作失败时，界面会报告保留的 child id，不会静默删除。
+
+### 划词批注
+
+「添加到对话」的完整动作链是：**划词 → 点「添加到对话」→ 直接打字**。
+
+- 被引用的段落**就地**标出来：一层底色加下划线，右侧留白处放一枚 16px 的数字徽标。
+  正文不再被复制一份贴到 composer 上方，引用越多也不会把对话挤走。
+- 加入的同一刻，批注卡片就在那段话旁边展开、光标已经在输入框里。写完点别处、按
+  `Esc`、或点保存都会存下来。
+- **保存之后段落旁不留任何常驻浮层**——常驻浮层的落点就在段落末行正下方，那里通常
+  是下一段正文。想再看那句批注有三条不遮挡的路：composer 上那枚 chip 展开的引用
+  列表（每行都写着批注正文）、把指针停在数字徽标上让标签临时浮出、或点徽标重新
+  开卡编辑。
+- 发给模型的是**纯文本**：一行散文抬头（`引用上文：`），引用正文每行前缀 `│ `，
+  你的批注单起一行 `↳ `。没有 XML 标签、没有 session id / 节点 key / 字符偏移，
+  也没有 HTML 转义——引用 `Tom & Jerry` 到模型那头仍然是 `Tom & Jerry`。
+
+> **就地标注不修改 Harness 的 DOM。** 底色与下划线通过浏览器的
+> [CSS Custom Highlight API](https://developer.mozilla.org/docs/Web/API/CSS_Custom_Highlight_API)
+> 绘制：Workbench 交给浏览器的是一个 `Range`，一个节点、一个属性都不往宿主
+> Conversation 里插。徽标、卡片、标签三层浮层都 portal 在 `document.body` 上，
+> 用 0×0 的定位容器，不铺满屏幕、不拦截宿主的指针事件。
+>
+> 代价是这套 API 没有降级路径：不支持它的浏览器上底色画不出来，此时数字徽标、
+> 引用列表与发送格式都照常工作，只是"看得见是哪一段"这件事没了（见
+> [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)）。
 
 ### 三种模式的边界
 
@@ -282,7 +315,7 @@ docs/
 <details>
 <summary><strong>可以同时打开 5 个 Pane 吗？</strong></summary>
 
-当前公开契约最多为两个可见 Pane。扩展到 5 个需要重新设计布局、容量与性能验收，不属于 `0.2.0-rc.2`。
+当前公开契约最多为两个可见 Pane。扩展到 5 个需要重新设计布局、容量与性能验收，不属于 `0.2.0-rc.3`。
 </details>
 
 <details>

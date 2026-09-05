@@ -1,3 +1,138 @@
+# DSH Workbench 0.2.0-rc.3
+
+Status: source preview. Distribution is source plus a downloadable GitHub
+Release (two TGZs, two bootstrap scripts, `SHA256SUMS`, `release-manifest.json`),
+SHA256-verified, not GPG-signed. No npm package.
+
+**Upgrading from `0.2.0-rc.2` re-pins the Harness fork.** The bootstrap
+installer now checks out `82de604afc683cd8c7692d0736f26f9ebc0f1823` on
+`feat/toggle-settings-verb` instead of `1a8cf5ba…` on
+`fix/plugin-spec-quoting`. The new commit is a direct child of the old one, so
+it carries the `rc.2` Windows spaces-in-path fix forward; what it adds is
+`ctx.layout.toggleSettings()`. Installing over an existing bootstrap target is
+not supported — remove the target and run the installer again.
+
+## Added
+
+- **Quoted passages are now marked where they live.** "Add to conversation"
+  used to repeat every quoted passage in a dock above the composer, putting the
+  same text on screen twice and growing the dock with each addition. The
+  passage is now marked in the conversation itself — a tinted band with an
+  underline, and a numbered badge in the margin beside it — and the composer
+  keeps only a numbered chip. The marking is painted through the browser's CSS
+  Custom Highlight API: Workbench hands the browser a `Range` and inserts
+  nothing into the Harness DOM. Works on stock Harness.
+- **Every quote can carry a note, typed where the quote is.** Adding a quote
+  opens a comment card beside the passage with the caret already in it, so the
+  gesture is select, add, type. Leaving the card saves what you wrote; so do
+  the close button and `Esc`. Delete removes the quote in one click. After the
+  card closes nothing is parked beside the paragraph covering the text
+  underneath — hover the numbered badge to peek at the note, click it to edit,
+  or open the quote list from the composer chip.
+- **The Settings shortcut can now close Settings, not just open it.** On the
+  newly pinned Harness fork the action reads "Toggle settings" and the same
+  chord dismisses the panel it opened. A host still on the previous pin keeps
+  the open-only verb and its "Open settings" label; stock Harness registers no
+  Settings action at all. The plugin prefers the new verb and falls back, so no
+  host breaks.
+
+## Fixed
+
+- **Open Settings shipped with a default chord that could not be pressed.**
+  `Primary+Space` is the language-toggle hotkey of most Chinese IMEs on Windows
+  and Spotlight's chord on macOS, so the keystroke was taken before the page
+  ever saw it: the action registered, the handler was correct, and pressing the
+  keys did nothing at all. The default is now `Primary+,`. Anyone who had
+  rebound the action keeps their own chord — only untouched defaults move.
+  `Primary+Space` now carries a warning in Settings explaining why a chord
+  bound to it may never arrive.
+- **Selections put internal protocol markup in front of the reader.** Side chat
+  opened with a `<selected_context>` tag carrying session ids, node keys,
+  sequence numbers and character offsets, and Add to conversation reached the
+  same shape at submit time. Nothing downstream read those identifiers, so they
+  were noise to the model and a leak to the user. A quote is now plain text: a
+  prose heading, the quoted text with a `│ ` gutter on every line, and the note
+  on a `↳ ` line. The HTML escaping went with the tags, so a quote of
+  `Tom & Jerry` no longer arrives as `Tom &amp; Jerry`.
+- **The selection toolbar and reference dock did not follow the theme.** They
+  set geometry but no colour and fell through to the browser's default buttons,
+  staying light in dark mode. Both now use the host's own design tokens, taking
+  their separation from shadow in light mode and from a border in dark.
+- **A reply streaming in the other Pane re-resolved every quote anchor on every
+  frame**, because the mutation observer watched character data across the whole
+  conversation. It now filters to mutations that can affect an anchored row.
+  Scrolling separately rebuilt the highlight registry every frame despite a
+  comment claiming otherwise; it now publishes only when the ranges really
+  change.
+- **A saved note stayed parked beside the passage, covering the next
+  paragraph.** Its landing point is computed directly under the passage's last
+  line, which is normally the following text. The collapsed state now parks
+  nothing at all. Removing the pinned state alone was not enough: the hover
+  preview is a latch that only a later pointer event clears, and it was armed
+  even while a card was open, hidden behind the render gate — so a save opened
+  the gate and the note appeared with no pointer having moved. Arming now
+  requires that nothing is open.
+- **The default install path never stated that it needs `dsh` on `PATH`.** A
+  reader with no Harness got through the download and the checksum and met a
+  raw `CommandNotFoundException` on the third command, with nothing in the
+  repository explaining how to get one. `docs/INSTALL.md` now states the
+  prerequisite before the commands and points anyone without Harness at the
+  bootstrap path.
+
+## Documentation
+
+The doc set was audited against the code rather than against itself, which
+turned up a class of error no release gate was watching for:
+
+- The compatibility table in both READMEs paired the fork branch
+  `feat/toggle-settings-verb` with `1a8cf5b…`, that branch's *parent* — so a
+  reader who pinned what the table said got a Harness without
+  `toggleSettings()`. The pin advance had updated the branch name and left the
+  hash. Nothing compared either against `release-contract.json`; that check now
+  exists (see below).
+- Neither README described the quote surface a user now literally sees in their
+  conversation. Both now do, including the guarantee that the host DOM is never
+  mutated — previously written down only in a source comment.
+- `docs/PRODUCT_CONTRACT.md` said More Details sends "escaped selected
+  context". It has not for several commits.
+- The Windows end-to-end evidence in `docs/COMPATIBILITY_MATRIX.md` and
+  `docs/KNOWN_ISSUES.md` was gathered against the `rc.2` installer, which
+  pinned a different Harness commit. Both now say so, and say plainly that the
+  `rc.3` installer has not been re-run. Three checks that have never run on any
+  platform were listed as "targeted for `v0.2.0-rc.2`"; they are now listed as
+  outstanding work rather than as a plan attached to a release that shipped.
+
+## Release gates
+
+Two releases in a row shipped a stale version string or commit hash with all
+nine gates green, because no gate compared a document against the release
+contract. Three checks now close that class:
+
+- `scripts/release-contract-check.mjs` sweeps every user-facing document for
+  version strings and pinned commit hashes and fails on any that disagrees with
+  `release-contract.json`. Deliberate historical references are declared in a
+  visible allowlist that names the file and the reason, so an exemption cannot
+  be granted silently.
+- `scripts/build-release-bundle.mjs` fails if either bootstrap installer's
+  embedded Workbench TGZ digest, version, or release URL disagrees with the
+  artifact it just packed.
+- `scripts/bootstrap/bootstrap.test.mjs` asserts both installers' embedded
+  `WORKBENCH_VERSION` and release URL against the contract. That assertion had
+  been written as a deferred TODO because the contract used to lag the scripts.
+
+## Distribution boundary
+
+The repository is public source, not an official DeepSeek Harness
+distribution. Forked Harness and Better Sidebar packages retain their original
+names and must not be republished under upstream package namespaces. The
+Harness pin (`feat/toggle-settings-verb`,
+`82de604afc683cd8c7692d0736f26f9ebc0f1823`) is public and independently
+verifiable at https://github.com/wanyexin1998/deepseek-harness, and is tagged
+`dsh-workbench-v0.2.0-rc.3-pin` so it stays reachable if the branch moves.
+Panel Compatibility (`0.1.0-rc.1`) is unchanged this release.
+
+---
+
 # DSH Workbench 0.2.0-rc.2
 
 Status: source preview. Distribution is source plus a downloadable GitHub

@@ -120,6 +120,71 @@ const installers = ['dsh-workbench-bootstrap.ps1', 'dsh-workbench-bootstrap.sh']
 })
 const checksummed = [...artifacts, ...installers]
 
+/*
+ * 安装器里刻死的三个常量必须描述**刚刚打出来的这个** TGZ。
+ *
+ * 为什么需要这道检查：两个版本连着把过期的版本号 / 提交哈希发出去了，九步门禁
+ * 全绿——因为没有任何一步拿文档或安装器去对账发布契约与真实产物。安装器尤其
+ * 致命：它默认从 `RELEASE_BASE_URL` 下载 `WORKBENCH_VERSION` 那个文件名，再拿
+ * `WORKBENCH_TGZ_SHA256` 校验。三个常量忘了改，用户要么装到上一版（版本号没动，
+ * 校验还能过），要么每一次 bootstrap 都以 "TGZ SHA256 mismatch" 中止。
+ *
+ * ── 为什么不是无条件硬失败 ──────────────────────────────────────────────
+ * 发布流程本身是个两趟循环，第一趟必须能跑起来：
+ *   趟 1  打包 → 才知道新 TGZ 的摘要（源码变了摘要就变，没法预先算）
+ *   人工  把摘要刻进两个安装器
+ *   趟 2  重新打包 → SHA256SUMS 这才描述的是**刻好之后**的安装器
+ * 趟 1 时摘要必然对不上。所以：默认硬失败，趟 1 用一个说明自己在干什么的显式
+ * 开关 `--allow-unstamped` 放行。方向是刻意的——**默认路径（`pnpm release:check`
+ * 不带任何参数）不可能悄悄发出一个没刻好的安装器**，要绕过必须自己打字。
+ */
+const allowUnstamped = process.argv.includes('--allow-unstamped')
+const workbenchTgz = artifacts.find(artifact => artifact.file.startsWith('wanyexin1998-dsh-workbench-'))
+if (workbenchTgz === undefined) throw new Error('workbench TGZ not found among packed artifacts')
+const expectedTgzName = `wanyexin1998-dsh-workbench-${contract.workbenchVersion}.tgz`
+if (workbenchTgz.file !== expectedTgzName) {
+  throw new Error(`packed ${workbenchTgz.file} but the contract says ${expectedTgzName}`)
+}
+const releaseUrl = `https://github.com/wanyexin1998/dsh-workbench/releases/download/v${contract.workbenchVersion}`
+const installerProblems = []
+for (const name of ['dsh-workbench-bootstrap.ps1', 'dsh-workbench-bootstrap.sh']) {
+  const text = readFileSync(join(root, 'scripts', 'bootstrap', name), 'utf8')
+  const digest = /WORKBENCH_TGZ_SHA256\s*=\s*'([^']*)'|\$WorkbenchTgzSha256\s*=\s*'([^']*)'/.exec(text)
+  const version = /WORKBENCH_VERSION\s*=\s*'([^']*)'|\$WorkbenchVersion\s*=\s*'([^']*)'/.exec(text)
+  const found = match => (match === null ? null : match[1] ?? match[2])
+  if (found(version) !== contract.workbenchVersion) {
+    installerProblems.push(`${name}: embedded version ${found(version)} != contract ${contract.workbenchVersion}`)
+  }
+  if (!text.includes(releaseUrl)) {
+    installerProblems.push(`${name}: does not carry the release URL ${releaseUrl}`)
+  }
+  if (found(digest) !== workbenchTgz.sha256) {
+    installerProblems.push(
+      `${name}: embedded TGZ digest ${found(digest)} != the digest of the ${workbenchTgz.file} just packed `
+      + `(${workbenchTgz.sha256})`,
+    )
+  }
+}
+if (installerProblems.length > 0) {
+  const detail = installerProblems.map(problem => `  - ${problem}`).join('\n')
+  if (!allowUnstamped) {
+    throw new Error(
+      `bootstrap installers do not describe this bundle:\n${detail}\n\n`
+      + `Stamp them and rebuild:\n`
+      + `  1. write ${workbenchTgz.sha256}\n`
+      + `     into WORKBENCH_TGZ_SHA256 (.sh) and $WorkbenchTgzSha256 (.ps1)\n`
+      + `  2. set WORKBENCH_VERSION / $WorkbenchVersion to ${contract.workbenchVersion}\n`
+      + `     and the release URL to ${releaseUrl}\n`
+      + `  3. re-run this bundle so SHA256SUMS covers the stamped scripts\n\n`
+      + `First pass of a release, before the digest is knowable? Re-run with --allow-unstamped.`,
+    )
+  }
+  console.warn(
+    `\n!! --allow-unstamped: publishing this bundle would break every install.\n${detail}\n`
+    + `!! Stamp ${workbenchTgz.sha256} into both installers and rebuild WITHOUT the flag.\n`,
+  )
+}
+
 const manifest = {
   schemaVersion: 2,
   sourceCommit: sourceRevision.stdout.trim(),
