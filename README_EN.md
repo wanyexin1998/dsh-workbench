@@ -77,7 +77,7 @@ Shortcut labels follow the Harness global language, and every chord can be rebou
 | Better Sidebar | Optional | fork `0.16.1`, commit `1685770…` | Provides Pane capability `protocol 1`, plus panel shortcut actions (`actionsProtocol 1`) |
 | Panel Compatibility | Optional | `0.1.0-rc.1` | Connects only explicit compatible providers |
 
-[`release-contract.json`](release-contract.json) is authoritative for full SHAs, branches, and distribution status. Stock Harness `0.1.1-rc.2` does not expose the required split interface, and stock Better Sidebar `0.16.1` has no multi-instance Pane capability.
+[`release-contract.json`](release-contract.json) is authoritative for full SHAs, branches, and distribution status. Stock Harness `0.1.2-rc.1` does not expose the required split interface, and stock Better Sidebar `0.16.1` has no multi-instance Pane capability.
 
 Workbench Split Pane, Navigator, and shortcuts work without Better Sidebar. When no compatible provider is installed, Panel Compatibility starts no Pane observer and changes no DOM, layout, or styles.
 
@@ -332,7 +332,7 @@ The current public contract allows at most two visible Panes. Five Panes require
 <details>
 <summary><strong>Why does this require a Harness fork?</strong></summary>
 
-Workbench relies on Session Presentation `protocol 2`, stable `visible` / `focused` state, and an independent SessionProvider for each Pane. Stock `0.1.1-rc.2` does not expose those interfaces.
+Workbench relies on Session Presentation `protocol 2`, stable `visible` / `focused` state, and an independent SessionProvider for each Pane. Stock `0.1.2-rc.1` does not expose those interfaces.
 </details>
 
 ## Project status

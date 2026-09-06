@@ -4,7 +4,7 @@ Source-preview DeepSeek Harness Web plugin providing two visible Session Panes, 
 
 ## Compatibility
 
-Requires the exact Harness fork and Presentation protocol 2 revision recorded in the repository root `release-contract.json`. Stock Harness `0.1.1-rc.2` does not expose this interface, so Split Pane fails closed there.
+Requires the exact Harness fork and Presentation protocol 2 revision recorded in the repository root `release-contract.json`. Stock Harness `0.1.2-rc.1` does not expose this interface, so Split Pane fails closed there.
 
 For end-user source installation, establish a user-approved detached Workbench commit through the root [`docs/INSTALL.md`](../../docs/INSTALL.md) flow before running any command below. Contributors may run source they authored or reviewed on top of that trusted baseline.
 

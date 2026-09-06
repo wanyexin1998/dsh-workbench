@@ -10,7 +10,7 @@ const verdict: GuardFailure = {
   disabled: true,
   reason: 'incompatible DeepSeek Harness presentation',
   detected: 'presentation.protocol 1',
-  supported: '0.1.1-rc.2 (presentation protocol 2)',
+  supported: '0.1.2-rc.1 (presentation protocol 2)',
 }
 
 describe('Startup-Guard failure surface (ARCH-02 / #25: visible, role="alert", no DOM fallback)', () => {

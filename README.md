@@ -76,7 +76,7 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 | Better Sidebar | 可选 | fork `0.16.1`，固定提交 `1685770…` | 提供 Pane capability `protocol 1`；含面板快捷键 actions（`actionsProtocol 1`） |
 | Panel Compatibility | 可选 | `0.1.0-rc.1` | 只连接显式兼容的面板提供方 |
 
-完整 SHA、分支和分发状态以 [`release-contract.json`](release-contract.json) 为准。原版 Harness `0.1.1-rc.2` 尚未提供此分屏接口；原版 Better Sidebar `0.16.1` 也没有多实例 Pane capability。
+完整 SHA、分支和分发状态以 [`release-contract.json`](release-contract.json) 为准。原版 Harness `0.1.2-rc.1` 尚未提供此分屏接口；原版 Better Sidebar `0.16.1` 也没有多实例 Pane capability。
 
 没有安装 Better Sidebar 时，Workbench 的双 Pane、Navigator 和快捷键仍可正常使用。Panel Compatibility 不会启动 Pane observer，也不会改变 DOM、布局或样式。
 
@@ -321,7 +321,7 @@ docs/
 <details>
 <summary><strong>为什么不能直接使用原版 Harness？</strong></summary>
 
-本版本依赖 Session Presentation `protocol 2`、稳定的 `visible` / `focused` 状态和每个 Pane 独立的 SessionProvider。原版 `0.1.1-rc.2` 尚未提供这些接口。
+本版本依赖 Session Presentation `protocol 2`、稳定的 `visible` / `focused` 状态和每个 Pane 独立的 SessionProvider。原版 `0.1.2-rc.1` 尚未提供这些接口。
 </details>
 
 ## 项目声明
