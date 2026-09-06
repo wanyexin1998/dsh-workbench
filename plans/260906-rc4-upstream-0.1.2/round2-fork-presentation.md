@@ -53,7 +53,13 @@ rc.1 只有一个 `ScopeProvider`，绑定 = `adapter.current`。双 pane 需要
 
 ### 2.3 拖放隔离与 Settings 动词
 
-round 1 已经把 `5adeadf3d`、`be23380af`、`82de604af` 挑上来了。你这轮只需确认双 pane 下 `DropOverlay` 的监听确实按 `data-session-pane` 隔离（原提交的测试应该已经在跑）。
+round 1 已经把 `5adeadf3d`、`be23380af`、`82de604af` 挑上来了（分支上现在是 5 个提交：`a250ed6fb`、`22e6d46ae`、`f6e36224c`、`cd82db7f4`、`16b869097`，全部通过各自包的测试与类型检查）。你这轮只需确认双 pane 下 `DropOverlay` 的监听确实按 `data-session-pane` 隔离——round 1 之前 `[data-session-pane]` 在分支上根本不存在，那条路径只被替身测过；你的 AppFrame 落地之后它才第一次对着真 DOM 跑。
+
+**round 1 纠正过的三处，别再照旧文本做**：
+
+- `ui-settings-general/src/client/stores.ts` 是 `be23380af` **新增**的文件，上游没有同名文件；§3.1 表里"两份 stores.ts 要合并"是探针跳过前一条提交造成的假象。它已经落地，不用碰。
+- fork 自己的代码也会踩 B3：round 1 已把 `stores.ts` 的 `defineStore`/`EngineStoreHandle` 从被删的 `dsh-client-runtime/client` 改到 `@deepseek-ai/dsh-client-store`。**你移植的每一段 fork 代码都要做同样的检查**——旧 fork 的 import 里凡是 `client/runtime`、`dsh-client-runtime` 的，一律换到 rc.1 的新家（`api/session-controller`、`dsh-client-store`、`dsh-session/types`）。
+- 上游 `ILayout` 除 `toggleSidebar` 外还有 `openDetails` / `closeDetails`（`ui-layout/src/client/service.ts:23-30`）；结论不变（上游没有 Settings 动词），但别在注释里写"上游只有 toggleSidebar"。
 
 ## 3. 测试
 
