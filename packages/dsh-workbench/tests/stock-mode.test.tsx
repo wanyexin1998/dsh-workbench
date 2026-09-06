@@ -158,8 +158,8 @@ afterEach(() => {
 })
 
 describe('apply() — stock DeepSeek Harness (no compatible split-pane presentation)', () => {
-  it('declares the connection and workspaces services required by fresh chat', () => {
-    expect(inject).toContain('connection')
+  it('declares the remote and workspaces services required by fresh chat', () => {
+    expect(inject).toContain('remote')
     expect(inject).toContain('workspaces')
   })
 

@@ -20,7 +20,7 @@ function makeCtx() {
 
 describe('client plugin wiring (seam B sample)', () => {
   it('declares required services', () => {
-    expect(inject).toContain('connection')
+    expect(inject).toContain('remote')
     expect(inject).toContain('slots')
     expect(inject).toContain('locale')
     expect(inject).toContain('workspaces')

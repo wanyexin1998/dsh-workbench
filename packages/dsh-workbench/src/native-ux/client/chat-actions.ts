@@ -364,15 +364,19 @@ export function createChatActions(options: ChatActionOptions): ChatActions {
       let created = false
       if (sessionId === undefined) {
         try {
-          const response = await services.connection.api.sessions.create({
+          // 0.1.2-rc.1：wire 从 `connection.api.sessions.create({…})` 换成
+          // `ctx.remote.session.create(request)`——恰好一个 request 参数，且
+          // promise 直接落在 `RemoteResult` 上，不再包一层 `{ result }`。
+          // 两条都由描述符定死，见 harness-adapter.ts 的 `RemoteService`。
+          const result = await services.remote.session.create({
             workspaceId: workspace.workspaceId,
             agentPreset: 'chat',
           })
-          if (!response.result.ok) {
+          if (!result.ok) {
             notifySafely(ui, t('chat.error.create'))
-            return { kind: 'create-failed', workspaceId: workspace.workspaceId, error: response.result.error }
+            return { kind: 'create-failed', workspaceId: workspace.workspaceId, error: result.error }
           }
-          sessionId = response.result.value.sessionId
+          sessionId = result.value.sessionId
           created = true
         } catch (error) {
           notifySafely(ui, t('chat.error.create'))

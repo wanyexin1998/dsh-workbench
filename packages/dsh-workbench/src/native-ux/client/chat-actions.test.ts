@@ -80,12 +80,17 @@ function harness(options: {
 }) {
   const sessionList = store(options.sessionSnapshot)
   const workspaceList = store(options.workspaceSnapshot)
+  // 这个替身必须与生成的描述符逐字同形，否则测试会证明一条真机上不成立的调用：
+  // `ctx.remote.session.create(request)` 收**恰好一个** request 对象（网关按
+  // 描述符校验参数个数），resolve 的是 `RemoteResult` 本身
+  // （`{ok:true;value} | {ok:false;error}`），外面**没有** `{ result }` 那一层。
+  // 出处见 harness-adapter.ts 的 `RemoteService`。
   const create = options.create ?? vi.fn(async () => ({
-    result: { ok: true as const, value: { sessionId: 'created-chat', agentPreset: 'chat' } },
+    ok: true as const, value: { sessionId: 'created-chat', agentPreset: 'chat' },
   }))
   const open = vi.fn()
   const services = {
-    connection: { api: { sessions: { create } } },
+    remote: { session: { create } },
     sessions: {
       scope: vi.fn(),
       list: sessionList,
@@ -370,7 +375,7 @@ describe('createChatActions', () => {
         ids: ['stale', 'created-chat'], current: 'source',
         byId: { stale, 'created-chat': session('created-chat', { updatedAt: NOW }) },
       })
-      return { result: { ok: true as const, value: { sessionId: 'created-chat', agentPreset: 'chat' } } }
+      return { ok: true as const, value: { sessionId: 'created-chat', agentPreset: 'chat' } }
     })
     fixture = harness({
       sessionSnapshot: { ids: ['stale'], current: 'source', byId: { stale } },
@@ -405,10 +410,10 @@ describe('createChatActions', () => {
 
   it('coalesces concurrent opens into one create/list/navigation attempt with stable Promise identity', async () => {
     let resolveCreate: ((value: {
-      result: { ok: true; value: { sessionId: string; agentPreset: string } }
+      ok: true; value: { sessionId: string; agentPreset: string }
     }) => void) | undefined
     const create = vi.fn(() => new Promise<{
-      result: { ok: true; value: { sessionId: string; agentPreset: string } }
+      ok: true; value: { sessionId: string; agentPreset: string }
     }>(resolve => { resolveCreate = resolve }))
     const fixture = harness({
       sessionSnapshot: { ids: [], current: 'source', byId: {} },
@@ -423,7 +428,7 @@ describe('createChatActions', () => {
     const second = action.open()
     expect(second).toBe(first)
     expect(create).toHaveBeenCalledOnce()
-    resolveCreate?.({ result: { ok: true, value: { sessionId: 'created-chat', agentPreset: 'chat' } } })
+    resolveCreate?.({ ok: true, value: { sessionId: 'created-chat', agentPreset: 'chat' } })
     await Promise.resolve()
     fixture.sessionList.update({
       ids: ['created-chat'], current: 'source', byId: { 'created-chat': session('created-chat') },
@@ -438,7 +443,7 @@ describe('createChatActions', () => {
     const fixture = harness({
       sessionSnapshot: { ids: [], current: 'source', byId: {} },
       workspaceSnapshot: { items: [{ workspaceId: 'work', title: 'Work', sessionIds: ['source'] }] },
-      create: vi.fn(async () => ({ result: { ok: false as const, error } })),
+      create: vi.fn(async () => ({ ok: false as const, error })),
     })
     await expect(createChatActions({
       services: fixture.services, t, now: () => NOW, ui: ui(),
@@ -558,7 +563,7 @@ describe('createChatActions', () => {
         ids: ['created-chat'], current: undefined,
         byId: { 'created-chat': session('created-chat', { updatedAt: NOW }) },
       })
-      return { result: { ok: true as const, value: { sessionId: 'created-chat', agentPreset: 'chat' } } }
+      return { ok: true as const, value: { sessionId: 'created-chat', agentPreset: 'chat' } }
     })
     fixture = harness({
       sessionSnapshot: { ids: [], current: undefined, byId: {} },

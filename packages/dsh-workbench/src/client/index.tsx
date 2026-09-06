@@ -1,4 +1,19 @@
-import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+// 0.1.2-rc.1 删掉了 `@deepseek-ai/dsh-client-runtime`（上游把 runtime 包拆散、
+// 整个删除），这里原来从它 type-import 的两个名字各自搬到了新的声明处：
+// `ClientContext` 本来就是 cordis `Context` 的别名——上游自己的客户端包也这么写
+// （`@deepseek-ai/dsh-client-ui-input-trigger/lib/types/client/index.d.ts:1`：
+// `import type { Context as ClientContext } from '@deepseek-ai/cordis'`），
+// 别名保留是为了让下面 `apply(ctx: ClientContext)` 的签名不变；
+// `SessionId` 由 API 装配包再导出（`@deepseek-ai/dsh-api-remotes/lib/types/
+// client/index.d.ts` 的 `export type { … SessionId … }`），与本包
+// `same-workspace-warning.tsx` 里已有的那条导入同源，不为一个类型别名新拉
+// `@deepseek-ai/dsh-session` 这条依赖。
+// 已知代价（不是本次引入的，与上面那条既有导入完全同形）：api-remotes 是从
+// `@deepseek-ai/dsh-client-connection` 再导出这个名字的，而那个包只在它自己的
+// devDependencies 里，装不到消费者这边，所以在本仓库的编译面上 `SessionId`
+// 实际退化成 `any`。宿主 profile 里包是齐的，声明处仍然是那一个。
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type { IConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { InputTriggerServiceContract } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
@@ -42,9 +57,17 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** Required services for split presentation and the merged Native UX modules. */
+/**
+ * Required services for split presentation and the merged Native UX modules.
+ *
+ * `remote` 取代了 0.1.2-rc.1 之前的 `connection`：本插件当初注入 connection 只是
+ * 为了拿它身上的 `api.sessions.create`，而那条路在 rc.1 上没有了，会话创建改走
+ * `ctx.remote.session.create`（见 harness-adapter.ts 的 `RemoteService`）。
+ * 注入的是 `remote` 而不是继续留着 connection，因为门禁要卡的正是"随手问这条
+ * 动作依赖的那个服务在不在"。
+ */
 export const inject = [
-  'connection', 'sessions', 'workspaces', 'slots', 'locale', 'layout',
+  'remote', 'sessions', 'workspaces', 'slots', 'locale', 'layout',
   'settingsScope', 'conversation', 'inputTriggers',
 ] as const
 
