@@ -36,6 +36,15 @@ const NOW = new Date(2026, 7, 29, 12, 0, 0).getTime()
 const TODAY_EARLY = new Date(2026, 7, 29, 8, 0, 0).getTime()
 const TODAY_LATE = new Date(2026, 7, 29, 10, 0, 0).getTime()
 const YESTERDAY = new Date(2026, 7, 28, 23, 59, 0).getTime()
+// Workspace 行上的 `updatedAt` 是 ISO-8601 字符串（宿主 `WorkspaceView` 的形状），
+// 与会话行上那个毫秒数不是一种东西。除非某条用例就是在测最近判定，否则一律用这
+// 个常量，好让"哪些用例真的依赖时间"一眼看得出来。
+const WS_AT = '2026-08-29T08:00:00.000Z'
+
+/** Workspace 行替身。只有真在测"最近改动"那一档的用例才自己写 `updatedAt`。 */
+function ws(workspaceId: string, title: string, sessionIds: readonly string[] = []) {
+  return { workspaceId, title, sessionIds, updatedAt: WS_AT }
+}
 
 function session(id: string, overrides: Partial<SessionListSnapshotFace['byId'][string]> = {}) {
   return {
@@ -113,43 +122,59 @@ const t = (key: string) => key
 describe('chat workspace and reuse policy', () => {
   it('prefers an exact case-insensitive chat title/name before source membership', () => {
     const workspaces = [
-      { workspaceId: 'current', title: 'Work', sessionIds: ['source'] },
-      { workspaceId: 'chat', name: 'ChAt', sessionIds: [] },
+      ws('current', 'Work', ['source']),
+      { workspaceId: 'chat', name: 'ChAt', sessionIds: [], updatedAt: WS_AT },
     ]
     expect(resolveChatWorkspace(workspaces, 'source')?.workspaceId).toBe('chat')
     expect(resolveChatWorkspace([
-      { workspaceId: 'not-chat', title: ' chat ', sessionIds: [] },
-      { workspaceId: 'current', title: 'Work', sessionIds: ['source'] },
+      ws('not-chat', ' chat '),
+      ws('current', 'Work', ['source']),
     ], 'source')?.workspaceId).toBe('current')
   })
 
-  it('falls back to the Workspace containing the captured source and returns undefined without either', () => {
-    const workspaces = [{ workspaceId: 'current', title: 'Work', sessionIds: ['source'] }]
+  it('falls back to the Workspace containing the captured source, and resolves nothing without any', () => {
+    const workspaces = [ws('current', 'Work', ['source'])]
     expect(resolveChatWorkspace(workspaces, 'source')?.workspaceId).toBe('current')
-    expect(resolveChatWorkspace(workspaces, 'missing')).toBeUndefined()
     expect(resolveChatWorkspace([], undefined)).toBeUndefined()
+    expect(resolveChatWorkspace([], 'source')).toBeUndefined()
   })
 
-  it('falls back to the host recent Workspace, and stays fail-closed when it is absent or stale', () => {
+  it('falls back to the most recently updated Workspace when no source was captured', () => {
     // Zero-Pane home state (nothing focused, sessions.list.current empty):
     // the first two tiers are both unreachable, and before this tier the
     // whole action was inert for anyone whose Workspaces are not named
     // "chat" — which is every ordinary user.
+    //
+    // Shuffled on purpose: the answer must come from the timestamps, not
+    // from list position or from "the last one wins".
     const workspaces = [
-      { workspaceId: 'roadmap', title: 'Product Roadmap', sessionIds: ['s1'] },
-      { workspaceId: 'infra', title: 'Infra', sessionIds: ['s2'] },
+      { workspaceId: 'roadmap', title: 'Product Roadmap', sessionIds: ['s1'], updatedAt: '2026-08-28T09:00:00.000Z' },
+      { workspaceId: 'infra', title: 'Infra', sessionIds: ['s2'], updatedAt: '2026-08-29T17:30:00.000Z' },
+      { workspaceId: 'archive', title: 'Archive', sessionIds: [], updatedAt: '2026-08-01T00:00:00.000Z' },
     ]
-    expect(resolveChatWorkspace(workspaces, undefined, 'infra')?.workspaceId).toBe('infra')
-    // Fail-closed: a host that projects no recent id, or one naming a
-    // Workspace that is no longer listed, resolves nothing at all.
-    expect(resolveChatWorkspace(workspaces, undefined)).toBeUndefined()
-    expect(resolveChatWorkspace(workspaces, undefined, 'deleted')).toBeUndefined()
-    // ...and it stays the LAST tier: a captured source still wins.
-    expect(resolveChatWorkspace(workspaces, 's1', 'infra')?.workspaceId).toBe('roadmap')
+    expect(resolveChatWorkspace(workspaces, undefined)?.workspaceId).toBe('infra')
+    // ...and it stays the LAST tier: a captured source still wins over a
+    // Workspace that was touched more recently.
+    expect(resolveChatWorkspace(workspaces, 's1')?.workspaceId).toBe('roadmap')
+  })
+
+  it('skips Workspace rows whose updatedAt does not parse, and stays fail-closed when none does', () => {
+    // `ctx.get()` makes no runtime promise about the host's row shape, so an
+    // unparseable timestamp must lose to every real one rather than sorting
+    // as 0 (which would beat every real instant) or throwing.
+    const workspaces = [
+      { workspaceId: 'broken', title: 'Broken', sessionIds: [], updatedAt: 'not-a-date' },
+      { workspaceId: 'roadmap', title: 'Product Roadmap', sessionIds: [], updatedAt: '2026-08-28T09:00:00.000Z' },
+    ]
+    expect(resolveChatWorkspace(workspaces, undefined)?.workspaceId).toBe('roadmap')
+    expect(resolveChatWorkspace([
+      { workspaceId: 'broken', title: 'Broken', sessionIds: [], updatedAt: 'not-a-date' },
+      { workspaceId: 'empty', title: 'Empty', sessionIds: [], updatedAt: '' },
+    ], undefined)).toBeUndefined()
   })
 
   it('reuses the newest same-day blank chat session only', () => {
-    const workspace = { workspaceId: 'chat', title: 'Chat', sessionIds: ['old', 'new', 'nonblank', 'yesterday'] }
+    const workspace = ws('chat', 'Chat', ['old', 'new', 'nonblank', 'yesterday'])
     const sessions: SessionListSnapshotFace = {
       ids: workspace.sessionIds,
       current: 'source',
@@ -167,7 +192,7 @@ describe('chat workspace and reuse policy', () => {
     // "blank chat session" is two conditions, not one: a blank session left
     // behind by a coding preset carries that preset's agent and must not be
     // silently handed to the chat action.
-    const workspace = { workspaceId: 'chat', title: 'Chat', sessionIds: ['coder', 'unset'] }
+    const workspace = ws('chat', 'Chat', ['coder', 'unset'])
     const sessions: SessionListSnapshotFace = {
       ids: workspace.sessionIds,
       current: 'source',
@@ -186,7 +211,7 @@ describe('chat workspace and reuse policy', () => {
     // a real host value, not an absence), an empty projection bag, and no
     // `projectionValues` on the row at all. All three must fail the reuse
     // filter exactly like a foreign preset does.
-    const workspace = { workspaceId: 'chat', title: 'Chat', sessionIds: ['nulled', 'unprojected'] }
+    const workspace = ws('chat', 'Chat', ['nulled', 'unprojected'])
     const sessions: SessionListSnapshotFace = {
       ids: workspace.sessionIds,
       current: 'source',
@@ -307,8 +332,8 @@ describe('createChatActions', () => {
         byId: { 'chat-existing': session('chat-existing') },
       },
       workspaceSnapshot: { items: [
-        { workspaceId: 'presentation-workspace', title: 'Work', sessionIds: ['presentation-source', 'chat-existing'] },
-        { workspaceId: 'list-workspace', title: 'Other', sessionIds: ['list-current'] },
+        ws('presentation-workspace', 'Work', ['presentation-source', 'chat-existing']),
+        ws('list-workspace', 'Other', ['list-current']),
       ] },
       presentation: editionPresentation(['presentation-source'], 'presentation-source'),
     })
@@ -376,7 +401,7 @@ describe('createChatActions', () => {
           new: session('new', { updatedAt: TODAY_LATE }),
         },
       },
-      workspaceSnapshot: { items: [{ workspaceId: 'chat-ws', title: 'CHAT', sessionIds: ['old', 'new'] }] },
+      workspaceSnapshot: { items: [ws('chat-ws', 'CHAT', ['old', 'new'])] },
     })
     const result = await createChatActions({
       services: fixture.services, t, now: () => NOW, ui: ui(), focusComposer: vi.fn(),
@@ -400,7 +425,7 @@ describe('createChatActions', () => {
     })
     fixture = harness({
       sessionSnapshot: { ids: ['stale'], current: 'source', byId: { stale } },
-      workspaceSnapshot: { items: [{ workspaceId: 'work', title: 'Work', sessionIds: ['source', 'stale'] }] },
+      workspaceSnapshot: { items: [ws('work', 'Work', ['source', 'stale'])] },
       create,
     })
     const result = await createChatActions({
@@ -414,7 +439,7 @@ describe('createChatActions', () => {
   it('does not navigate until the created id appears in sessions.list', async () => {
     const fixture = harness({
       sessionSnapshot: { ids: [], current: 'source', byId: {} },
-      workspaceSnapshot: { items: [{ workspaceId: 'work', title: 'Work', sessionIds: ['source'] }] },
+      workspaceSnapshot: { items: [ws('work', 'Work', ['source'])] },
     })
     const action = createChatActions({
       services: fixture.services, t, now: () => NOW, ui: ui(), focusComposer: vi.fn(),
@@ -438,7 +463,7 @@ describe('createChatActions', () => {
     }>(resolve => { resolveCreate = resolve }))
     const fixture = harness({
       sessionSnapshot: { ids: [], current: 'source', byId: {} },
-      workspaceSnapshot: { items: [{ workspaceId: 'work', title: 'Work', sessionIds: ['source'] }] },
+      workspaceSnapshot: { items: [ws('work', 'Work', ['source'])] },
       create,
     })
     const action = createChatActions({
@@ -463,7 +488,7 @@ describe('createChatActions', () => {
     const error = { code: 'agent-preset-not-found', message: 'chat missing' }
     const fixture = harness({
       sessionSnapshot: { ids: [], current: 'source', byId: {} },
-      workspaceSnapshot: { items: [{ workspaceId: 'work', title: 'Work', sessionIds: ['source'] }] },
+      workspaceSnapshot: { items: [ws('work', 'Work', ['source'])] },
       create: vi.fn(async () => ({ ok: false as const, error })),
     })
     await expect(createChatActions({
@@ -475,7 +500,7 @@ describe('createChatActions', () => {
   it('uses stock sessions.open and emits the localized downgrade notice once per instance', async () => {
     const fixture = harness({
       sessionSnapshot: { ids: ['chat'], current: 'source', byId: { chat: session('chat') } },
-      workspaceSnapshot: { items: [{ workspaceId: 'chat-ws', title: 'Chat', sessionIds: ['chat'] }] },
+      workspaceSnapshot: { items: [ws('chat-ws', 'Chat', ['chat'])] },
     })
     const surface = ui()
     const action = createChatActions({
@@ -498,7 +523,7 @@ describe('createChatActions', () => {
 
     const stockFixture = () => harness({
       sessionSnapshot: { ids: ['chat'], current: 'source', byId: { chat: session('chat') } },
-      workspaceSnapshot: { items: [{ workspaceId: 'chat-ws', title: 'Chat', sessionIds: ['chat'] }] },
+      workspaceSnapshot: { items: [ws('chat-ws', 'Chat', ['chat'])] },
     })
 
     // `strictSessionComposer` refuses `focusedPaneScope`'s document fallback
@@ -543,8 +568,8 @@ describe('createChatActions', () => {
     // The Workspace here is deliberately named after the user's work, not
     // "Chat": with a "Chat"-named Workspace the FIRST resolution tier answers
     // and this branch is reachable for that one lucky naming only. Every
-    // ordinary user arrives here through the recent-Workspace tier, so that
-    // is what this fixture exercises.
+    // ordinary user arrives here through the most-recently-updated tier, so
+    // that is what this fixture exercises.
     const presentation = {
       protocol: 2,
       state: { getSnapshot: () => ({ visible: [] as string[], focused: undefined, capacity: 2 }) },
@@ -554,10 +579,7 @@ describe('createChatActions', () => {
     }
     const fixture = harness({
       sessionSnapshot: { ids: ['chat'], current: undefined, byId: { chat: session('chat') } },
-      workspaceSnapshot: {
-        items: [{ workspaceId: 'roadmap-ws', title: 'Product Roadmap', sessionIds: ['chat'] }],
-        recentWorkspaceId: 'roadmap-ws',
-      },
+      workspaceSnapshot: { items: [ws('roadmap-ws', 'Product Roadmap', ['chat'])] },
       presentation: presentation as unknown as ReturnType<typeof editionPresentation>,
     })
     const surface = ui()
@@ -573,11 +595,12 @@ describe('createChatActions', () => {
     expect(surface.notify).not.toHaveBeenCalled()
   })
 
-  it('resolves the Workspace from the recent projection when the chord is pressed with nothing open', async () => {
+  it('resolves the most recently updated Workspace when the chord is pressed with nothing open', async () => {
     // The stock-mode half of the same zero-source state, and the one users
     // actually hit: no focused Pane, no current Session, no Workspace named
-    // "chat". Before the recent-Workspace tier this returned no-workspace and
-    // the chord looked broken.
+    // "chat". Without this tier the chord returns no-workspace and looks
+    // broken. End to end here, not just in the resolver unit test, because
+    // this is the path that reads the timestamp off the real snapshot shape.
     let fixture: ReturnType<typeof harness>
     const create = vi.fn(async () => {
       fixture.sessionList.update({
@@ -590,10 +613,9 @@ describe('createChatActions', () => {
       sessionSnapshot: { ids: [], current: undefined, byId: {} },
       workspaceSnapshot: {
         items: [
-          { workspaceId: 'archive-ws', title: 'Archive', sessionIds: [] },
-          { workspaceId: 'roadmap-ws', title: 'Product Roadmap', sessionIds: [] },
+          { workspaceId: 'archive-ws', title: 'Archive', sessionIds: [], updatedAt: '2026-08-01T00:00:00.000Z' },
+          { workspaceId: 'roadmap-ws', title: 'Product Roadmap', sessionIds: [], updatedAt: WS_AT },
         ],
-        recentWorkspaceId: 'roadmap-ws',
       },
       create,
     })
@@ -607,7 +629,7 @@ describe('createChatActions', () => {
   it('returns source-not-visible and cancelled as distinct Edition outcomes', async () => {
     const missing = harness({
       sessionSnapshot: { ids: ['chat'], current: 'source', byId: { chat: session('chat') } },
-      workspaceSnapshot: { items: [{ workspaceId: 'chat-ws', title: 'Chat', sessionIds: ['chat'] }] },
+      workspaceSnapshot: { items: [ws('chat-ws', 'Chat', ['chat'])] },
       presentation: editionPresentation(['other'], 'source'),
     })
     await expect(createChatActions({
@@ -616,7 +638,7 @@ describe('createChatActions', () => {
 
     const full = harness({
       sessionSnapshot: { ids: ['chat'], current: 'source', byId: { chat: session('chat') } },
-      workspaceSnapshot: { items: [{ workspaceId: 'chat-ws', title: 'Chat', sessionIds: ['chat'] }] },
+      workspaceSnapshot: { items: [ws('chat-ws', 'Chat', ['chat'])] },
       presentation: editionPresentation(['source', 'other'], 'source'),
     })
     const surface = ui()
@@ -630,7 +652,7 @@ describe('createChatActions', () => {
     const failure = new Error('open failed')
     const fixture = harness({
       sessionSnapshot: { ids: ['chat'], current: 'source', byId: { chat: session('chat') } },
-      workspaceSnapshot: { items: [{ workspaceId: 'chat-ws', title: 'Chat', sessionIds: ['chat'] }] },
+      workspaceSnapshot: { items: [ws('chat-ws', 'Chat', ['chat'])] },
       presentation: editionPresentation(['source'], 'source', { openError: failure }),
     })
     await expect(createChatActions({

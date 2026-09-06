@@ -87,31 +87,25 @@ export interface WorkspaceSummaryFace {
   readonly title?: string
   readonly name?: string
   readonly sessionIds: readonly string[]
+  /**
+   * ISO-8601 last-mutation instant of this Workspace, declared exactly as the
+   * host declares it: `WorkspaceView.updatedAt: string`
+   * （`dsh-v0.1.2-rc.1:packages/api/workspace-controller/src/types.ts:26`，
+   * 注释原文 "ISO-8601 last-mutation instant"；同结构体还带一个 `createdAt`）。
+   * 宿主自己也拿它做真源——`ClientWorkspaceModel.upsert` 用
+   * `Date.parse(view.updatedAt)` 判两条竞争的投影谁更新
+   * （同 tag `src/client/model.ts`）。
+   *
+   * 随手问的 workspace 解析链拿它做**最后一档**（见 chat-actions.ts 的
+   * `resolveChatWorkspace`）。这里声明成必填是照抄宿主的声明；解析那一侧仍然
+   * 对解析失败的值做 NaN 跳过，因为 `ctx.get()` 那头没有任何运行时保证——
+   * 与本文件其余几处防御性收窄同一个理由。
+   */
+  readonly updatedAt: string
 }
 
 export interface WorkspaceListSnapshotFace {
   readonly items: readonly WorkspaceSummaryFace[]
-  /**
-   * Most recently active Workspace — the last resort of the fresh-chat
-   * workspace resolution chain (`resolveChatWorkspace`), used when no source
-   * Session was captured at all (zero-Pane home state: nothing focused and
-   * `sessions.list.current` empty, e.g. right after `sessions.clear()`).
-   *
-   * 0.1.2-rc.1 起宿主**不再投影这个字段**。它在 0.1.1-rc.2 上是真实存在的
-   * （旧 runtime 包 `lib/types/client/workspaces/service.d.ts:24-25`：
-   * `WorkspaceListState.recentWorkspaceId: WorkspaceId | undefined`）；
-   * 搬家之后的 workspace 快照是
-   * `@deepseek-ai/dsh-api-workspace-controller/lib/types/client/model.d.ts:9-16`
-   * 的 `WorkspaceSnapshot`，只有 items / archivedSessionIds / state / phase /
-   * error 五个字段，没有任何"最近活跃 Workspace"的投影。
-   *
-   * 后果：**零 Pane 首页那一档解析在 0.1.2-rc.1 上恒不命中**，随手问会落到
-   * `no-workspace` 提示。这正是这个字段一开始就写成可选的原因——宿主不投影就
-   * 退化成"解析不出 Workspace"（fail-closed），绝不随便挑一个。要把这一档接
-   * 回来得换一个判据（`WorkspaceView` 现在带 `updatedAt`，可以按它取最近的），
-   * 那是产品决定，不属于这次版本迁移。
-   */
-  readonly recentWorkspaceId?: string
 }
 
 export interface WorkspacesService {
