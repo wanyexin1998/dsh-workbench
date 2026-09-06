@@ -235,9 +235,12 @@ describe('placeQuoteBadge', () => {
     expect(point).toEqual({ top: 302, left: 604 })
   })
 
-  it('clamps the fallback inside the band (scrollbar gutter already deducted)', () => {
+  it('clamps the fallback inside the band (scrollbar gutter and turn rail already deducted)', () => {
+    // 800(band.right) - 40(回合导航栏保留带) - 4(EDGE_INSET) - 16(徽标宽)。
+    // 数字写死不引用常量：引用了的话把常量改成 0 时期望值会跟着变，测试就再也
+    // 抓不住保留带被拿掉这件事。
     const point = placeQuoteBadge({ top: 300, bottom: 320, right: 900 }, { right: 900 }, band, badge)
-    expect(point?.left).toBe(800 - 4 - 16)
+    expect(point?.left).toBe(740)
   })
 
   it('returns null for a line entirely outside the band instead of clamping it', () => {
@@ -273,15 +276,28 @@ describe('placeQuoteBadge', () => {
   })
 
   it('stacks upward once the visual line has no horizontal room left', () => {
-    const taken = [{ top: 302, left: 764, width: 16, height: 16 }]
-    const point = placeQuoteBadge({ top: 300, bottom: 320, right: 700 }, { right: 760 }, band, badge, taken)
-    expect(point).toEqual({ top: 302 - 18, left: 764 })
+    // 740 = band.right(800) - TURN_RAIL_RESERVE(40) - EDGE_INSET(4) - width(16)：
+    // 恰好贴着保留带左侧的最后一个合法落点，右边再挪一格就进栏了。
+    const taken = [{ top: 302, left: 740, width: 16, height: 16 }]
+    const point = placeQuoteBadge({ top: 300, bottom: 320, right: 700 }, { right: 736 }, band, badge, taken)
+    expect(point).toEqual({ top: 302 - 18, left: 740 })
   })
 
   it('leaves a lone badge exactly where the rule put it (no gratuitous shifting)', () => {
     const taken = [{ top: 500, left: 704, width: 16, height: 16 }]
     const point = placeQuoteBadge({ top: 300, bottom: 320, right: 400 }, { right: 700 }, band, badge, taken)
     expect(point).toEqual({ top: 302, left: 704 })
+  })
+
+  it('stays LEFT of the host turn rail even when the text column runs to the band edge', () => {
+    // 上游 0.1.2-rc.1 的 TurnNavigator 就贴在这条带子的右缘里（栏宽 28 + 自留
+    // 12 = 40px 保留带）。这是最容易压上去的一格：正文列一直顶到带子右缘，
+    // 徽标只能走"引用末端"那一档，而引用末端本身也在带子边上——保留带是这里
+    // 唯一把它拉回来的东西。
+    const RESERVED_LEFT_EDGE = 800 - 40 // band.right - TURN_RAIL_RESERVE
+    const point = placeQuoteBadge({ top: 300, bottom: 320, right: 800 }, { right: 800 }, band, badge)!
+    expect(point.left + badge.width).toBeLessThanOrEqual(RESERVED_LEFT_EDGE)
+    expect(point.left).toBe(740) // 760 - 4(EDGE_INSET) - 16(徽标宽)
   })
 })
 
@@ -429,8 +445,23 @@ describe('placeQuoteCard', () => {
   it('clamps horizontally into the band instead of hanging off either edge', () => {
     // QuoteBand 原本只有 top/bottom/right —— 徽标永远靠右，用不上左缘；有宽度的
     // 盒子两侧都要钳，所以带子补了 left。
-    expect(placeQuoteCard({ top: 300, bottom: 320 }, { left: 700 }, card, band).left).toBe(480)
+    // 440 = 800(band.right) - 40(回合导航栏保留带) - 320(卡片宽)。
+    expect(placeQuoteCard({ top: 300, bottom: 320 }, { left: 700 }, card, band).left).toBe(440)
     expect(placeQuoteCard({ top: 300, bottom: 320 }, { left: 10 }, card, band).left).toBe(40)
+  })
+
+  it('never lets the card right edge enter the host turn rail reserve', () => {
+    // 卡片比徽标宽得多，是最容易探进保留带的那个盒子。左缘对齐正文列左缘，
+    // 所以正文列越靠右、卡片越宽，右缘越容易越界——这里两种都试。
+    const RESERVED_LEFT_EDGE = 800 - 40 // band.right - TURN_RAIL_RESERVE
+    for (const rowLeft of [700, 520, 300]) {
+      for (const size of [card, { width: 420, height: 140 }, { width: 240, height: 90 }]) {
+        const place = placeQuoteCard({ top: 300, bottom: 320 }, { left: rowLeft }, size, band)
+        const overflowsRail = place.left + size.width > RESERVED_LEFT_EDGE
+        expect({ rowLeft, width: size.width, left: place.left, overflowsRail })
+          .toMatchObject({ overflowsRail: false })
+      }
+    }
   })
 
   it('does not clamp against a band it could not measure', () => {
