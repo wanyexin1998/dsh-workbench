@@ -47,8 +47,8 @@ an immutable, hash-verified GitHub Release artifact rather than source.
 
 ### (a) General plugin — stock Harness
 
-Works on any stock Harness install. You get Navigator, shortcuts, and every
-capability that does not need multi-Session Presentation. Split Pane stays
+Works on any stock Harness install. You get the shortcuts, selection
+quoting, and every capability that does not need multi-Session Presentation. Split Pane stays
 inactive — the official interface it needs (`sessions.presentation` protocol
 2) is not part of stock Harness yet; it is an open proposal, tracked at
 [discussion #4718](https://github.com/deepseek-ai/deepseek-harness/discussions/4718).
@@ -155,8 +155,8 @@ against itself before it is allowed to report `installed` (`phase3b_verify_load`
 in `scripts/bootstrap/dsh-workbench-bootstrap.sh`).
 
 Then start Harness Web the way you normally do. On this path you get
-Navigator, the Workbench shortcuts (rebindable in the shortcut settings
-page), and Workbench Ask. Split Pane does not activate, and with it these
+the Workbench shortcuts (rebindable in the shortcut settings page),
+Workbench Ask, and in-place selection quoting. Split Pane does not activate, and with it these
 stay unavailable: `Primary+\` (close focused Pane), and the two Workbench
 Ask actions that open a second Pane ("More detail", "Ask in a side chat").
 Those need Presentation protocol 2, which the Split Pane module and the
@@ -194,7 +194,7 @@ residue; (5) the command is singular and directly copy-paste ready.
 **Windows — Chinese (verbatim from tasks.md §1):**
 
 ````text
-✅ DSH Workbench 已安装完成。Navigator、快捷键等通用功能现在就可以使用。
+✅ DSH Workbench 已安装完成。快捷键等通用功能现在就可以使用。
 
 ℹ️ 分屏（双 Pane）功能当前未激活：你的官方 Harness 还不支持多 Pane 所需的
 接口（该接口已作为提案提交官方，进展见
@@ -215,7 +215,7 @@ Windows（需要 PowerShell 7+，即 `pwsh`）：
 **Windows — English (translation):**
 
 ````text
-✅ DSH Workbench is installed. Navigator, shortcuts, and the rest of the
+✅ DSH Workbench is installed. Shortcuts and the rest of the
 general-purpose functionality work now.
 
 ℹ️ Split Pane (dual Pane) is not active yet: your official Harness does not
@@ -242,7 +242,7 @@ The command embedded above is byte-identical to the normative Chinese sample (th
 **macOS — Chinese (verbatim from tasks.md §1):**
 
 ````text
-✅ DSH Workbench 已安装完成。Navigator、快捷键等通用功能现在就可以使用。
+✅ DSH Workbench 已安装完成。快捷键等通用功能现在就可以使用。
 
 ℹ️ 分屏（双 Pane）功能当前未激活：你的官方 Harness 还不支持多 Pane 所需的
 接口（该接口已作为提案提交官方，进展见
@@ -263,7 +263,7 @@ rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.3
 **macOS — English (translation):**
 
 ````text
-✅ DSH Workbench is installed. Navigator, shortcuts, and the rest of the
+✅ DSH Workbench is installed. Shortcuts and the rest of the
 general-purpose functionality work now.
 
 ℹ️ Split Pane (dual Pane) is not active yet: your official Harness does not
@@ -607,6 +607,6 @@ installs](#after-it-installs) there for what to check instead.
 
 - Ctrl/Command-click a listed Session opens it beside the focused Pane.
 - Ordinary click replaces the focused Pane.
-- Both Panes preserve independent drafts, scroll state, Navigator, and optional panels.
+- Both Panes preserve independent drafts, scroll state, the host turn rail, and optional panels.
 - Refresh restores one Pane; multi-Pane membership is process-local by design.
 

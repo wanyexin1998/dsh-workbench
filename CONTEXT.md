@@ -12,7 +12,7 @@
 
 **focused** — the visible Session receiving shortcuts, navigation highlighting, and panel-command routing. Focus is not membership.
 
-**Workbench** — `@wanyexin1998/dsh-workbench`, containing Split Pane, Navigator, shortcuts, and Same Workspace Warning.
+**Workbench** — `@wanyexin1998/dsh-workbench`, containing Split Pane, shortcuts, selection quoting, and Same Workspace Warning.
 
 **Panel Compatibility** — the optional `@wanyexin1998/dsh-workbench-panel-compat` package. It connects only explicit versioned adapters.
 

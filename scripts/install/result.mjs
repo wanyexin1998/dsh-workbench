@@ -114,7 +114,7 @@ export function makeResult(state, options = {}) {
  *   not be detected / is absent. Compatible with Split Pane only when
  *   exactly `2`.
  * @property {boolean} wantsSplitPane Whether the user asked for Split Pane,
- *   as opposed to only the generic Workbench features (Navigator, shortcuts).
+ *   as opposed to only the generic Workbench features (shortcuts, quoting).
  * @property {boolean} dshHomeWritable Whether the agent/sandbox can write to
  *   the resolved target `DSH_HOME` (e.g. `~/.dsh/profiles/<profile>`).
  * @property {boolean} artifactsVerified Whether the release artifact (TGZ +

@@ -180,7 +180,7 @@ test('unverified artifacts short-circuit to failed before any proceed phase, eve
 // --- validateDisclosure: tasks.md §1 five hard requirements ---
 
 const compliantDisclosure = [
-  '✅ DSH Workbench 已安装完成。Navigator、快捷键等通用功能现在就可以使用。',
+  '✅ DSH Workbench 已安装完成。快捷键等通用功能现在就可以使用。',
   '',
   'ℹ️ 分屏（双 Pane）功能当前未激活：你的官方 Harness 还不支持多 Pane 所需的接口。',
   '这不是安装出错，其余功能不受影响。',
@@ -202,7 +202,7 @@ test('validateDisclosure accepts a compliant Chinese sample covering all five el
 
 test('validateDisclosure rejects text missing the coexistence statement', () => {
   const missingCoexistence = [
-    '✅ DSH Workbench 已安装完成。Navigator、快捷键等通用功能现在就可以使用。',
+    '✅ DSH Workbench 已安装完成。快捷键等通用功能现在就可以使用。',
     '',
     'ℹ️ 分屏（双 Pane）功能当前未激活：你的官方 Harness 还不支持多 Pane 所需的接口。',
     '这不是安装出错，其余功能不受影响。',
@@ -227,7 +227,7 @@ test('validateDisclosure rejects text containing the unfilled <BOOTSTRAP_COMMAND
 
 test('validateDisclosure rejects text with zero command lines', () => {
   const withoutCommand = [
-    '✅ DSH Workbench 已安装完成。Navigator、快捷键等通用功能现在就可以使用。',
+    '✅ DSH Workbench 已安装完成。快捷键等通用功能现在就可以使用。',
     '',
     'ℹ️ 分屏（双 Pane）功能当前未激活：你的官方 Harness 还不支持多 Pane 所需的接口。',
     '这不是安装出错，其余功能不受影响。',
@@ -252,7 +252,7 @@ test('validateDisclosure rejects text missing requirement 1 (Split Pane inactive
 
 test('validateDisclosure rejects text missing requirement 2 (other features work now statement)', () => {
   const missingRequirement2 = compliantDisclosure
-    .replace('Navigator、快捷键等通用功能现在就可以使用。', 'Navigator、快捷键等通用功能已启用。')
+    .replace('快捷键等通用功能现在就可以使用。', '快捷键等通用功能已启用。')
     .replace('这不是安装出错，其余功能不受影响。', '这不是安装出错。')
   const result = validateDisclosure(missingRequirement2)
   assert.equal(result.valid, false)

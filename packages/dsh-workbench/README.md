@@ -1,6 +1,6 @@
 # @wanyexin1998/dsh-workbench
 
-Source-preview DeepSeek Harness Web plugin providing two visible Session Panes, a per-Pane conversation Navigator, Same Workspace Warning, and configurable localized shortcuts.
+Source-preview DeepSeek Harness Web plugin providing two visible Session Panes, Same Workspace Warning, in-place selection quoting, and configurable localized shortcuts.
 
 ## Compatibility
 
@@ -26,7 +26,6 @@ The Host bundle embeds Schemastery and Cosmokit. Their complete MIT notice ships
 - Ctrl/Command-click opens a listed Session beside the focused Pane.
 - Ordinary click replaces the focused Pane.
 - Focus changes preserve Pane order and component identity.
-- Navigator markers correspond exactly to human input events.
 - Shortcut names follow the Harness global Simplified Chinese or English locale.
 - Pane-local panels are optional and supplied by `@wanyexin1998/dsh-workbench-panel-compat`.
 

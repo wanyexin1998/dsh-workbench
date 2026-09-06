@@ -1,9 +1,9 @@
 <p align="center">
-  <img src="docs/assets/dsh-workbench-banner.png" width="100%" alt="DSH Workbench dual-Pane visual with two independent Session panels, a central divider, and Navigator rails">
+  <img src="docs/assets/dsh-workbench-banner.png" width="100%" alt="DSH Workbench dual-Pane visual with two independent Session panels and a central divider">
 </p>
 
 <p align="center">
-  A two-Pane workspace for DeepSeek Harness Web, with independent navigation, shortcuts, and optional side panels for each Session.
+  A two-Pane workspace for DeepSeek Harness Web: run two Sessions side by side, with application shortcuts, quote annotation, and optional Pane-local side panels.
 </p>
 
 <p align="left">
@@ -37,8 +37,7 @@ DeepSeek Harness normally drives the interface from one current Session. DSH Wor
 | Capability | Experience |
 | --- | --- |
 | Two Panes | View and operate two Sessions at once without remounting the other Pane on focus changes |
-| Pane-local state | Drafts, scroll position, Navigator, and optional panels remain independent |
-| Navigator | One marker per real human input, with hover preview and precise message reveal |
+| Pane-local state | Drafts, scroll position, the turn rail, and optional panels remain independent |
 | Application shortcuts | Configurable Simplified Chinese / English labels following the Harness global locale; New Session, Open Settings, Previous Session, and Jump to Latest are listed under "Default shortcuts" below |
 | Workbench Ask | Open a zero-tool chat quickly, or fork a completed-message selection into a side chat to follow up |
 | Quote annotation | Mark a quoted passage where it lives (tint plus a numbered badge), write a note per quote, and keep only a counted chip on the composer |
@@ -58,7 +57,7 @@ Each Session owns its title, workspace, mode, composer, and Pane-panel controls.
 ### Shortcuts following the global locale
 
 <p align="center">
-  <img src="docs/assets/dsh-workbench-shortcuts.png" width="100%" alt="DSH Workbench shortcuts settings listing localized actions for Navigator, composer, sidebar, stop Session, and close Pane with their chords">
+  <img src="docs/assets/dsh-workbench-shortcuts.png" width="100%" alt="DSH Workbench shortcuts settings listing localized actions for the composer, sidebar, stop Session, and close Pane with their chords">
 </p>
 
 Shortcut labels follow the Harness global language, and every chord can be rebound and persisted.
@@ -79,7 +78,7 @@ Shortcut labels follow the Harness global language, and every chord can be rebou
 
 [`release-contract.json`](release-contract.json) is authoritative for full SHAs, branches, and distribution status. Stock Harness `0.1.2-rc.1` does not expose the required split interface, and stock Better Sidebar `0.16.1` has no multi-instance Pane capability.
 
-Workbench Split Pane, Navigator, and shortcuts work without Better Sidebar. When no compatible provider is installed, Panel Compatibility starts no Pane observer and changes no DOM, layout, or styles.
+Workbench Split Pane and shortcuts work without Better Sidebar. When no compatible provider is installed, Panel Compatibility starts no Pane observer and changes no DOM, layout, or styles.
 
 ## Quick start
 
@@ -130,7 +129,7 @@ The complete version lives in [`docs/INSTALL.md` § Advanced: source build](docs
 > **One-line install prompt (source-audit path): send the complete sentence below to DeepSeek Harness**
 >
 > ```text
-> Install DSH Workbench from https://github.com/wanyexin1998/dsh-workbench: first ask me for a full 40-character Workbench commit obtained from an independent trusted channel and stop if I do not provide one; require a nonexistent target directory, use git clone --no-checkout and checkout --detach that commit, stop after every failed Git command, and verify detached HEAD, a completely clean worktree, and case-insensitive exact equality between git rev-parse --verify HEAD and the supplied commit; only after every check succeeds may you read executable repository instructions and run pnpm install --frozen-lockfile and pnpm release:check, then install the generated Workbench TGZ into the web profile; install Panel Compatibility only when a compatible Better Sidebar fork is already present, never install or replace a third-party plugin automatically, never publish to npm, and finally report the actual commits, TGZ SHA256 values, and verification results for Split Pane, Navigator, and shortcuts.
+> Install DSH Workbench from https://github.com/wanyexin1998/dsh-workbench: first ask me for a full 40-character Workbench commit obtained from an independent trusted channel and stop if I do not provide one; require a nonexistent target directory, use git clone --no-checkout and checkout --detach that commit, stop after every failed Git command, and verify detached HEAD, a completely clean worktree, and case-insensitive exact equality between git rev-parse --verify HEAD and the supplied commit; only after every check succeeds may you read executable repository instructions and run pnpm install --frozen-lockfile and pnpm release:check, then install the generated Workbench TGZ into the web profile; install Panel Compatibility only when a compatible Better Sidebar fork is already present, never install or replace a third-party plugin automatically, never publish to npm, and finally report the actual commits, TGZ SHA256 values, and verification results for Split Pane and shortcuts.
 > ```
 
 ### Requirements
@@ -197,7 +196,6 @@ Successful verification writes these files under `dist/`:
 
 | Action | Default chord | Notes |
 | --- | --- | --- |
-| Toggle Navigator | `Primary+Shift+O` | |
 | Focus composer | `Primary+/` | |
 | Toggle sidebar | `Primary+B` | Conflicts with the browser bookmark shortcut; Settings surfaces a warning |
 | Stop current Session | `Primary+Shift+X` | |
@@ -293,7 +291,7 @@ Read [`SECURITY.md`](SECURITY.md) before reporting a vulnerability. Never place 
 
 ```text
 packages/
-├─ dsh-workbench/               # Split Pane, Navigator, shortcuts, workspace warning
+├─ dsh-workbench/               # Split Pane, shortcuts, workspace warning
 └─ dsh-workbench-panel-compat/  # Optional Pane-local panel adapter layer
 docs/
 ├─ INSTALL.md                   # Complete installation flow
@@ -320,7 +318,7 @@ docs/
 <details>
 <summary><strong>Is Better Sidebar required?</strong></summary>
 
-No. Better Sidebar and Panel Compatibility only provide optional Pane-local right and bottom panels. Split Pane, Navigator, and shortcuts do not depend on them.
+No. Better Sidebar and Panel Compatibility only provide optional Pane-local right and bottom panels. Split Pane and shortcuts do not depend on them.
 </details>
 
 <details>

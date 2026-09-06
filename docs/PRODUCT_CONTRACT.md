@@ -28,6 +28,8 @@
 | Narrow viewport | Show only focus while keeping the other Pane mounted |
 | Shared Workspace | Show a non-blocking Same Workspace Warning |
 
+- Turn navigation is the host's own `TurnNavigator`, mounted inside each `ChatView` — one rail per Pane, including turns the Pane has not loaded yet. Workbench renders no conversation rail of its own and keeps a fixed reserve at the scroll container's right edge so quote badges and note cards never land underneath it.
+
 ## Workbench Ask
 
 | Action | Session and input contract | Stock Harness | Presentation protocol 2 |
