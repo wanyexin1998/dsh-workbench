@@ -10,7 +10,7 @@ import {
   type HarnessServices,
 } from './harness-adapter.js'
 import { settingsBindingSection } from './shortcuts.js'
-import { detectConversationDom, normalizeInputNode } from './conversation-dom.js'
+import { detectConversationDom } from './conversation-dom.js'
 
 function makeCtx(services: Record<string, unknown> = {}): HarnessContext {
   return {
@@ -190,8 +190,8 @@ describe('currentSessionId / subscribeCurrentSessionId (MEDIUM 1: the sessions.l
 
 describe('settingsBindingSection (narrow unknown snapshot)', () => {
   it('reads the `user` section when present', () => {
-    expect(settingsBindingSection({ user: { 'conversation.navigator.toggle': 'Primary+Shift+O' } })).toEqual(
-      { 'conversation.navigator.toggle': 'Primary+Shift+O' },
+    expect(settingsBindingSection({ user: { 'conversation.composer.focus': 'Primary+Shift+O' } })).toEqual(
+      { 'conversation.composer.focus': 'Primary+Shift+O' },
     )
   })
 
@@ -203,20 +203,3 @@ describe('settingsBindingSection (narrow unknown snapshot)', () => {
   })
 })
 
-describe('normalizeInputNode (narrow unknown node → InputNodeView)', () => {
-  it('accepts the flat shape and the .data payload shape', () => {
-    expect(normalizeInputNode({ kind: 'user', key: 'k1', seq: 3, time: 100, content: [{ kind: 'text', text: 'hi' }] })).toEqual({
-      kind: 'user', key: 'k1', seq: 3, time: 100, content: [{ kind: 'text', text: 'hi' }],
-    })
-    expect(normalizeInputNode({ kind: 'steering', key: 'k2', data: { seq: 5, content: [] } })).toEqual({
-      kind: 'steering', key: 'k2', seq: 5, time: undefined, content: [],
-    })
-  })
-
-  it('returns null for non-objects and for nodes missing kind/key', () => {
-    expect(normalizeInputNode(null)).toBeNull()
-    expect(normalizeInputNode(42)).toBeNull()
-    expect(normalizeInputNode({ kind: 'user' })).toBeNull()
-    expect(normalizeInputNode({ key: 'k1' })).toBeNull()
-  })
-})

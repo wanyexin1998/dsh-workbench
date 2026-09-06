@@ -24,13 +24,15 @@ export interface CapabilityReport {
   /** the slot seam (ctx.slots.inject) the plugin registers through is callable.
    * A single boolean: §9A.1 forbids inventing a ctx.slots.has(), so we cannot
    * distinguish the two specific slot names — the inject seam is the only
-   * honest signal both the navigator and the settings section share. */
+   * honest signal the settings section and the selection overlays share. */
   slotsInject: boolean
   /** layout service exposes toggleSidebar. */
   layoutToggle: boolean
   /** sessions service is present (per-session conversation face). */
   conversationFace: boolean
-  /** at least one [data-chat-anchor-key] is rendered (navigator content). */
+  /** at least one [data-chat-anchor-key] is rendered — the anchored rows the
+   * selection layer resolves a captured passage against
+   * (`detectConversationDom().anchors`). */
   chatAnchorDom: boolean
   /** [data-composer-seat] is present (composer focus target). */
   composerDom: boolean

@@ -32,8 +32,12 @@ function isEmptyState(state: ShortcutPersistedStateV1): boolean {
 // imported) from shortcuts.tsx to avoid a circular import (shortcuts.tsx
 // already imports this module for the persistence classes); these strings
 // are historical artifacts of a rename, not a live source of truth.
+//
+// 「只增不减」原本还有一句「也不删」。`conversation.navigator.toggle` 是唯一
+// 的例外，随 Navigator 一起退役：它已经被下面的 RETIRED_ACTION_IDS 两种写法
+// 都丢掉了，留在这里只会让迁移先把旧的裸 id 改写成一个下一步就要删掉的
+// 命名空间 id。两条规则合起来的语义没变，少一次无用的改写。
 const LEGACY_BUILTIN_ACTION_IDS: ReadonlySet<string> = new Set([
-  'conversation.navigator.toggle',
   'conversation.composer.focus',
   'layout.sidebar.toggle',
   'session.stop',
@@ -47,6 +51,25 @@ const LEGACY_BUILTIN_ACTION_IDS: ReadonlySet<string> = new Set([
   'agent.favorite.open:7',
   'agent.favorite.open:8',
   'agent.favorite.open:9',
+])
+
+/**
+ * 已退役的内置动作 id：**两种写法都列出来**（迁移前的裸 id 与迁移后的
+ * `workbench.` 命名空间 id），因为磁盘上两种都可能存在——用户在改名迁移之前
+ * 存的是裸的，之后存的是带命名空间的。
+ *
+ * 为什么要主动丢，而不是让它自然失效：读路径只按**值**过滤（
+ * `parseBindingOverrides` 扔掉不是合法 chord 的项），从不按「这个动作还在不在
+ * 注册表里」过滤——外部 provider 的 id 本来就可能先于插件加载出现在这里。所以
+ * 一个指向已退役动作的 override 不会自己消失，它会跟着用户下一次改键被原样
+ * 写回去，永远留在文档里。
+ *
+ * 静默丢弃是刻意的：用户没做错任何事，那条 override 只是指向了一个不再存在的
+ * 动作，报错或提示都是在为我们自己的退役决定打扰他。
+ */
+const RETIRED_ACTION_IDS: ReadonlySet<string> = new Set([
+  'conversation.navigator.toggle',
+  'workbench.conversation.navigator.toggle',
 ])
 
 /** Matches action-registry.ts's DEFAULT_PROVIDER ('workbench'); duplicated
@@ -119,6 +142,17 @@ function migrateLegacyDisabledIds(disabled: string[]): string[] {
   return out
 }
 
+/** 丢掉指向已退役动作的 override（见 RETIRED_ACTION_IDS）。纯投影，与
+ * `migrateLegacyActionIds` 同一条读路径，别的 key 一律原样透传。 */
+function dropRetiredBindings(bindings: BindingOverrides): BindingOverrides {
+  const out: BindingOverrides = {}
+  for (const [id, spec] of Object.entries(bindings)) {
+    if (RETIRED_ACTION_IDS.has(id)) continue
+    out[id] = spec
+  }
+  return out
+}
+
 export interface ShortcutPersistence {
   load(): Promise<ShortcutPersistedStateV1>
   save(state: ShortcutPersistedStateV1): Promise<'host' | 'local'>
@@ -144,12 +178,12 @@ export function parsePersistedState(value: unknown): ShortcutPersistedStateV1 {
   // pinning that this degrades silently rather than throwing.
   const raw = value as { schemaVersion?: unknown; bindings?: unknown; disabled?: unknown }
   if (raw.schemaVersion !== 1) return EMPTY_SHORTCUT_STATE
-  const bindings = migrateLegacyActionIds(parseBindingOverrides(raw.bindings))
+  const bindings = dropRetiredBindings(migrateLegacyActionIds(parseBindingOverrides(raw.bindings)))
   const disabled = migrateLegacyDisabledIds(
     Array.isArray(raw.disabled)
       ? raw.disabled.filter((id: unknown): id is string => typeof id === 'string')
       : [],
-  )
+  ).filter((id) => !RETIRED_ACTION_IDS.has(id))
   return { schemaVersion: 1, bindings, disabled }
 }
 

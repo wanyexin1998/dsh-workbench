@@ -3,14 +3,14 @@
 // product: one apply() call, exercised end-to-end under a stock DeepSeek
 // Harness (no compatible split-pane presentation) and under a compatible
 // Harness (protocol 2, full presentation). Pins:
-//   - stock: zero unexpected console errors, Navigator + shortcuts still
-//     register, the split-pane module never requests capacity and the
+//   - stock: zero unexpected console errors, the shortcuts section still
+//     registers, the split-pane module never requests capacity and the
 //     guard-failure banner (not the same-workspace banner) is shown;
 //   - compatible: capacity requested exactly once and released through the
 //     plugin lifecycle, the same-workspace banner (not guard-failure) is
-//     shown, no regression in Navigator/shortcuts;
-//   - a hostile Navigator failure stays isolated (fail-soft) and never
-//     blocks shortcuts or the guard verdict.
+//     shown, no regression in shortcuts;
+//   - a hostile native-ux seam failure stays isolated (fail-soft) and never
+//     blocks the guard verdict or the selection layer.
 // Mocks only at the ctx boundary (slots/locale/sessions/effect/get/on/
 // settingsScope) the way guard.test.ts and native-ux/client/apply.test.ts
 // already do — no module mocking of index.tsx or its collaborators.
@@ -38,8 +38,8 @@ interface EffectEntry {
 interface FakeCtxOptions {
   /** The value `platform.sessions` (and ctx.get('sessions')) resolve to. */
   sessions?: unknown
-  /** Override ctx.slots.inject — used only by the Navigator-failure test to
-   * fail one specific slot seam without touching any other module. */
+  /** Override ctx.slots.inject — used only by the fail-soft test to fail one
+   * specific slot seam without touching any other module. */
   slotsInject?: (name: string, setup: () => unknown) => unknown
 }
 
@@ -47,7 +47,7 @@ interface FakeCtxOptions {
  * Build a ctx test double matching what packages/dsh-workbench/src/client/
  * index.tsx actually reads: sessions/slots/locale as direct properties (the
  * `platform` cast), plus get/effect/on/settingsScope for the HarnessContext
- * cast that applyNavigator/applyShortcuts consume. `sessions` is exposed
+ * cast that applyShortcuts consumes. `sessions` is exposed
  * BOTH as `ctx.sessions` and via `ctx.get('sessions')` so both cast paths
  * observe the identical reference, exactly as the real cordis fiber does.
  *
@@ -177,12 +177,14 @@ describe('apply() — stock DeepSeek Harness (no compatible split-pane presentat
     expect(warn).not.toHaveBeenCalled()
   })
 
-  it('registers Navigator and the shortcuts settings section regardless of the guard verdict', () => {
+  it('registers the shortcuts settings section (and the locale dictionaries) regardless of the guard verdict', () => {
     spyConsole()
     const { ctx, registered, locale } = makeCtx({ sessions: {} })
     apply(ctx as never)
-    expect(registered).toContainEqual({ name: 'conversation.session.header.utilities', id: 'dsh-native-ux-navigator' })
     expect(registered).toContainEqual({ name: 'settings.section', id: 'shortcuts' })
+    // The dictionaries used to be registered by the retired Navigator module,
+    // which ran first; applyShortcuts owns that now and this is the
+    // end-to-end pin that the move actually happened.
     expect(locale.register).toHaveBeenCalled()
   })
 
@@ -309,35 +311,38 @@ describe('apply() — compatible DeepSeek Harness (protocol 2, full presentation
     expect(error).not.toHaveBeenCalled()
   })
 
-  it('still registers Navigator and the shortcuts settings section (compatible behavior does not regress)', () => {
+  it('still registers the shortcuts settings section (compatible behavior does not regress)', () => {
     spyConsole()
     const { ctx, registered } = compatibleCtx()
     apply(ctx as never)
-    expect(registered).toContainEqual({ name: 'conversation.session.header.utilities', id: 'dsh-native-ux-navigator' })
     expect(registered).toContainEqual({ name: 'settings.section', id: 'shortcuts' })
   })
 })
 
-describe('apply() — fail-soft: a hostile Navigator failure never blocks shortcuts or the guard verdict', () => {
-  it('warns once for the Navigator seam and still completes shortcuts registration + the guard flow', () => {
+describe('apply() — fail-soft: a hostile shortcuts-seam failure never blocks the guard verdict', () => {
+  // 这条测试原来打的是 Navigator 的槽（`conversation.session.header.utilities`）。
+  // Navigator 退役后，native-ux 侧只剩 shortcuts 一个模块，于是同一条不变量改
+  // 打它自己的槽：模块塌了，apply() 不抛，warn 恰好一次，宿主那侧（守卫横幅、
+  // 划词层）该注册的一个不少。
+  it('warns once for the settings-section seam and still completes the guard flow', () => {
     const { warn } = spyConsole()
-    const boom = new Error('navigator slot seam removed')
+    const boom = new Error('settings.section slot seam removed')
     const { ctx, registered } = makeCtx({
       sessions: {}, // stock: the guard fails closed too, in the same apply() call
       slotsInject: (name, setup) => {
-        if (name === 'conversation.session.header.utilities') throw boom
+        if (name === 'settings.section') throw boom
         return setup()
       },
     })
     expect(() => apply(ctx as never)).not.toThrow()
     // The only fail-soft warning this apply() call produces is the injected
-    // Navigator seam failure — this file's single-warning invariant.
+    // seam failure — this file's single-warning invariant.
     expect(warn).toHaveBeenCalledTimes(1)
-    expect(String(warn.mock.calls[0]?.[0])).toContain('navigator module failed to register')
-    // Navigator itself never registered...
-    expect(registered.some((r) => r.id === 'dsh-native-ux-navigator')).toBe(false)
-    // ...but shortcuts and the guard-failure banner still went through.
-    expect(registered).toContainEqual({ name: 'settings.section', id: 'shortcuts' })
+    expect(String(warn.mock.calls[0]?.[0])).toContain('shortcuts module failed to register')
+    // The settings section itself never registered...
+    expect(registered.some((r) => r.id === 'shortcuts')).toBe(false)
+    // ...but the selection layer and the guard-failure banner still went through.
+    expect(registered).toContainEqual({ name: 'shell.overlay', id: 'dsh-workbench.selection-actions' })
     expect(registered).toContainEqual({ name: 'shell.overlay', id: 'dsh-workbench.guard-failure' })
   })
 })
@@ -398,9 +403,9 @@ describe('apply() — W3.1 workbench.actions service exposure', () => {
     // Drive the real teardown sequence a cordis fiber unload would run:
     // the ctx.effect binding's own disposer (unregisters ctx.workbenchActions
     // itself — this fixture's effect() runs eagerly but never tears down on
-    // its own) plus every ctx.on('dispose', ...) handler applyShortcuts (and
-    // applyNavigator) registered (this fixture's ctx.on is a bare vi.fn()
-    // that never invokes anything on its own either).
+    // its own) plus every ctx.on('dispose', ...) handler applyShortcuts
+    // registered (this fixture's ctx.on is a bare vi.fn() that never invokes
+    // anything on its own either).
     const bindingEffect = effects.find((e) => e.label === 'dsh-workbench: actions api service')
     expect(bindingEffect).toBeDefined()
     ;(bindingEffect!.dispose as () => void)()

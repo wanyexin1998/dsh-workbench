@@ -474,7 +474,7 @@ export function subscribeFocusedSessionId(services: HarnessServices, listener: (
  * is correct on both stock and fork Harnesses). Deliberately a SEPARATE
  * function from `focusedSessionId` above, not a shared implementation:
  * `focusedSessionId`/`focusedPaneScope` back DOM pane-scoping (composer
- * focus, jump-latest, session-stop, navigator toggle), where "no
+ * focus, jump-latest, session-stop), where "no
  * `presentation` face" correctly means "fall back to document scope" — a
  * different, already-correct degradation this function must not disturb.
  * Same defensive-narrowing shape as `focusedSessionId`: a missing/malformed

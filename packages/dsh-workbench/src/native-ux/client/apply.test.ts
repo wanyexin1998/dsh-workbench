@@ -26,11 +26,10 @@ describe('client plugin wiring (seam B sample)', () => {
     expect(inject).toContain('workspaces')
   })
 
-  it('registers navigator and shortcuts sections on apply', () => {
+  it('registers the shortcuts section on apply', () => {
     const { ctx, registered, locale } = makeCtx()
     apply(ctx)
     const ids = registered.map((r) => r.id)
-    expect(ids).toContain('dsh-native-ux-navigator')
     expect(ids).toContain('shortcuts')
     expect(locale.register).toHaveBeenCalled()
   })

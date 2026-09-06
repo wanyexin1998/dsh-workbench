@@ -27,7 +27,6 @@ import { SUPPORTED_HARNESS } from './contract.ts'
 import { makeGuardFailureBanner } from './guard-failure.tsx'
 import { SameWorkspaceWarning, useWorkspacePathIndex, type PaneWorkspace, type WorkspaceFacts } from './same-workspace-warning.tsx'
 import { en, zh } from './dictionaries.ts'
-import { applyNavigator } from '../native-ux/client/navigator.js'
 import { applyShortcuts } from '../native-ux/client/shortcuts.js'
 import { resolveHarnessServices, type HarnessContext } from '../native-ux/client/harness-adapter.js'
 import { warnOnce } from '../native-ux/client/capabilities.js'
@@ -131,8 +130,8 @@ function SameWorkspaceBanner({ useSessions, useWorkspaces, t }: {
 }
 
 /**
- * Register Navigator and shortcuts, then enable the split-pane module only
- * when the Harness Session Presentation protocol is compatible.
+ * Register shortcuts and selection actions, then enable the split-pane
+ * module only when the Harness Session Presentation protocol is compatible.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
@@ -168,11 +167,6 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => locale.register(NS, { zh, en }), 'dsh-workbench: dictionaries')
   const t = locale.bind(NS)
   const sessions = platform.sessions as WorkbenchSessions
-  try {
-    applyNavigator(nativeContext)
-  } catch (error) {
-    warnOnce('navigator-apply-failed', 'navigator module failed to register: ' + String(error))
-  }
   // W3.1: applyShortcuts() owns the third-party-actions handle's full
   // lifecycle (create + dispose, alongside its own previous-session focus
   // tracking subscription) and hands it back so the cordis service binding
@@ -212,7 +206,8 @@ export function apply(ctx: ClientContext): void {
   }
   if (verdict.disabled) {
     // The role="alert" entry reports why only the split-pane module is
-    // disabled. Navigator and non-presentation shortcuts remain registered.
+    // disabled. Non-presentation shortcuts and selection actions remain
+    // registered.
     console.error(
       '[dsh-workbench] disabled:', verdict.reason,
       'detected:', verdict.detected,

@@ -60,7 +60,7 @@ describe('SettingsSection (T8)', () => {
   it('renders the navigation group; favorites hidden when capability absent (GA-023)', () => {
     renderSection()
     expect(screen.getByText('shortcuts.group.navigation')).toBeTruthy()
-    expect(screen.getByText('shortcuts.action.navigator.toggle')).toBeTruthy()
+    expect(screen.getByText('shortcuts.action.composer.focus')).toBeTruthy()
     expect(screen.getByText('shortcuts.scopeNote')).toBeTruthy()
     // GA-023: no favorite-agent API in the harness rc → not registered by default
     expect(screen.queryByText('shortcuts.group.favorites')).toBeNull()
@@ -69,7 +69,6 @@ describe('SettingsSection (T8)', () => {
 
   it('localizes every shipped action name from the active dictionary', () => {
     const labels = [
-      'shortcuts.action.navigator.toggle',
       'shortcuts.action.composer.focus',
       'shortcuts.action.sidebar.toggle',
       'shortcuts.action.session.stop',
@@ -156,7 +155,7 @@ describe('SettingsSection (T8)', () => {
   it('recording captures a chord, saves it, and reloads the dispatcher', async () => {
     const controller = makeController()
     renderSection(controller)
-    // GA-012: the glass chord button (first row = navigator.toggle) is the record entry.
+    // GA-012: the glass chord button (first row = composer.focus) is the record entry.
     const button = document.querySelector('[data-dsh-nux-chord-button]') as HTMLButtonElement
     fireEvent.click(button)
     expect(button.getAttribute('aria-pressed')).toBe('true')
@@ -166,7 +165,7 @@ describe('SettingsSection (T8)', () => {
     expect((save as HTMLButtonElement).disabled).toBe(false)
     fireEvent.click(save)
     await act(async () => {})
-    expect(controller.scope.set).toHaveBeenCalledWith('workbench.conversation.navigator.toggle', 'Primary+Shift+P')
+    expect(controller.scope.set).toHaveBeenCalledWith('workbench.conversation.composer.focus', 'Primary+Shift+P')
     expect(controller.reload).toHaveBeenCalled()
   })
 
@@ -175,10 +174,10 @@ describe('SettingsSection (T8)', () => {
     renderSection(controller)
     const button = document.querySelector('[data-dsh-nux-chord-button]') as HTMLButtonElement
     fireEvent.click(button)
-    // Ctrl+Shift+O is the default binding of navigator.toggle; recording it
+    // Ctrl+/ is the default binding of composer.focus; recording it
     // must stop propagation before the dispatcher sees it.
-    fireEvent.keyDown(window, { key: 'O', shiftKey: true, ctrlKey: true })
-    expect(button.textContent).toContain('Ctrl+Shift+O')
+    fireEvent.keyDown(window, { key: '/', ctrlKey: true })
+    expect(button.textContent).toContain('Ctrl+/')
     // (dispatcher attach is not wired in this unit test — the propagation
     // path is exercised via stopPropagation in the capture handler)
   })
@@ -220,7 +219,9 @@ describe('SettingsSection (T8)', () => {
   })
 
   it('flags conflicts between bindings', () => {
-    const controller = makeController({ 'workbench.conversation.composer.focus': 'Primary+Shift+O' })
+    // Primary+Shift+X is workbench.session.stop's default; rebinding
+    // composer.focus onto it is the collision the section must flag.
+    const controller = makeController({ 'workbench.conversation.composer.focus': 'Primary+Shift+X' })
     renderSection(controller)
     expect(screen.getAllByText(/shortcuts.conflict/).length).toBeGreaterThan(0)
   })
@@ -236,10 +237,10 @@ describe('SettingsSection (T8)', () => {
     renderSection(controller)
     const button = document.querySelector('[data-dsh-nux-chord-button]') as HTMLButtonElement
     // Before hydration the default binding is visible.
-    expect(button.textContent).toContain('Ctrl+Shift+O')
+    expect(button.textContent).toContain('Ctrl+/')
     // Async hydration commits state and notifies the component.
     await act(async () => {
-      controller.persisted = { bindings: { 'workbench.conversation.navigator.toggle': 'Primary+Shift+E' }, disabled: new Set() }
+      controller.persisted = { bindings: { 'workbench.conversation.composer.focus': 'Primary+Shift+E' }, disabled: new Set() }
       notify?.()
     })
     expect(button.textContent).toContain('Ctrl+Shift+E')
@@ -418,14 +419,14 @@ describe('SettingsSection (T8)', () => {
   it('W1.3: provider group header is a disclosure toggle (default expanded)', () => {
     const controller = makeController()
     renderSection(controller)
-    expect(screen.getByText('shortcuts.action.navigator.toggle')).toBeTruthy()
+    expect(screen.getByText('shortcuts.action.composer.focus')).toBeTruthy()
     const header = document.querySelector('[data-dsh-nux-group-header="workbench"]') as HTMLButtonElement
     expect(header.getAttribute('aria-expanded')).toBe('true')
     fireEvent.click(header)
     expect(header.getAttribute('aria-expanded')).toBe('false')
-    expect(screen.queryByText('shortcuts.action.navigator.toggle')).toBeNull()
+    expect(screen.queryByText('shortcuts.action.composer.focus')).toBeNull()
     fireEvent.click(header)
-    expect(screen.getByText('shortcuts.action.navigator.toggle')).toBeTruthy()
+    expect(screen.getByText('shortcuts.action.composer.focus')).toBeTruthy()
   })
 
   it('review-fix (nit, pinned): collapsing a group then searching auto-expands it to show matches', () => {
@@ -503,18 +504,18 @@ describe('SettingsSection (T8)', () => {
     const stopEnabled = stopRow.querySelector('[data-dsh-nux-overflow-enabled] input') as HTMLInputElement
     expect(stopEnabled.checked).toBe(false) // seeded as disabled, not enabled
 
-    const navRow = document.querySelector('[data-dsh-nux-shortcut-row="workbench.conversation.navigator.toggle"]')!
-    fireEvent.click(navRow.querySelector('[data-dsh-nux-overflow]')!)
-    const navEnabled = navRow.querySelector('[data-dsh-nux-overflow-enabled] input') as HTMLInputElement
-    expect(navEnabled.checked).toBe(true)
-    fireEvent.click(navEnabled) // toggle a DIFFERENT action's enablement
+    const focusRow = document.querySelector('[data-dsh-nux-shortcut-row="workbench.conversation.composer.focus"]')!
+    fireEvent.click(focusRow.querySelector('[data-dsh-nux-overflow]')!)
+    const focusEnabled = focusRow.querySelector('[data-dsh-nux-overflow-enabled] input') as HTMLInputElement
+    expect(focusEnabled.checked).toBe(true)
+    fireEvent.click(focusEnabled) // toggle a DIFFERENT action's enablement
     await act(async () => {})
 
     const lastPersist = (controller.persist as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0] as {
       disabled: ReadonlySet<string>
     }
     expect(Array.from(lastPersist.disabled).sort()).toEqual(
-      ['workbench.conversation.navigator.toggle', 'workbench.session.stop'].sort(),
+      ['workbench.conversation.composer.focus', 'workbench.session.stop'].sort(),
     )
   })
 

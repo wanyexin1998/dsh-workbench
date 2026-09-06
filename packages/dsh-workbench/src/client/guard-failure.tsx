@@ -4,7 +4,7 @@ import type { GuardVerdict } from './guard.ts'
  * The visible Startup-Guard failure surface (ARCH-02 / #25): rendered inside
  * the shell.overlay slot with `role="alert"` when the carrier's presentation
  * descriptor fails the compatibility verdict. It replaces the split-only
- * capacity and workspace-warning registrations; Navigator and compatible
+ * capacity and workspace-warning registrations; compatible
  * non-presentation shortcuts remain available. It carries no DOM fallback.
  * The verdict's detected/supported
  * detail is shown verbatim (diagnostic); copy is localized through the

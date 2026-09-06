@@ -151,8 +151,8 @@ export interface UseQuoteAnchorsOptions {
  *
  * 信号与代价：
  *   ref 变化        → 全量重解析（React prop 变化，免费）
- *   scroll(passive) → 只重算徽标矩形，高亮不需要动（rAF 节流，抄 navigator.tsx:183）
- *   ResizeObserver + window.resize → 换行会变，重解析（抄 navigator.tsx:161）
+ *   scroll(passive) → 只重算徽标矩形，高亮不需要动（rAF 节流）
+ *   ResizeObserver + window.resize → 换行会变，重解析
  *   MutationObserver → 先过 `quoteMutationsMatter` 这道闸门，相关才置脏，
  *                      再合并到一次 rAF
  *
@@ -167,7 +167,7 @@ export interface UseQuoteAnchorsOptions {
  * 而晚一帧上色对一个装饰图层完全可接受。留在 `useLayoutEffect` 的只有 B
  * （量矩形 + 定位徽标）——那一步必须在绘制前完成，否则滚动时徽标会拖后一帧。
  *
- * GA-031（navigator.tsx:102 那段教训）：观察器绝不长期挂在 document.body。
+ * GA-031：观察器绝不长期挂在 document.body。
  * 找不到会话根 / 滚动容器 / pane 时宁可不装观察器——ref 变化与 scroll/resize
  * 仍在，功能降级而不是换来一个全局观察器。
  */
