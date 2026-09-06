@@ -53,22 +53,22 @@ export interface ObservableSnapshotFace<T> {
 export interface SessionSummaryFace {
   readonly id: string
   /**
-   * 0.1.2-rc.1 起宿主的列表行**不再带这个字段**：`SessionSummary`
-   * （`@deepseek-ai/dsh-api-session-controller/lib/types/client/sessions/
-   * service.d.ts:32-55`）只剩 id / title / displayTitle / cwd / parentId /
-   * origin / running / completed / blank / updatedAt / projectionValues，
-   * 0.1.1-rc.2 上还在的 `agentPreset?: string`（旧 runtime 包
+   * 会话预设。0.1.2-rc.1 起它**不再是列表行的顶层字段**——0.1.1-rc.2 上的
+   * `SessionSummary.agentPreset?: string`（旧 runtime 包
    * `lib/types/client/sessions/service.d.ts:42`）与配套的
-   * `ISessions.noteAgentPreset` 一起被删掉了。
+   * `ISessions.noteAgentPreset` 一起删掉了——但信号本身没消失，只是搬进了
+   * session projection：`SessionSummary.projectionValues?:
+   * Readonly<Partial<SessionProjectionMap>>`
+   * （`dsh-v0.1.2-rc.1:packages/api/session-controller/src/client/sessions/
+   * service.ts:61`），而 `agentPreset: string | null` 由预设包并进
+   * `SessionProjectionMap`（同 tag
+   * `packages/preset/agent-presets/src/types.ts:65-68`）。
    *
-   * 后果是**当日空白 chat 会话的复用（{@link reusableChatSessionId}）在
-   * 0.1.2-rc.1 上恒不命中**——字段永远是 undefined，过滤条件
-   * `agentPreset !== 'chat'` 于是永远为真，随手问每次都新建一个会话，而不是
-   * 接着用今天那个还空着的。这是失败方向正确的退化（不会误用别的预设的会话），
-   * 不是崩溃，所以这里保持可选、保持这条过滤：等我们决定换一个"这是不是 chat
-   * 会话"的判据（宿主还没有替代品）再动它。
+   * 按本文件"只声明真正用到的字段"的既有做法，这里只声明我们读的那一个键。
+   * `null` 是宿主的真值（"这个部署没有编排任何预设"），与"根本没投影"一样都
+   * 不是 chat——判别见 chat-actions.ts 的 `presetOf`，与上游同形。
    */
-  readonly agentPreset?: string
+  readonly projectionValues?: { readonly agentPreset?: string | null }
   readonly blank: boolean
   readonly updatedAt: number
 }

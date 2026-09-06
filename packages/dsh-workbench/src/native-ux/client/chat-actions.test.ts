@@ -42,7 +42,9 @@ function session(id: string, overrides: Partial<SessionListSnapshotFace['byId'][
     id,
     blank: true,
     updatedAt: TODAY_EARLY,
-    agentPreset: 'chat',
+    // 0.1.2-rc.1 的列表行把预设放在 session projection 里，不在顶层，
+    // 替身必须照抄这个形状，否则测的是一条真机上不存在的行。
+    projectionValues: { agentPreset: 'chat' },
     ...overrides,
   }
 }
@@ -170,8 +172,27 @@ describe('chat workspace and reuse policy', () => {
       ids: workspace.sessionIds,
       current: 'source',
       byId: {
-        coder: session('coder', { agentPreset: 'code', updatedAt: TODAY_LATE }),
-        unset: session('unset', { agentPreset: undefined, updatedAt: TODAY_EARLY }),
+        coder: session('coder', { projectionValues: { agentPreset: 'code' }, updatedAt: TODAY_LATE }),
+        unset: session('unset', { projectionValues: {}, updatedAt: TODAY_EARLY }),
+      },
+    }
+    expect(reusableChatSessionId(workspace, sessions, NOW)).toBeUndefined()
+  })
+
+  it('never reuses a row whose projection carries no chat preset at all', () => {
+    // The preset is a session projection value on 0.1.2-rc.1, not a top-level
+    // list-row field, and the host has three distinct ways of saying "not a
+    // chat session" there: `null` (the deployment composes no preset at all —
+    // a real host value, not an absence), an empty projection bag, and no
+    // `projectionValues` on the row at all. All three must fail the reuse
+    // filter exactly like a foreign preset does.
+    const workspace = { workspaceId: 'chat', title: 'Chat', sessionIds: ['nulled', 'unprojected'] }
+    const sessions: SessionListSnapshotFace = {
+      ids: workspace.sessionIds,
+      current: 'source',
+      byId: {
+        nulled: session('nulled', { projectionValues: { agentPreset: null }, updatedAt: TODAY_LATE }),
+        unprojected: session('unprojected', { projectionValues: undefined, updatedAt: TODAY_LATE }),
       },
     }
     expect(reusableChatSessionId(workspace, sessions, NOW)).toBeUndefined()

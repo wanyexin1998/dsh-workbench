@@ -5,6 +5,7 @@ import {
   type ChatActionServices,
   type ObservableSnapshotFace,
   type SessionListSnapshotFace,
+  type SessionSummaryFace,
   type WorkspaceListSnapshotFace,
   type WorkspaceSummaryFace,
 } from './harness-adapter.js'
@@ -266,6 +267,20 @@ export function isSameLocalCalendarDay(leftMs: number, rightMs: number): boolean
     && left.getDate() === right.getDate()
 }
 
+/**
+ * 读一行会话的 agent 预设。与上游同形——`dsh-v0.1.2-rc.1:packages/client/
+ * ui-agent-preset/src/client/seat-store.ts:183-188` 的 `presetOf` 逐字同一个
+ * 读法：预设住在 session projection 里，不在列表行的顶层（见
+ * `SessionSummaryFace.projectionValues` 的出处注释）。
+ *
+ * `null`（宿主的真值："这个部署没有编排任何预设"）与缺失都归为"读不出预设"，
+ * 于是都不等于 `'chat'`——复用只认真正报了 chat 预设的那些行。
+ */
+function presetOf(summary: SessionSummaryFace): string | undefined {
+  const value = summary.projectionValues?.agentPreset
+  return typeof value === 'string' ? value : undefined
+}
+
 /** Newest same-day blank `chat` Session accounted to the resolved Workspace. */
 export function reusableChatSessionId(
   workspace: WorkspaceSummaryFace,
@@ -278,7 +293,7 @@ export function reusableChatSessionId(
     if (!sessions.ids.includes(id)
       || summary === undefined
       || summary.blank !== true
-      || summary.agentPreset !== 'chat'
+      || presetOf(summary) !== 'chat'
       || !isSameLocalCalendarDay(summary.updatedAt, nowMs)) continue
     if (newest === undefined || summary.updatedAt > newest.updatedAt) {
       newest = { id, updatedAt: summary.updatedAt }
