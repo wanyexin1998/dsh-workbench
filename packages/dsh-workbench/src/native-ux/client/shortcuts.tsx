@@ -213,7 +213,7 @@ export function buildShortcutRegistry(options: ShortcutActionOptions = {}): Acti
   //                       openSettings() — the run() below prefers
   //                       toggleSettings and falls back to openSettings, so
   //                       registration must not require the newer verb.
-  //                       Stock 0.1.1-rc.2 has neither, so it stays false
+  //                       Stock 0.1.2-rc.1 has neither, so it stays false
   //                       and the action is never registered (fail-closed).
   //                       This is a real seam check against services.layout,
   //                       not a hardcoded cap: the same probe is what a test

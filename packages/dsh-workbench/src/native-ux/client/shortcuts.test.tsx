@@ -775,7 +775,7 @@ describe('shortcut dispatcher (seam B)', () => {
 // switch until something else happened to rebuild the registry. Public
 // surface found: `dsh-client-locale` fires a genuine cordis `Context` event
 // `'locale/change'` ONLY on an actual active-locale switch (verified at the
-// pinned 0.1.1-rc.2 store: `@deepseek-ai/dsh-client-locale/lib/types/client/
+// pinned 0.1.2-rc.1 store: `@deepseek-ai/dsh-client-locale/lib/types/client/
 // index.d.ts:44-58`) — see harness-adapter.ts's `HarnessContext.on` overload
 // doc comment for the full citation. applyShortcuts subscribes to it and
 // uses its own microtaskCoalesce helper to debounce a burst into one
