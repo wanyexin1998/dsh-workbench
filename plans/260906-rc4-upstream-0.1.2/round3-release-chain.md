@@ -13,7 +13,7 @@
 
 ## 1. 契约与钉点（一个提交）
 
-1. `release-contract.json`：`workbenchVersion` → `0.2.0-rc.4`；`harness.branch` → `rc4/presentation-on-0.1.2`；`harness.implementationCommit` → 新 sha。`upstreamVersion`/`upstreamCommit` round 1 已改。`panelCompatibility` 不动（`git diff --stat v0.2.0-rc.3..HEAD -- packages/dsh-workbench-panel-compat` 只有 round 1 的类型迁移，版本号 `0.1.0-rc.1` 保留——**除非** panel-compat 的 TGZ 内容变了；变了就得升 `0.1.0-rc.2`，因为已发布的 rc.1 TGZ 摘要不能再指向不同内容）。
+1. `release-contract.json`：`workbenchVersion` → `0.2.0-rc.4`；`harness.branch` → `rc4/presentation-on-0.1.2`；`harness.implementationCommit` → 新 sha。`upstreamVersion`/`upstreamCommit` round 1 已改。**`panelCompatibility.packageVersion` → `0.1.0-rc.2`（已决定）**：`git diff v0.2.0-rc.3..HEAD -- packages/dsh-workbench-panel-compat/package.json` 改了 `inject` 列表（去掉已删的 `dsh-client-runtime`）与 cordis 下限（`^4.0.2`），这些字节在 TGZ 里；而 `0.1.0-rc.1` 这个名字已经对应已发布的摘要 `5f20a13d…`，同名不同字节不许。随之：`packages/dsh-workbench-panel-compat/package.json` 的 `version`、README×2 / COMPATIBILITY_MATRIX / INSTALL 里所有 `0.1.0-rc.1`（文档扫描对 `panelCompatibility.packageVersion` 豁免，契约一改，漏掉的会自己标红）。
 2. `package.json`、`packages/dsh-workbench/package.json` → `0.2.0-rc.4`。
 3. 两个 bootstrap 脚本各 6 个常量：`HarnessForkBranch`/`HARNESS_FORK_BRANCH`、`HarnessCommit`/`HARNESS_COMMIT`、`HarnessUpstreamBaseCommit`/`HARNESS_UPSTREAM_BASE_COMMIT`（→ a66e4702…）、`WorkbenchVersion`/`WORKBENCH_VERSION`、`ReleaseBaseUrl`/`RELEASE_BASE_URL`（`…/download/v0.2.0-rc.4`）、TGZ 摘要（**第二趟才填**，第一趟保持旧值靠 `--allow-unstamped` 放行）。
 4. `scripts/bootstrap/bootstrap.test.mjs:225` 那个硬编码的 `HARNESS_COMMIT` 常量：改成从 `release-contract.json` 读（同文件 `:292-293` 已经加载了契约），顺手把"两个脚本都嵌入 `harness.upstreamCommit`"加成断言（审计发现它是唯一没有任何检查读的契约字段）。
@@ -28,10 +28,10 @@
   - 新增「从 rc.3 升级」：安装器拒绝已存在的目标目录（`ps1:311-315`），UNINSTALL 让删整个 `<target>`——那会连 `home/` 里的 Session 一起删。步骤：把 `<target>/home` 挪开 → 删 `<target>` → 跑 rc.4 安装器 → 挪回。**明说** 0.1.2-rc.1 不做不可逆迁移（Session 格式两侧都是 v0；投影缓存按记录引导、旧文件不删），格式 v2 只在 0.1.3-alpha.1，rc.4 不涉及。
   - §stock 路径的 "Navigator" 已由 round 2 删掉；再 grep 一遍。
 - `docs/UNINSTALL.md`：同上的升级说明交叉引用。
-- `docs/KNOWN_ISSUES.md`：加 rc.3 在 Node 24.0–24.11.1 上"客户端模块图为空、插件客户端半边不挂载"的条目（上游 loader bug，`vendor/README.md:51`），注明 rc.4 随 pin 推进修复；加 Workbench Ask 的两档退化如果 round 2 C2 落在选项 (c)。
+- `docs/KNOWN_ISSUES.md`：加 rc.3 在 Node 24.0–24.11.1 上"客户端模块图为空、插件客户端半边不挂载"的条目（上游 loader bug，`vendor/README.md:51`），注明 rc.4 随 pin 推进修复。**Ask 的两处退化已在 round 2b 修掉（`025be0c`、`9ffc026`），不进 KNOWN_ISSUES。**
 - `docs/COMPATIBILITY_MATRIX.md`：pin 行换成新 sha / 新分支；Settings 动词三档表的"当前 pin"改新 sha、"上一版 pin"改 `82de604a`（rc.3）；**端到端证据行保持 rc.2 + `1a8cf5ba` 的措辞**，本轮 Windows E2E 跑完之后再改成"rc.4 已对着 `<新 sha>` 跑过"。
 - `README.md` / `README_EN.md`：兼容性表 pin 行；徽章；下载 URL；「打开 / 关闭设置」行里 `82de604a` → 新 sha 缩写；Navigator 相关 round 2 已删；`docs/assets/dsh-workbench-shortcuts.png` 的说明段里"摄于 rc.2"保持。
-- `RELEASE_NOTES.md`：前置 `# DSH Workbench 0.2.0-rc.4` 一节。**Added**：适配上游 0.1.2-rc.1；Settings 动词随 pin；`ctx.remote` 迁移。**Changed**：Navigator 退役（说清上游 TurnNavigator 更强的三点）；徽标避让保留带。**Fixed**：Node 24.0–24.11.1 空模块图（随 pin）；Ask 的 workspace 解析改按 `updatedAt`；C2 的结论。**Distribution boundary**：新 pin、新 tag `dsh-workbench-v0.2.0-rc.4-pin`。**Verified**：等门禁跑完填真数。**Upgrading**：指向 INSTALL 的升级段。
+- `RELEASE_NOTES.md`：前置 `# DSH Workbench 0.2.0-rc.4` 一节。**Added**：适配上游 0.1.2-rc.1；Settings 动词随 pin；`ctx.remote` 迁移。**Changed**：Navigator 退役（说清上游 TurnNavigator 更强的三点）；徽标避让保留带。**Fixed**：Node 24.0–24.11.1 空模块图（随 pin）；随手问两处——当日空白 chat 会话复用改读 `projectionValues.agentPreset`（信号没删、搬进了 session projection）、零 Pane 兜底 workspace 改按 `updatedAt` 取最近（`recentWorkspaceId` 不再投影）。后者有一处行为放宽要写明：来源 workspace 不在列表里时，原来直接停止，现在落到第三档。**Distribution boundary**：新 pin、新 tag `dsh-workbench-v0.2.0-rc.4-pin`。**Verified**：等门禁跑完填真数。**Upgrading**：指向 INSTALL 的升级段。
 
 ## 3. 门禁与发布（rc.3 流程原样）
 
