@@ -64,9 +64,17 @@ declare module '@deepseek-ai/cordis' {
  * `ctx.remote.session.create`（见 harness-adapter.ts 的 `RemoteService`）。
  * 注入的是 `remote` 而不是继续留着 connection，因为门禁要卡的正是"随手问这条
  * 动作依赖的那个服务在不在"。
+ *
+ * **`'remote.session'` 必须单独写一条。** cordis 是按路径逐段放行的：只声明
+ * `'remote'` 时，读 `ctx.remote.session` 会在 vendor/cordis 的 reflect.ts 抛
+ * `cannot get property "remote.session" without inject`。上游自己也是两条都写
+ * （`ui-deliverables`、`ui-model-selection` 都是 `[..., 'remote', 'remote.session']`）。
+ * rc.4 发布版就漏了这一条：applyShortcuts 是 Navigator 退役后唯一的 apply 入口，
+ * 它一抛，GA-043 的 fail-soft 把异常吞掉，插件静默地什么都不注册——页面照常，
+ * 只在控制台留一行 warn。
  */
 export const inject = [
-  'remote', 'sessions', 'workspaces', 'slots', 'locale', 'layout',
+  'remote', 'remote.session', 'sessions', 'workspaces', 'slots', 'locale', 'layout',
   'settingsScope', 'conversation', 'inputTriggers',
 ] as const
 
