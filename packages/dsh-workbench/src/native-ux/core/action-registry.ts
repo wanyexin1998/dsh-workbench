@@ -20,7 +20,7 @@ export interface ActionDef {
    * the chord resolves to null instead of this action — see resolve(). */
   isEnabled?: () => boolean
   /** Opt-in escape from the editable-target dispatch suppression (see
-   * shortcuts.tsx's attachDispatcher / EDITABLE_ALLOWED_ACTIONS): when
+   * shortcuts.tsx's attachDispatcher): when
    * `true`, the bound chord still fires even while the keydown target is
    * editable (e.g. the conversation composer). Defaults to `false`/absent —
    * an action must opt in explicitly, since firing while the user is

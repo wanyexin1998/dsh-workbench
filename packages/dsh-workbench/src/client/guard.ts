@@ -190,8 +190,8 @@ export function presentationBlindSessions(sessions: unknown): unknown {
 /**
  * A view of the plugin context whose `get('sessions')` resolves to
  * `blindSessions` — how `presentationBlindSessions` reaches the modules that
- * resolve their own services from `ctx` (applyShortcuts, applyNavigator)
- * rather than receiving a bundle from `apply()`. Every other member is
+ * resolve their own services from `ctx` (applyShortcuts) rather than
+ * receiving a bundle from `apply()`. Every other member is
  * forwarded to the real context untouched — including a `presentation` of its
  * own, which on a context is a different member than the one the sessions
  * view withholds.

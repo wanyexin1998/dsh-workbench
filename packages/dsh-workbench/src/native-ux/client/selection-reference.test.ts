@@ -282,12 +282,17 @@ describe('selection reference codec/source', () => {
   it('registers a no-candidate codec owner that cannot pollute the @ menu', async () => {
     const source = createSelectionReferenceSource()
     expect(source.codec).toBe(selectionReferenceCodec)
+    // 0.1.2-rc.1 给宿主传进来的两个形状各加了一个必填字段：
+    // `CandidateRequest.drilled` 与 `InputTriggerPick.action`，见
+    // `@deepseek-ai/dsh-client-ui-input-trigger/lib/types/types.d.ts`。
+    // 这里补齐只是为了让替身继续照宿主真会传的形状调用——本 source 无论收到
+    // 什么都返回空候选与 undefined，行为没有变化。
     expect(await source.candidates({ sessionId: 's' as never }, {
-      query: '', position: 'inline', signal: new AbortController().signal,
+      query: '', position: 'inline', drilled: false, signal: new AbortController().signal,
     })).toEqual([])
     expect(source.onPick({
       candidate: { name: 'never' }, session: { sessionId: 's' as never },
-      position: 'inline', via: 'menu', span: { start: 0, end: 0, draftRev: 0 },
+      position: 'inline', via: 'menu', action: 'pick', span: { start: 0, end: 0, draftRev: 0 },
     })).toBeUndefined()
   })
 })
@@ -398,12 +403,13 @@ describe('side-chat selection reference', () => {
   it('registers a no-candidate codec owner and rejects malformed or aborted refs', async () => {
     const source = createSideChatReferenceSource()
     expect(source.codec).toBe(sideChatReferenceCodec)
+    // `drilled` / `action` 的来历同上一个 describe 里的同名断言。
     expect(await source.candidates({ sessionId: 's' as never }, {
-      query: '', position: 'inline', signal: new AbortController().signal,
+      query: '', position: 'inline', drilled: false, signal: new AbortController().signal,
     })).toEqual([])
     expect(source.onPick({
       candidate: { name: 'never' }, session: { sessionId: 's' as never },
-      position: 'inline', via: 'menu', span: { start: 0, end: 0, draftRev: 0 },
+      position: 'inline', via: 'menu', action: 'pick', span: { start: 0, end: 0, draftRev: 0 },
     })).toBeUndefined()
     expect(() => decodeSideChatReference('not json')).toThrow(/Invalid Workbench side-chat reference/)
     const controller = new AbortController()

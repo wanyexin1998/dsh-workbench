@@ -8,8 +8,8 @@ fixtures live.
 
 | Directory | Harness baseline | Verifies |
 | --- | --- | --- |
-| `stock/` | upstream `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e` | seeding + roster discovery, selection toolbar (Add only), `Ctrl+Shift+C` in-place downgrade with a one-time notice, zero-tool chat session, blank reuse |
-| `edition/` | fork `feat/toggle-settings-verb` @ `82de604afc683cd8c7692d0736f26f9ebc0f1823` | beside-open second Pane, pane-scoped Add routing, More Details / Ask fork semantics, source-pane preservation, parent-log purity |
+| `stock/` | upstream `a66e4702047846cdaa10c66c9d3df3951f5ea70d` | seeding + roster discovery, selection toolbar (Add only), `Ctrl+Shift+C` in-place downgrade with a one-time notice, zero-tool chat session, blank reuse |
+| `edition/` | fork `rc4/presentation-on-0.1.2` @ `c5a387cd2f781d4d9914ea0271ebb507984ca3f4` | beside-open second Pane, pane-scoped Add routing, More Details / Ask fork semantics, source-pane preservation, parent-log purity |
 
 To run one:
 

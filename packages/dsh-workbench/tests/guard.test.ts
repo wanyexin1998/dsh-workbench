@@ -23,7 +23,7 @@ describe('split-pane presentation guard', () => {
       disabled: true,
       reason: 'incompatible DeepSeek Harness presentation',
       detected: 'missing: sessions.presentation',
-      supported: '0.1.1-rc.2 (presentation protocol 2)',
+      supported: '0.1.2-rc.1 (presentation protocol 2)',
     })
   })
 
@@ -71,6 +71,6 @@ describe('split-pane presentation guard', () => {
 
   it('requests exactly the two-visible-pane product limit', () => {
     expect(WORKBENCH_VISIBLE_CAPACITY).toBe(2)
-    expect(SUPPORTED_HARNESS).toEqual({ version: '0.1.1-rc.2', protocol: 2 })
+    expect(SUPPORTED_HARNESS).toEqual({ version: '0.1.2-rc.1', protocol: 2 })
   })
 })

@@ -14,9 +14,8 @@ import {
   HostShortcutPersistence,
   LocalShortcutPersistence,
 } from './shortcut-persistence.js'
-import { NS } from './locales.js'
+import { NS, zh, en } from './locales.js'
 import { warnOnce } from './capabilities.js'
-import { navigatorBus } from './navigator-bus.js'
 import {
   chatActionServices,
   currentSessionId,
@@ -89,7 +88,7 @@ function stopSession(services: HarnessServices): void {
  * inventing a new DOM heuristic (ADR-0001: conversation-dom.ts is the only
  * module allowed to touch conversation DOM structure). Single-pane / no
  * focused session falls back to `document` (focusedPaneScope's own
- * fallback), matching the navigator module's document-scope bootstrap.
+ * fallback).
  * Fail-soft: an absent scrollport (no session mounted yet) is a silent
  * no-op, exactly like focusComposer's optional-chained `.focus()`.
  */
@@ -135,7 +134,6 @@ export function isEditableTarget(target: EventTarget | null): boolean {
  * (`openSettings` mirrors `openDetails`/`closeSidebar`'s naming) and a test
  * double may legitimately supply it today. */
 export interface ShortcutCapabilities {
-  navigator?: boolean
   composerFocus?: boolean
   sidebarToggle?: boolean
   sessionStop?: boolean
@@ -186,10 +184,9 @@ export function buildShortcutRegistry(options: ShortcutActionOptions = {}): Acti
   const stopOn = caps.sessionStop !== false && services.sessions !== undefined
   // DOM-backed features stay registered: the conversation DOM mounts per
   // session (after apply()), so a one-shot probe can't decide at build time.
-  // They fail-soft at runtime — navigator renders null until the scrollport
-  // resolves; composer.focus is a no-op without a seat. Presence is reported
-  // via the capability probe (capabilities.ts), not hard-removed here.
-  const navigatorOn = caps.navigator !== false
+  // They fail-soft at runtime — composer.focus is a no-op without a seat.
+  // Presence is reported via the capability probe (capabilities.ts), not
+  // hard-removed here.
   const composerOn = caps.composerFocus !== false
   const favoriteOn = caps.favoriteAgent === true // default false: no real API yet
   // L0 — new native actions (native-actions-pivot). See buildShortcutRegistry's
@@ -213,7 +210,7 @@ export function buildShortcutRegistry(options: ShortcutActionOptions = {}): Acti
   //                       openSettings() — the run() below prefers
   //                       toggleSettings and falls back to openSettings, so
   //                       registration must not require the newer verb.
-  //                       Stock 0.1.1-rc.2 has neither, so it stays false
+  //                       Stock 0.1.2-rc.1 has neither, so it stays false
   //                       and the action is never registered (fail-closed).
   //                       This is a real seam check against services.layout,
   //                       not a hardcoded cap: the same probe is what a test
@@ -237,7 +234,7 @@ export function buildShortcutRegistry(options: ShortcutActionOptions = {}): Acti
   //                       reason every other seam in this file is) degrades
   //                       to "not registered" rather than "registered and
   //                       silently broken".
-  //   jumpLatestOn:      DOM-backed (conversation-dom.ts), like navigator/
+  //   jumpLatestOn:      DOM-backed (conversation-dom.ts), like
   //                       composerFocus — always registered, fails soft at
   //                       runtime when no scrollport is mounted yet.
   const sessionNewOn = caps.sessionNew !== false && services.sessions?.clear !== undefined
@@ -255,14 +252,6 @@ export function buildShortcutRegistry(options: ShortcutActionOptions = {}): Acti
     caps.sessionPrevious !== false && services.sessions?.open !== undefined && services.sessions?.list !== undefined
   const jumpLatestOn = caps.jumpLatest !== false
   const registry = new ActionRegistry()
-  if (navigatorOn) {
-    registry.register({
-      id: 'workbench.conversation.navigator.toggle',
-      label: 'shortcuts.action.navigator.toggle',
-      defaultChord: 'Primary+Shift+O',
-      run: () => navigatorBus.emitToggle(focusedSessionId(services)),
-    }, unbind(overrides['workbench.conversation.navigator.toggle']), disabled.has('workbench.conversation.navigator.toggle'))
-  }
   if (composerOn) {
     registry.register({
       id: 'workbench.conversation.composer.focus',
@@ -432,18 +421,6 @@ export function setRecordingActive(active: boolean): void {
   recordingActive = active
 }
 
-// Editable targets such as the Composer suppress shortcuts by default. Only
-// this allowlist remains reachable while typing; Session stop stays blocked.
-// NOTE: this is a *dispatch-time* allowlist (keydown-while-typing policy) —
-// unrelated to EDITABLE_PROVIDERS below, which gates *Settings-UI* rebinding.
-// The similar name is coincidental; do not conflate the two.
-// A per-action escape hatch also reaches while-typing dispatch without
-// joining this hardcoded set: ActionDef.allowWhileTyping (action-registry.ts)
-// — see attachDispatcher's onKeydown below for where the two are combined.
-// This legacy Set itself is frozen; never add to it — a new built-in that
-// needs to fire while typing should set allowWhileTyping instead.
-const EDITABLE_ALLOWED_ACTIONS = new Set(['workbench.conversation.navigator.toggle'])
-
 // W1.3 — open catalog: the Settings UI now renders every registered action
 // (any provider), but only lets the user rebind/clear/unbind/toggle actions
 // from a provider we trust today. Per design.md §4/§7 the catalog is open
@@ -510,12 +487,18 @@ export function attachDispatcher(
     const chord = chordFromEvent(event, platformOf())
     const action = registry.resolve(chord)
     if (action === null) return
-    // Finding 1 (smoke test): a bound host-command chord used to be dead
-    // while the composer was focused, because the default insert-mode
-    // mapping's whole job is to fire FROM the composer — the legacy
-    // allowlist above never covered host.command.* (or any third-party)
-    // ids. `action.allowWhileTyping === true` is the per-action opt-in that
-    // fixes this without touching the frozen legacy set.
+    // Editable targets such as the Composer suppress shortcuts by default;
+    // `action.allowWhileTyping === true` (action-registry.ts) is the single
+    // per-action opt-in back out of that suppression, open to built-ins and
+    // third-party registrations alike.
+    // NOTE: this is the *dispatch-time* policy (keydown-while-typing) —
+    // unrelated to EDITABLE_PROVIDERS above, which gates *Settings-UI*
+    // rebinding. Do not conflate the two.
+    // A hardcoded id allowlist used to sit alongside this opt-in, holding
+    // exactly one entry: the retired Navigator toggle. It went with the
+    // Navigator — an always-false membership test is not policy — leaving
+    // `allowWhileTyping` as the only route, which is what every comment
+    // pointing here already recommended.
     // MEDIUM 1 (Opus review, round 2): that escape must not swallow a
     // character the user is actually typing. A Shift-only chord on a
     // printable key IS that character (Shift+A = 'A', Shift+/ = '?') —
@@ -528,8 +511,7 @@ export function attachDispatcher(
     // chord stays suppressed while typing, exactly like the pre-Finding-1
     // behavior, for precisely that dangerous subset.
     const allowedWhileTyping =
-      EDITABLE_ALLOWED_ACTIONS.has(action.id) ||
-      (action.allowWhileTyping === true && (chord.primary || chord.alt || !isPrintableKey(chord.key)))
+      action.allowWhileTyping === true && (chord.primary || chord.alt || !isPrintableKey(chord.key))
     if (isEditableEvent(event) && !allowedWhileTyping) return
     event.preventDefault()
     action.run()
@@ -1220,6 +1202,13 @@ function chordToSpec(chord: Chord): string {
  * ...)` call at the bottom).
  */
 export function applyShortcuts(ctx: HarnessContext): ThirdPartyActionsHandle {
+  // 字典注册原本挂在 applyNavigator 里（它是先跑的那个模块）。Navigator 退役
+  // 后这里是插件唯一的 apply 入口，注册必须跟过来——否则 `ctx.locale.bind(NS)`
+  // 绑到一个空命名空间上，设置面板和所有动作标签会退化成裸的 key 字符串。
+  ctx.effect(
+    () => ctx.locale.register(NS, { zh, en }),
+    'dsh-native-ux: locale dictionaries',
+  )
   const t = ctx.locale.bind(NS)
   const services = resolveHarnessServices(ctx)
   const availableChatServices = chatActionServices(services)

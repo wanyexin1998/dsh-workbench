@@ -222,7 +222,13 @@ test('dsh-workbench-bootstrap.sh --check-only performs no network access or writ
 
 // --- (c) static sweep: pinned commit appears exactly once, no personal paths ---
 
-const HARNESS_COMMIT = '82de604afc683cd8c7692d0736f26f9ebc0f1823'
+// 这个常量原来是硬编码的 40 位哈希，跟 release-contract.json 各写一份。推进 pin
+// 的人改了契约、忘了这里，这条"恰好出现一次"的检查就会去数一个**上一版**的哈希
+// ——它在新脚本里出现零次，于是本该拦住 pin 漂移的断言反而先炸在自己身上，或者
+// （更糟）在两处都改错成同一个旧值时一起绿灯。契约是唯一真源，这里读它。
+const releaseContractPath = join(here, '..', '..', 'release-contract.json')
+const releaseContract = JSON.parse(readFileSync(releaseContractPath, 'utf8'))
+const HARNESS_COMMIT = releaseContract.harness.implementationCommit
 
 // S2's post-install load verification is only reachable in a real networked
 // run, so pin its presence statically: both engines must carry the
@@ -289,9 +295,6 @@ test('both bootstrap scripts embed the same WORKBENCH_TGZ_SHA256, either the rel
 
 // --- S5: pin drift gate -- embedded Harness pin must match release-contract.json ---
 
-const releaseContractPath = join(here, '..', '..', 'release-contract.json')
-const releaseContract = JSON.parse(readFileSync(releaseContractPath, 'utf8'))
-
 test('both bootstrap scripts embed the same Harness implementationCommit as release-contract.json (S5 pin drift gate)', () => {
   const commit = releaseContract.harness.implementationCommit
   assert.match(commit, /^[0-9a-f]{40}$/u, 'test setup: release-contract.json harness.implementationCommit must itself be a 40-hex commit')
@@ -303,6 +306,22 @@ test('both bootstrap scripts embed the same Harness branch as release-contract.j
   const branch = releaseContract.harness.branch
   assert.ok(ps1Source.includes(`'${branch}'`), `dsh-workbench-bootstrap.ps1 must embed the same Harness branch as release-contract.json (${branch})`)
   assert.ok(shSource.includes(`'${branch}'`), `dsh-workbench-bootstrap.sh must embed the same Harness branch as release-contract.json (${branch})`)
+})
+
+// 安装链审计发现 harness.upstreamCommit 是契约里**唯一没有任何检查读过**的字段。
+// 两个安装器都把它刻成 HARNESS_UPSTREAM_BASE_COMMIT，并在运行时用它证明 fork 的
+// pin 确实长在那个上游基线上；漏改它，安装器就会拿上一版基线去做这个证明。
+test('both bootstrap scripts embed the contract harness.upstreamCommit as their upstream base (S5 pin drift gate)', () => {
+  const upstream = releaseContract.harness.upstreamCommit
+  assert.match(upstream, /^[0-9a-f]{40}$/u, 'test setup: release-contract.json harness.upstreamCommit must itself be a 40-hex commit')
+  for (const [name, source, constant] of [
+    ['dsh-workbench-bootstrap.ps1', ps1Source, /\$HarnessUpstreamBaseCommit\s*=\s*'([^']*)'/u],
+    ['dsh-workbench-bootstrap.sh', shSource, /HARNESS_UPSTREAM_BASE_COMMIT='([^']*)'/u],
+  ]) {
+    const embedded = constant.exec(source)
+    assert.ok(embedded !== null, `${name} must embed an upstream-base commit constant`)
+    assert.equal(embedded[1], upstream, `${name} embeds an upstream base that disagrees with release-contract.json (${upstream})`)
+  }
 })
 
 // A6 当初把这条断言挂成 TODO，理由是发布契约的 workbenchVersion 当时落后于两个

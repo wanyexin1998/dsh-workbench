@@ -1,9 +1,9 @@
 <p align="center">
-  <img src="docs/assets/dsh-workbench-banner.png" width="100%" alt="DSH Workbench 双 Pane 工作台视觉：两个独立会话面板、中央分隔线与两侧 Navigator 轨迹">
+  <img src="docs/assets/dsh-workbench-banner.png" width="100%" alt="DSH Workbench 双 Pane 工作台视觉：两个独立会话面板与中央分隔线">
 </p>
 
 <p align="center">
-  面向 DeepSeek Harness Web 的双 Pane 工作台：并行处理两个 Session，并为每个 Pane 提供独立导航、快捷键与可选侧边面板。
+  面向 DeepSeek Harness Web 的双 Pane 工作台：并行处理两个 Session，配合全局快捷键、划词批注与可选的 Pane-local 侧边面板。
 </p>
 
 <p align="left">
@@ -12,14 +12,14 @@
 
 <p align="center">
   <img alt="状态：源码预览" src="https://img.shields.io/badge/status-source%20preview-5865F2">
-  <img alt="版本：0.2.0-rc.3" src="https://img.shields.io/badge/version-0.2.0--rc.3-2563EB">
+  <img alt="版本：0.2.0-rc.4" src="https://img.shields.io/badge/version-0.2.0--rc.4-2563EB">
   <img alt="Session Presentation：protocol 2" src="https://img.shields.io/badge/Session%20Presentation-protocol%202-0891B2">
   <img alt="可见 Pane：2" src="https://img.shields.io/badge/visible%20Panes-2-0F766E">
   <a href="LICENSE"><img alt="许可证：MIT" src="https://img.shields.io/badge/license-MIT-334155"></a>
 </p>
 
 > [!IMPORTANT]
-> 当前版本是 `0.2.0-rc.3` 源码预览，不是即装即用的 npm 正式版。分屏能力依赖固定版本的 Harness fork；Better Sidebar 及其兼容包完全可选。本项目不会自动安装、更新或修改任何第三方插件。
+> 当前版本是 `0.2.0-rc.4` 源码预览，不是即装即用的 npm 正式版。分屏能力依赖固定版本的 Harness fork；Better Sidebar 及其兼容包完全可选。本项目不会自动安装、更新或修改任何第三方插件。
 
 > [!TIP]
 > **一句话安装（Release-first）：复制下面整句发给 DeepSeek Harness Agent**
@@ -28,7 +28,7 @@
 > 请安装 DSH Workbench。先检查当前 Harness：兼容双 Pane 就直接安装；不兼容时保留通用插件功能，并告诉我如何并行安装不覆盖官方 Harness 的自装补丁路径（bootstrap）。若沙箱不能写入 DSH_HOME，只给我一条最终终端命令。
 > ```
 >
-> 完整判定规则与命令见 [`docs/INSTALL.md`](docs/INSTALL.md)。`v0.2.0-rc.3` GitHub Release 已发布，通用插件与分屏 bootstrap 两条路径均可直接使用；当前状态仍是 `0.2.0-rc.3` 源码预览（见 [`release-contract.json`](release-contract.json)），不是 npm 正式版。想自己审计源码可用下方「高级：从源码构建」。
+> 完整判定规则与命令见 [`docs/INSTALL.md`](docs/INSTALL.md)。`v0.2.0-rc.4` GitHub Release 已发布，通用插件与分屏 bootstrap 两条路径均可直接使用；当前状态仍是 `0.2.0-rc.4` 源码预览（见 [`release-contract.json`](release-contract.json)），不是 npm 正式版。想自己审计源码可用下方「高级：从源码构建」。
 
 ## 它解决什么问题
 
@@ -37,8 +37,7 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 | 能力 | 用户体验 |
 | --- | --- |
 | 双 Pane | 同时查看和操作两个 Session；切换聚焦不会重新挂载另一侧 |
-| Pane 独立状态 | 草稿、滚动位置、Navigator 和可选面板分别保留 |
-| Navigator | 按真实输入条目显示导航横线，悬浮预览并快速定位消息 |
+| Pane 独立状态 | 草稿、滚动位置、回合导航栏和可选面板分别保留 |
 | 全局快捷键 | 简体中文 / English 名称随 Harness 全局语言切换，可修改和持久化；新建会话、打开设置、切换上一个会话、跳到最新消息等动作见下方「默认快捷键」 |
 | 随手问 | 快捷打开零工具聊天，并把已完成消息的选区 fork 到侧聊追问 |
 | 划词批注 | 在正文里就地标出被引用的段落（底色 + 数字徽标），逐条写批注，composer 上只留一枚计数 chip |
@@ -58,7 +57,7 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 ### 跟随全局语言的快捷键设置
 
 <p align="center">
-  <img src="docs/assets/dsh-workbench-shortcuts.png" width="100%" alt="DSH Workbench 快捷键设置页面，使用简体中文名称列出 Navigator、输入框、侧边栏、停止会话与关闭 Pane 等动作及其按键">
+  <img src="docs/assets/dsh-workbench-shortcuts.png" width="100%" alt="DSH Workbench 快捷键设置页面，使用简体中文名称列出输入框、侧边栏、停止会话与关闭 Pane 等动作及其按键">
 </p>
 
 快捷键名称跟随 Harness 全局语言切换，可以改键并持久化。
@@ -71,19 +70,19 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 
 | 组件 | 是否必需 | 当前支持 | 说明 |
 | --- | --- | --- | --- |
-| DeepSeek Harness | 必需 | fork `feat/toggle-settings-verb`，固定提交 `82de604a…` | 提供 Session Presentation `protocol 2`；提供 `ctx.layout.toggleSettings()`，让「打开设置」快捷键可以再按一次关掉 |
-| DSH Workbench | 必需 | `0.2.0-rc.3` | 最多两个可见 Pane |
+| DeepSeek Harness | 必需 | fork `rc4/presentation-on-0.1.2`，固定提交 `c5a387cd…` | 提供 Session Presentation `protocol 2`；提供 `ctx.layout.toggleSettings()`，让「打开设置」快捷键可以再按一次关掉 |
+| DSH Workbench | 必需 | `0.2.0-rc.4` | 最多两个可见 Pane |
 | Better Sidebar | 可选 | fork `0.16.1`，固定提交 `1685770…` | 提供 Pane capability `protocol 1`；含面板快捷键 actions（`actionsProtocol 1`） |
-| Panel Compatibility | 可选 | `0.1.0-rc.1` | 只连接显式兼容的面板提供方 |
+| Panel Compatibility | 可选 | `0.1.0-rc.2` | 只连接显式兼容的面板提供方 |
 
-完整 SHA、分支和分发状态以 [`release-contract.json`](release-contract.json) 为准。原版 Harness `0.1.1-rc.2` 尚未提供此分屏接口；原版 Better Sidebar `0.16.1` 也没有多实例 Pane capability。
+完整 SHA、分支和分发状态以 [`release-contract.json`](release-contract.json) 为准。原版 Harness `0.1.2-rc.1` 尚未提供此分屏接口；原版 Better Sidebar `0.16.1` 也没有多实例 Pane capability。
 
-没有安装 Better Sidebar 时，Workbench 的双 Pane、Navigator 和快捷键仍可正常使用。Panel Compatibility 不会启动 Pane observer，也不会改变 DOM、布局或样式。
+没有安装 Better Sidebar 时，Workbench 的双 Pane 和快捷键仍可正常使用。Panel Compatibility 不会启动 Pane observer，也不会改变 DOM、布局或样式。
 
 ## 快速开始
 
 > [!NOTE]
-> `v0.2.0-rc.3` GitHub Release 已发布，附带两个 TGZ、两个分屏 bootstrap 脚本、`SHA256SUMS` 与 `release-manifest.json`；下面两条路径今天就能照抄执行。Release 产物经 SHA256 校验，不是 GPG 签名产物（`release-contract.json` 的 `sourceVerification.signedReleaseAvailable` 仍为 `false`）。`release-contract.json` 状态本身仍是 `0.2.0-rc.3` / `source-preview`——这是既定的分发模型（只发源码与本地 TGZ，不发 npm），不代表安装路径不可用。想自己从源码逐字审计，仍可用下方折叠区「高级：从源码构建（审计路径）」（即 [`docs/INSTALL.md` § Advanced: source build](docs/INSTALL.md#advanced-source-build)）。
+> `v0.2.0-rc.4` GitHub Release 已发布，附带两个 TGZ、两个分屏 bootstrap 脚本、`SHA256SUMS` 与 `release-manifest.json`；下面两条路径今天就能照抄执行。Release 产物经 SHA256 校验，不是 GPG 签名产物（`release-contract.json` 的 `sourceVerification.signedReleaseAvailable` 仍为 `false`）。`release-contract.json` 状态本身仍是 `0.2.0-rc.4` / `source-preview`——这是既定的分发模型（只发源码与本地 TGZ，不发 npm），不代表安装路径不可用。想自己从源码逐字审计，仍可用下方折叠区「高级：从源码构建（审计路径）」（即 [`docs/INSTALL.md` § Advanced: source build](docs/INSTALL.md#advanced-source-build)）。
 
 **先选路径**。两条路径互相独立，按你现在手上有什么来选：
 
@@ -103,13 +102,13 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 Windows（PowerShell 7+ / `pwsh`）：
 
 ```
-& { $ErrorActionPreference = 'Stop'; $rel = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.3'; Invoke-WebRequest "$rel/dsh-workbench-bootstrap.ps1" -OutFile dsh-workbench-bootstrap.ps1; Invoke-WebRequest "$rel/SHA256SUMS" -OutFile SHA256SUMS; $expectedLine = (Select-String -Path SHA256SUMS -Pattern 'dsh-workbench-bootstrap\.ps1$').Line; if (-not $expectedLine) { throw 'SHA256SUMS 中未找到 dsh-workbench-bootstrap.ps1 的记录，已中止' }; $expected = ($expectedLine -split '\s+')[0].ToLower(); if ($expected -notmatch '^[0-9a-f]{64}$') { throw "SHA256SUMS 中的哈希格式不合法：$expected" }; $actual = (Get-FileHash dsh-workbench-bootstrap.ps1 -Algorithm SHA256).Hash.ToLower(); if ($actual -ne $expected) { throw "SHA256 校验失败：期望 $expected，实际 $actual" }; pwsh -NoProfile -ExecutionPolicy Bypass -File .\dsh-workbench-bootstrap.ps1 }
+& { $ErrorActionPreference = 'Stop'; $rel = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.4'; Invoke-WebRequest "$rel/dsh-workbench-bootstrap.ps1" -OutFile dsh-workbench-bootstrap.ps1; Invoke-WebRequest "$rel/SHA256SUMS" -OutFile SHA256SUMS; $expectedLine = (Select-String -Path SHA256SUMS -Pattern 'dsh-workbench-bootstrap\.ps1$').Line; if (-not $expectedLine) { throw 'SHA256SUMS 中未找到 dsh-workbench-bootstrap.ps1 的记录，已中止' }; $expected = ($expectedLine -split '\s+')[0].ToLower(); if ($expected -notmatch '^[0-9a-f]{64}$') { throw "SHA256SUMS 中的哈希格式不合法：$expected" }; $actual = (Get-FileHash dsh-workbench-bootstrap.ps1 -Algorithm SHA256).Hash.ToLower(); if ($actual -ne $expected) { throw "SHA256 校验失败：期望 $expected，实际 $actual" }; pwsh -NoProfile -ExecutionPolicy Bypass -File .\dsh-workbench-bootstrap.ps1 }
 ```
 
 macOS（Terminal）：
 
 ```
-rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.3'; if curl -fsSLO "$rel/dsh-workbench-bootstrap.sh" && curl -fsSLO "$rel/SHA256SUMS"; then expected=$(grep 'dsh-workbench-bootstrap\.sh$' SHA256SUMS | awk '{print $1}'); actual=$(shasum -a 256 dsh-workbench-bootstrap.sh | awk '{print $1}'); if [ -n "$expected" ] && printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$' && [ "$actual" = "$expected" ]; then chmod +x dsh-workbench-bootstrap.sh && ./dsh-workbench-bootstrap.sh; else echo 'SHA256 校验失败，已中止，不会执行未校验脚本' >&2; false; fi; else echo '下载失败，已中止，不会执行未校验脚本' >&2; false; fi
+rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.4'; if curl -fsSLO "$rel/dsh-workbench-bootstrap.sh" && curl -fsSLO "$rel/SHA256SUMS"; then expected=$(grep 'dsh-workbench-bootstrap\.sh$' SHA256SUMS | awk '{print $1}'); actual=$(shasum -a 256 dsh-workbench-bootstrap.sh | awk '{print $1}'); if [ -n "$expected" ] && printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$' && [ "$actual" = "$expected" ]; then chmod +x dsh-workbench-bootstrap.sh && ./dsh-workbench-bootstrap.sh; else echo 'SHA256 校验失败，已中止，不会执行未校验脚本' >&2; false; fi; else echo '下载失败，已中止，不会执行未校验脚本' >&2; false; fi
 ```
 
 装完后用生成的启动器启动：Windows `%USERPROFILE%\dsh-workbench\dsh-workbench.cmd`，macOS `$HOME/dsh-workbench/dsh-workbench`。启动器把 `DSH_HOME` 固定在 `<target>/home`，所以**第一次打开会是一个全新的空环境**：没有历史会话、没有 Workspace，模型与供应商都要重新配置。这不是装坏了——隔离正是它不动你官方安装的原因，官方 Harness 的数据仍在它自己的 `~/.dsh` 下。
@@ -125,7 +124,7 @@ rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.3
 > **一句话安装（源码审计路径）：复制下面整句发给 DeepSeek Harness**
 >
 > ```text
-> 请从 https://github.com/wanyexin1998/dsh-workbench 安装 DSH Workbench：首先向我索取并确认一个从独立可信渠道获得的完整 40 位 Workbench commit，若我未提供则停止；要求目标目录不存在，使用 git clone --no-checkout 后 checkout --detach 该提交，每个 Git 命令失败都立即停止，并验证 detached HEAD、完整 clean worktree 以及 git rev-parse --verify HEAD 与输入提交的大小写无关精确相等；只有全部验证成功后才读取仓库中的执行性说明并运行 pnpm install --frozen-lockfile 和 pnpm release:check，将生成的 Workbench TGZ 安装到 web profile；仅当我已安装兼容的 Better Sidebar fork 时再安装 Panel Compatibility，不要自动安装或替换第三方插件，不要发布 npm，最后报告实际提交、TGZ SHA256 以及双 Pane、Navigator 和快捷键的验证结果。
+> 请从 https://github.com/wanyexin1998/dsh-workbench 安装 DSH Workbench：首先向我索取并确认一个从独立可信渠道获得的完整 40 位 Workbench commit，若我未提供则停止；要求目标目录不存在，使用 git clone --no-checkout 后 checkout --detach 该提交，每个 Git 命令失败都立即停止，并验证 detached HEAD、完整 clean worktree 以及 git rev-parse --verify HEAD 与输入提交的大小写无关精确相等；只有全部验证成功后才读取仓库中的执行性说明并运行 pnpm install --frozen-lockfile 和 pnpm release:check，将生成的 Workbench TGZ 安装到 web profile；仅当我已安装兼容的 Better Sidebar fork 时再安装 Panel Compatibility，不要自动安装或替换第三方插件，不要发布 npm，最后报告实际提交、TGZ SHA256 以及双 Pane 和快捷键的验证结果。
 > ```
 
 ### 环境要求
@@ -164,8 +163,8 @@ pnpm release:check
 
 成功后，`dist/` 中会生成：
 
-- `wanyexin1998-dsh-workbench-0.2.0-rc.3.tgz`
-- `wanyexin1998-dsh-workbench-panel-compat-0.1.0-rc.1.tgz`
+- `wanyexin1998-dsh-workbench-0.2.0-rc.4.tgz`
+- `wanyexin1998-dsh-workbench-panel-compat-0.1.0-rc.2.tgz`
 - `dsh-workbench-bootstrap.ps1`
 - `dsh-workbench-bootstrap.sh`
 - `release-manifest.json`
@@ -192,14 +191,13 @@ pnpm release:check
 
 | 动作 | 默认快捷键 | 说明 |
 | --- | --- | --- |
-| 切换 Navigator | `Primary+Shift+O` | |
 | 聚焦输入框 | `Primary+/` | |
 | 切换侧边栏 | `Primary+B` | 与浏览器书签快捷键冲突，设置页会提示 |
 | 停止当前会话 | `Primary+Shift+X` | |
 | 关闭聚焦 Pane | `Primary+\` | 仅 Presentation protocol 2 可用（需分屏 bootstrap 路径） |
 | 随手问（Workbench Ask） | `Primary+Shift+C` | 与浏览器 DevTools「检查元素」冲突，设置页会提示；默认键位未更换 |
 | 新建会话 | `Primary+N` | 浏览器普通标签页会保留为「新建窗口」，设置页会提示；桌面壳环境下可正常触发 |
-| 打开 / 关闭设置 | `Primary+,` | 能力分三档：固定的 Harness fork（`82de604a`）提供 `ctx.layout.toggleSettings()`，同一组键按第二下即关闭；只提供 `openSettings()` 的旧 pin 上仍是"只能打开"，动作名也相应显示为「打开设置」；stock Harness 两者都没有，该动作**根本不注册**。早期默认值 `Primary+Space` 在多数中文输入法下被当作中英文切换热键拦截、在 macOS 上被 Spotlight 占用，实测按下毫无反应，因此不再作为默认值 |
+| 打开 / 关闭设置 | `Primary+,` | 能力分三档：固定的 Harness fork（`c5a387cd`）提供 `ctx.layout.toggleSettings()`，同一组键按第二下即关闭；只提供 `openSettings()` 的旧 pin 上仍是"只能打开"，动作名也相应显示为「打开设置」；stock Harness 两者都没有，该动作**根本不注册**。早期默认值 `Primary+Space` 在多数中文输入法下被当作中英文切换热键拦截、在 macOS 上被 Spotlight 占用，实测按下毫无反应，因此不再作为默认值 |
 | 切换到上一个会话 | `Alt+Q` | 跨平台从 `event.code` 派生按键，macOS 上不受 Option 字符合成影响 |
 | 跳到最新消息 | `Primary+Shift+L` | |
 
@@ -282,7 +280,7 @@ pnpm release:check
 
 ```text
 packages/
-├─ dsh-workbench/               # 双 Pane、Navigator、快捷键、同工作区提醒
+├─ dsh-workbench/               # 双 Pane、快捷键、同工作区提醒
 └─ dsh-workbench-panel-compat/  # 可选的 Pane-local 面板适配层
 docs/
 ├─ INSTALL.md                   # 完整安装流程
@@ -309,19 +307,19 @@ docs/
 <details>
 <summary><strong>必须安装 Better Sidebar 吗？</strong></summary>
 
-不需要。Better Sidebar 和 Panel Compatibility 只负责可选的 Pane-local 右侧/底部面板；双 Pane、Navigator 和快捷键不依赖它。
+不需要。Better Sidebar 和 Panel Compatibility 只负责可选的 Pane-local 右侧/底部面板；双 Pane 和快捷键不依赖它。
 </details>
 
 <details>
 <summary><strong>可以同时打开 5 个 Pane 吗？</strong></summary>
 
-当前公开契约最多为两个可见 Pane。扩展到 5 个需要重新设计布局、容量与性能验收，不属于 `0.2.0-rc.3`。
+当前公开契约最多为两个可见 Pane。扩展到 5 个需要重新设计布局、容量与性能验收，不属于 `0.2.0-rc.4`。
 </details>
 
 <details>
 <summary><strong>为什么不能直接使用原版 Harness？</strong></summary>
 
-本版本依赖 Session Presentation `protocol 2`、稳定的 `visible` / `focused` 状态和每个 Pane 独立的 SessionProvider。原版 `0.1.1-rc.2` 尚未提供这些接口。
+本版本依赖 Session Presentation `protocol 2`、稳定的 `visible` / `focused` 状态和每个 Pane 独立的 SessionProvider。原版 `0.1.2-rc.1` 尚未提供这些接口。
 </details>
 
 ## 项目声明

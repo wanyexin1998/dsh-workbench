@@ -2,17 +2,9 @@
 export const NS = 'dsh-native-ux'
 
 export const zh = {
-  'navigator.rail': '会话输入导航',
-  'navigator.list': '会话输入列表',
-  'navigator.empty': '暂无用户输入',
-  'navigator.steering': '↳ steering',
-  'navigator.loadOlderHint': '更早的会话内容尚未载入',
-  'navigator.loadOlder': '加载更早内容',
-  'navigator.loadingOlder': '加载中…',
   'shortcuts.nav': '快捷键',
   'shortcuts.group.navigation': '导航',
   'shortcuts.group.favorites': '常用智能体',
-  'shortcuts.action.navigator.toggle': '切换会话输入导航',
   'shortcuts.action.composer.focus': '聚焦输入框',
   'shortcuts.action.sidebar.toggle': '展开或收起侧边栏',
   'shortcuts.action.session.stop': '停止当前会话',
@@ -86,17 +78,9 @@ export const zh = {
 }
 
 export const en = {
-  'navigator.rail': 'Conversation input navigator',
-  'navigator.list': 'Conversation input list',
-  'navigator.empty': 'No user input yet',
-  'navigator.steering': '↳ steering',
-  'navigator.loadOlderHint': 'Older conversation content is not loaded yet',
-  'navigator.loadOlder': 'Load earlier content',
-  'navigator.loadingOlder': 'Loading…',
   'shortcuts.nav': 'Shortcuts',
   'shortcuts.group.navigation': 'Navigation',
   'shortcuts.group.favorites': 'Favorite Agents',
-  'shortcuts.action.navigator.toggle': 'Toggle conversation navigator',
   'shortcuts.action.composer.focus': 'Focus composer',
   'shortcuts.action.sidebar.toggle': 'Toggle sidebar',
   'shortcuts.action.session.stop': 'Stop current session',

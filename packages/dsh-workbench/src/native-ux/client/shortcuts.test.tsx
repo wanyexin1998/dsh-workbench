@@ -7,7 +7,6 @@ import {
   isEditableTarget,
   isTrustedShortcutEvent,
 } from './shortcuts.js'
-import { navigatorBus } from './navigator-bus.js'
 import { createThirdPartyActionsHandle } from './actions-api.js'
 import { ActionRegistry } from '../core/action-registry.js'
 import { createPreviousSessionTracker } from '../core/previous-session-tracker.js'
@@ -20,6 +19,15 @@ import type { HarnessContext } from './harness-adapter.js'
 // shortcuts.tsx's EDITABLE_PROVIDERS comment); a plain third-party provider
 // id exercises the identical dispatcher code path.
 const THIRD_PARTY_PROVIDER = 'thirdparty'
+
+// The one built-in that opts into while-typing dispatch (Primary+N — starting
+// a session from wherever you are, composer included, IS the gesture). It
+// stands in for the retired Navigator toggle in every editable-target test
+// below: those used to ride a hardcoded id allowlist that no longer exists,
+// so the coverage now runs through the mechanism that actually ships.
+// `scope` is a required member of SessionsService, so the double carries a
+// no-op one; only `clear` is what these tests actually observe.
+const SESSION_NEW_SERVICES = () => ({ sessions: { scope: () => undefined, clear: vi.fn() } })
 
 describe('shortcut dispatcher (seam B)', () => {
   let detach: () => void
@@ -63,18 +71,7 @@ describe('shortcut dispatcher (seam B)', () => {
     expect(isTrustedShortcutEvent(event, true)).toBe(true)
   })
 
-  it('navigator toggle fires on Primary+Shift+O and prevents default', () => {
-    const registry = buildShortcutRegistry({ services: focusedServices() })
-    detach = attachDispatcher(registry)
-    const toggle = vi.fn()
-    const off = navigatorBus.onToggle('s1', toggle)
-    const event = keydown({ key: 'O', shiftKey: true, ctrlKey: true })
-    expect(toggle).toHaveBeenCalledOnce()
-    expect(event.defaultPrevented).toBe(true)
-    off()
-  })
-
-  it('routes navigator toggle and pane close only to the focused session', () => {
+  it('routes pane close only to the focused session', () => {
     const close = vi.fn()
     const services = {
       sessions: {
@@ -84,18 +81,9 @@ describe('shortcut dispatcher (seam B)', () => {
     }
     const registry = buildShortcutRegistry({ services })
     detach = attachDispatcher(registry)
-    const s1 = vi.fn()
-    const s2 = vi.fn()
-    const off1 = navigatorBus.onToggle('s1', s1)
-    const off2 = navigatorBus.onToggle('s2', s2)
-
-    keydown({ key: 'O', shiftKey: true, ctrlKey: true })
-    expect(s1).not.toHaveBeenCalled()
-    expect(s2).toHaveBeenCalledOnce()
     keydown({ key: '\\', ctrlKey: true })
     expect(close).toHaveBeenCalledWith('s2')
-    off1()
-    off2()
+    expect(close).toHaveBeenCalledOnce()
   })
 
   it('falls back to the document-scope composer when presentation.state is malformed', () => {
@@ -210,8 +198,8 @@ describe('shortcut dispatcher (seam B)', () => {
   })
 
   it('ignores editable targets (real event path)', () => {
-    // Navigator toggle is allowlisted in editable targets; use Session stop
-    // to verify that ordinary actions remain suppressed while typing.
+    // Session stop sets no allowWhileTyping, so it must stay suppressed
+    // while the user is typing.
     const cancel = vi.fn()
     const scope = vi.fn(() => ({ get: () => ({ cancel }) }))
     const registry = buildShortcutRegistry({ services: { sessions: { scope, presentation: presentation('s-edit') } } })
@@ -226,26 +214,24 @@ describe('shortcut dispatcher (seam B)', () => {
     input.remove()
   })
 
-  it('navigator toggle fires from inside a textarea (GA-020 allowlist)', () => {
-    const registry = buildShortcutRegistry({ services: focusedServices() })
+  it('an allowWhileTyping built-in fires from inside a textarea (GA-020)', () => {
+    const services = SESSION_NEW_SERVICES()
+    const registry = buildShortcutRegistry({ services })
     detach = attachDispatcher(registry)
-    const toggle = vi.fn()
-    const off = navigatorBus.onToggle('s1', toggle)
     const input = document.createElement('textarea')
     document.body.appendChild(input)
-    const event = new KeyboardEvent('keydown', { key: 'O', shiftKey: true, ctrlKey: true, bubbles: true, cancelable: true })
+    const event = new KeyboardEvent('keydown', { key: 'n', ctrlKey: true, bubbles: true, cancelable: true })
     input.dispatchEvent(event) // real path: composedPath()[0] === input
-    expect(toggle).toHaveBeenCalledOnce()
+    expect(services.sessions.clear).toHaveBeenCalledOnce()
     expect(event.defaultPrevented).toBe(true)
     input.remove()
-    off()
   })
 
-  it('composer-focus invariant: allowlisted toggle fires from the composer seat input', () => {
+  it('composer-focus invariant: an allowWhileTyping built-in fires from the composer seat input', () => {
     // The composer's focus target is the host seat ([data-composer-seat] —
     // capabilities.ts composerDom / sdk-facts.md). With focus actually on the
-    // seat's input, workbench.conversation.navigator.toggle must still fire (GA-020),
-    // while the focus target itself stays the composer (no focus steal).
+    // seat's input, workbench.session.new must still fire (GA-020), while the
+    // focus target itself stays the composer (no focus steal).
     const seat = document.createElement('div')
     seat.setAttribute('data-composer-seat', '')
     const input = document.createElement('textarea')
@@ -253,57 +239,38 @@ describe('shortcut dispatcher (seam B)', () => {
     document.body.appendChild(seat)
     input.focus()
     expect(document.activeElement).toBe(input)
-    const registry = buildShortcutRegistry({ services: focusedServices() })
+    const services = SESSION_NEW_SERVICES()
+    const registry = buildShortcutRegistry({ services })
     detach = attachDispatcher(registry)
-    const toggle = vi.fn()
-    const off = navigatorBus.onToggle('s1', toggle)
-    const event = new KeyboardEvent('keydown', { key: 'O', shiftKey: true, ctrlKey: true, bubbles: true, cancelable: true })
+    const event = new KeyboardEvent('keydown', { key: 'n', ctrlKey: true, bubbles: true, cancelable: true })
     input.dispatchEvent(event) // real path: composedPath()[0] === input
-    expect(toggle).toHaveBeenCalledOnce()
+    expect(services.sessions.clear).toHaveBeenCalledOnce()
     expect(event.defaultPrevented).toBe(true)
     expect(document.activeElement).toBe(input) // focus stays on the composer
     seat.remove()
-    off()
   })
 
-  it('non-allowlisted actions stay disabled inside a textarea', () => {
+  it('actions without allowWhileTyping stay disabled inside a textarea', () => {
     const toggleSidebar = vi.fn()
     const registry = buildShortcutRegistry({ services: { layout: { toggleSidebar } } })
     detach = attachDispatcher(registry)
-    const toggle = vi.fn()
-    const off = navigatorBus.onToggle('s1', toggle)
     const input = document.createElement('textarea')
     document.body.appendChild(input)
     const event = new KeyboardEvent('keydown', { key: 'b', ctrlKey: true, bubbles: true, cancelable: true })
     input.dispatchEvent(event) // real path: composedPath()[0] === input
     expect(toggleSidebar).not.toHaveBeenCalled()
-    expect(toggle).not.toHaveBeenCalled()
     expect(event.defaultPrevented).toBe(false)
     input.remove()
-    off()
-  })
-
-  it('navigator toggle still fires outside editable targets', () => {
-    const registry = buildShortcutRegistry({ services: focusedServices() })
-    detach = attachDispatcher(registry)
-    const toggle = vi.fn()
-    const off = navigatorBus.onToggle('s1', toggle)
-    const event = new KeyboardEvent('keydown', { key: 'O', shiftKey: true, ctrlKey: true, bubbles: true, cancelable: true })
-    document.body.dispatchEvent(event) // real path, non-editable target
-    expect(toggle).toHaveBeenCalledOnce()
-    expect(event.defaultPrevented).toBe(true)
-    off()
   })
 
   it('ignores IME composition', () => {
-    const registry = buildShortcutRegistry({ services: focusedServices() })
+    const cancel = vi.fn()
+    const scope = vi.fn(() => ({ get: () => ({ cancel }) }))
+    const registry = buildShortcutRegistry({ services: { sessions: { scope, presentation: presentation('s1') } } })
     detach = attachDispatcher(registry)
-    const toggle = vi.fn()
-    const off = navigatorBus.onToggle('s1', toggle)
-    const event = keydown({ key: 'O', shiftKey: true, ctrlKey: true, isComposing: true })
-    expect(toggle).not.toHaveBeenCalled()
+    const event = keydown({ key: 'X', shiftKey: true, ctrlKey: true, isComposing: true })
+    expect(cancel).not.toHaveBeenCalled()
     expect(event.defaultPrevented).toBe(false)
-    off()
   })
 
   it('unbound chords do not prevent default', () => {
@@ -336,9 +303,14 @@ describe('shortcut dispatcher (seam B)', () => {
   it('BLOCKING 1: a throwing third-party label() never prevents build+attach, and a healthy built-in action still fires (probe)', () => {
     const handle = createThirdPartyActionsHandle()
     handle.service.register({ id: 'p.throws', label: () => { throw new Error('boom') }, run: () => {} })
+    const cancel = vi.fn()
+    const scope = vi.fn(() => ({ get: () => ({ cancel }) }))
     let registry: ReturnType<typeof buildShortcutRegistry> | undefined
     expect(() => {
-      registry = buildShortcutRegistry({ services: focusedServices(), thirdPartyActionsHandle: handle })
+      registry = buildShortcutRegistry({
+        services: { sessions: { scope, presentation: presentation('s1') } },
+        thirdPartyActionsHandle: handle,
+      })
     }).not.toThrow()
     expect(() => { detach = attachDispatcher(registry!) }).not.toThrow()
 
@@ -349,20 +321,19 @@ describe('shortcut dispatcher (seam B)', () => {
     // ... and dispatch for a completely unrelated healthy action is
     // unaffected — proof the keydown listener actually got (re)attached,
     // not merely that buildShortcutRegistry() itself didn't throw.
-    const toggle = vi.fn()
-    const off = navigatorBus.onToggle('s1', toggle)
-    const event = keydown({ key: 'O', shiftKey: true, ctrlKey: true })
-    expect(toggle).toHaveBeenCalledOnce()
+    const event = keydown({ key: 'X', shiftKey: true, ctrlKey: true })
+    expect(scope).toHaveBeenCalledWith('s1')
+    expect(cancel).toHaveBeenCalledOnce()
     expect(event.defaultPrevented).toBe(true)
-    off()
   })
 
   // -------------------------------------------------------------------
   // Finding 1 (smoke test) — a bound third-party-provider chord used to be
   // dead while the composer was focused: the dispatcher suppressed every
-  // editable-target keydown unless the action id was in the hardcoded
-  // EDITABLE_ALLOWED_ACTIONS set, and no third-party id ever joined that
-  // set. Firing while typing is exactly the case allowWhileTyping exists
+  // editable-target keydown unless the action id was in a hardcoded
+  // allowlist (retired with the Navigator, its only member), and no
+  // third-party id ever joined that set. Firing while typing is exactly
+  // the case allowWhileTyping exists
   // for (originally motivated by the W2 host slash-command bridge's own
   // insert-mode PRIMARY flow — that bridge was later removed by product
   // decision, but the dispatcher mechanism it motivated stays general-
@@ -387,9 +358,9 @@ describe('shortcut dispatcher (seam B)', () => {
       input.remove()
     })
 
-    it('a Workbench action NOT in the legacy EDITABLE_ALLOWED_ACTIONS set stays suppressed while typing (no regression)', () => {
+    it('a Workbench action without allowWhileTyping stays suppressed while typing (no regression)', () => {
       // Session stop is a workbench.* built-in with no allowWhileTyping set —
-      // the fix must not accidentally widen the legacy allowlist's coverage.
+      // the flag must not widen coverage to actions that never opted in.
       const cancel = vi.fn()
       const scope = vi.fn(() => ({ get: () => ({ cancel }) }))
       const registry = buildShortcutRegistry({ services: { sessions: { scope, presentation: presentation('s-edit') } } })
@@ -775,7 +746,7 @@ describe('shortcut dispatcher (seam B)', () => {
 // switch until something else happened to rebuild the registry. Public
 // surface found: `dsh-client-locale` fires a genuine cordis `Context` event
 // `'locale/change'` ONLY on an actual active-locale switch (verified at the
-// pinned 0.1.1-rc.2 store: `@deepseek-ai/dsh-client-locale/lib/types/client/
+// pinned 0.1.2-rc.1 store: `@deepseek-ai/dsh-client-locale/lib/types/client/
 // index.d.ts:44-58`) — see harness-adapter.ts's `HarnessContext.on` overload
 // doc comment for the full citation. applyShortcuts subscribes to it and
 // uses its own microtaskCoalesce helper to debounce a burst into one

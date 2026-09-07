@@ -1,9 +1,9 @@
 <p align="center">
-  <img src="docs/assets/dsh-workbench-banner.png" width="100%" alt="DSH Workbench dual-Pane visual with two independent Session panels, a central divider, and Navigator rails">
+  <img src="docs/assets/dsh-workbench-banner.png" width="100%" alt="DSH Workbench dual-Pane visual with two independent Session panels and a central divider">
 </p>
 
 <p align="center">
-  A two-Pane workspace for DeepSeek Harness Web, with independent navigation, shortcuts, and optional side panels for each Session.
+  A two-Pane workspace for DeepSeek Harness Web: run two Sessions side by side, with application shortcuts, quote annotation, and optional Pane-local side panels.
 </p>
 
 <p align="left">
@@ -12,14 +12,14 @@
 
 <p align="center">
   <img alt="Status: source preview" src="https://img.shields.io/badge/status-source%20preview-5865F2">
-  <img alt="Version: 0.2.0-rc.3" src="https://img.shields.io/badge/version-0.2.0--rc.3-2563EB">
+  <img alt="Version: 0.2.0-rc.4" src="https://img.shields.io/badge/version-0.2.0--rc.4-2563EB">
   <img alt="Session Presentation: protocol 2" src="https://img.shields.io/badge/Session%20Presentation-protocol%202-0891B2">
   <img alt="Visible Panes: 2" src="https://img.shields.io/badge/visible%20Panes-2-0F766E">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-334155"></a>
 </p>
 
 > [!IMPORTANT]
-> Version `0.2.0-rc.3` is a source preview, not a one-command npm release. Split Pane requires the pinned Harness fork. Better Sidebar and Panel Compatibility are entirely optional. This project never installs, updates, or modifies a third-party plugin automatically.
+> Version `0.2.0-rc.4` is a source preview, not a one-command npm release. Split Pane requires the pinned Harness fork. Better Sidebar and Panel Compatibility are entirely optional. This project never installs, updates, or modifies a third-party plugin automatically.
 
 > [!TIP]
 > **One-line install prompt: send the complete sentence below to DeepSeek Harness**
@@ -28,7 +28,7 @@
 > Install DSH Workbench. First check the current Harness: if it is compatible with Split Pane, install directly; if not, keep the general-plugin functionality and tell me how to install, in parallel, the self-installed patch path (bootstrap) that does not overwrite the official Harness. If the sandbox cannot write to DSH_HOME, give me only one final terminal command.
 > ```
 >
-> Full decision rules and commands live in [`docs/INSTALL.md`](docs/INSTALL.md). The `v0.2.0-rc.3` GitHub Release is published — both the general-plugin and Split Pane bootstrap paths work today. Status still reads `0.2.0-rc.3` source preview (see [`release-contract.json`](release-contract.json)); that is not an npm release. To audit the source yourself, use "Advanced: build from source" below.
+> Full decision rules and commands live in [`docs/INSTALL.md`](docs/INSTALL.md). The `v0.2.0-rc.4` GitHub Release is published — both the general-plugin and Split Pane bootstrap paths work today. Status still reads `0.2.0-rc.4` source preview (see [`release-contract.json`](release-contract.json)); that is not an npm release. To audit the source yourself, use "Advanced: build from source" below.
 
 ## What it solves
 
@@ -37,8 +37,7 @@ DeepSeek Harness normally drives the interface from one current Session. DSH Wor
 | Capability | Experience |
 | --- | --- |
 | Two Panes | View and operate two Sessions at once without remounting the other Pane on focus changes |
-| Pane-local state | Drafts, scroll position, Navigator, and optional panels remain independent |
-| Navigator | One marker per real human input, with hover preview and precise message reveal |
+| Pane-local state | Drafts, scroll position, the turn rail, and optional panels remain independent |
 | Application shortcuts | Configurable Simplified Chinese / English labels following the Harness global locale; New Session, Open Settings, Previous Session, and Jump to Latest are listed under "Default shortcuts" below |
 | Workbench Ask | Open a zero-tool chat quickly, or fork a completed-message selection into a side chat to follow up |
 | Quote annotation | Mark a quoted passage where it lives (tint plus a numbered badge), write a note per quote, and keep only a counted chip on the composer |
@@ -58,7 +57,7 @@ Each Session owns its title, workspace, mode, composer, and Pane-panel controls.
 ### Shortcuts following the global locale
 
 <p align="center">
-  <img src="docs/assets/dsh-workbench-shortcuts.png" width="100%" alt="DSH Workbench shortcuts settings listing localized actions for Navigator, composer, sidebar, stop Session, and close Pane with their chords">
+  <img src="docs/assets/dsh-workbench-shortcuts.png" width="100%" alt="DSH Workbench shortcuts settings listing localized actions for the composer, sidebar, stop Session, and close Pane with their chords">
 </p>
 
 Shortcut labels follow the Harness global language, and every chord can be rebound and persisted.
@@ -72,19 +71,19 @@ Shortcut labels follow the Harness global language, and every chord can be rebou
 
 | Component | Required | Supported baseline | Notes |
 | --- | --- | --- | --- |
-| DeepSeek Harness | Yes | fork `feat/toggle-settings-verb`, commit `82de604a…` | Provides Session Presentation `protocol 2`, plus `ctx.layout.toggleSettings()` so the Settings shortcut also closes the panel |
-| DSH Workbench | Yes | `0.2.0-rc.3` | Maximum two visible Panes |
+| DeepSeek Harness | Yes | fork `rc4/presentation-on-0.1.2`, commit `c5a387cd…` | Provides Session Presentation `protocol 2`, plus `ctx.layout.toggleSettings()` so the Settings shortcut also closes the panel |
+| DSH Workbench | Yes | `0.2.0-rc.4` | Maximum two visible Panes |
 | Better Sidebar | Optional | fork `0.16.1`, commit `1685770…` | Provides Pane capability `protocol 1`, plus panel shortcut actions (`actionsProtocol 1`) |
-| Panel Compatibility | Optional | `0.1.0-rc.1` | Connects only explicit compatible providers |
+| Panel Compatibility | Optional | `0.1.0-rc.2` | Connects only explicit compatible providers |
 
-[`release-contract.json`](release-contract.json) is authoritative for full SHAs, branches, and distribution status. Stock Harness `0.1.1-rc.2` does not expose the required split interface, and stock Better Sidebar `0.16.1` has no multi-instance Pane capability.
+[`release-contract.json`](release-contract.json) is authoritative for full SHAs, branches, and distribution status. Stock Harness `0.1.2-rc.1` does not expose the required split interface, and stock Better Sidebar `0.16.1` has no multi-instance Pane capability.
 
-Workbench Split Pane, Navigator, and shortcuts work without Better Sidebar. When no compatible provider is installed, Panel Compatibility starts no Pane observer and changes no DOM, layout, or styles.
+Workbench Split Pane and shortcuts work without Better Sidebar. When no compatible provider is installed, Panel Compatibility starts no Pane observer and changes no DOM, layout, or styles.
 
 ## Quick start
 
 > [!NOTE]
-> The `v0.2.0-rc.3` GitHub Release is published, with both TGZs, both Split Pane bootstrap scripts, `SHA256SUMS`, and `release-manifest.json` attached — both paths below work today, copy-paste ready. Release artifacts are SHA256-verified, not GPG-signed (`release-contract.json`'s `sourceVerification.signedReleaseAvailable` is still `false`). `release-contract.json` itself still reports `0.2.0-rc.3` / `source-preview` — that reflects the distribution model (source plus local TGZ, no npm), not an unavailable install path. To audit the source yourself line by line, the collapsed "Advanced: build from source (audit path)" section below (i.e. [`docs/INSTALL.md` § Advanced: source build](docs/INSTALL.md#advanced-source-build)) remains available.
+> The `v0.2.0-rc.4` GitHub Release is published, with both TGZs, both Split Pane bootstrap scripts, `SHA256SUMS`, and `release-manifest.json` attached — both paths below work today, copy-paste ready. Release artifacts are SHA256-verified, not GPG-signed (`release-contract.json`'s `sourceVerification.signedReleaseAvailable` is still `false`). `release-contract.json` itself still reports `0.2.0-rc.4` / `source-preview` — that reflects the distribution model (source plus local TGZ, no npm), not an unavailable install path. To audit the source yourself line by line, the collapsed "Advanced: build from source (audit path)" section below (i.e. [`docs/INSTALL.md` § Advanced: source build](docs/INSTALL.md#advanced-source-build)) remains available.
 
 **Pick your path first.** The two paths are independent; choose by what you already have:
 
@@ -104,7 +103,7 @@ No pre-existing `dsh` required. Copy and run the single command for your platfor
 Windows (PowerShell 7+ / `pwsh`):
 
 ```
-& { $ErrorActionPreference = 'Stop'; $rel = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.3'; Invoke-WebRequest "$rel/dsh-workbench-bootstrap.ps1" -OutFile dsh-workbench-bootstrap.ps1; Invoke-WebRequest "$rel/SHA256SUMS" -OutFile SHA256SUMS; $expectedLine = (Select-String -Path SHA256SUMS -Pattern 'dsh-workbench-bootstrap\.ps1$').Line; if (-not $expectedLine) { throw 'SHA256SUMS 中未找到 dsh-workbench-bootstrap.ps1 的记录，已中止' }; $expected = ($expectedLine -split '\s+')[0].ToLower(); if ($expected -notmatch '^[0-9a-f]{64}$') { throw "SHA256SUMS 中的哈希格式不合法：$expected" }; $actual = (Get-FileHash dsh-workbench-bootstrap.ps1 -Algorithm SHA256).Hash.ToLower(); if ($actual -ne $expected) { throw "SHA256 校验失败：期望 $expected，实际 $actual" }; pwsh -NoProfile -ExecutionPolicy Bypass -File .\dsh-workbench-bootstrap.ps1 }
+& { $ErrorActionPreference = 'Stop'; $rel = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.4'; Invoke-WebRequest "$rel/dsh-workbench-bootstrap.ps1" -OutFile dsh-workbench-bootstrap.ps1; Invoke-WebRequest "$rel/SHA256SUMS" -OutFile SHA256SUMS; $expectedLine = (Select-String -Path SHA256SUMS -Pattern 'dsh-workbench-bootstrap\.ps1$').Line; if (-not $expectedLine) { throw 'SHA256SUMS 中未找到 dsh-workbench-bootstrap.ps1 的记录，已中止' }; $expected = ($expectedLine -split '\s+')[0].ToLower(); if ($expected -notmatch '^[0-9a-f]{64}$') { throw "SHA256SUMS 中的哈希格式不合法：$expected" }; $actual = (Get-FileHash dsh-workbench-bootstrap.ps1 -Algorithm SHA256).Hash.ToLower(); if ($actual -ne $expected) { throw "SHA256 校验失败：期望 $expected，实际 $actual" }; pwsh -NoProfile -ExecutionPolicy Bypass -File .\dsh-workbench-bootstrap.ps1 }
 ```
 
 (This command is byte-identical to the normative §1 command, so its own failure messages are currently Chinese; an English variant is tracked as follow-up work for the release task. The command is not altered here.)
@@ -112,7 +111,7 @@ Windows (PowerShell 7+ / `pwsh`):
 macOS (Terminal):
 
 ```
-rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.3'; if curl -fsSLO "$rel/dsh-workbench-bootstrap.sh" && curl -fsSLO "$rel/SHA256SUMS"; then expected=$(grep 'dsh-workbench-bootstrap\.sh$' SHA256SUMS | awk '{print $1}'); actual=$(shasum -a 256 dsh-workbench-bootstrap.sh | awk '{print $1}'); if [ -n "$expected" ] && printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$' && [ "$actual" = "$expected" ]; then chmod +x dsh-workbench-bootstrap.sh && ./dsh-workbench-bootstrap.sh; else echo 'SHA256 校验失败，已中止，不会执行未校验脚本' >&2; false; fi; else echo '下载失败，已中止，不会执行未校验脚本' >&2; false; fi
+rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.4'; if curl -fsSLO "$rel/dsh-workbench-bootstrap.sh" && curl -fsSLO "$rel/SHA256SUMS"; then expected=$(grep 'dsh-workbench-bootstrap\.sh$' SHA256SUMS | awk '{print $1}'); actual=$(shasum -a 256 dsh-workbench-bootstrap.sh | awk '{print $1}'); if [ -n "$expected" ] && printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$' && [ "$actual" = "$expected" ]; then chmod +x dsh-workbench-bootstrap.sh && ./dsh-workbench-bootstrap.sh; else echo 'SHA256 校验失败，已中止，不会执行未校验脚本' >&2; false; fi; else echo '下载失败，已中止，不会执行未校验脚本' >&2; false; fi
 ```
 
 (This command is byte-identical to the normative §1 command, so its own failure messages are currently Chinese; an English variant is tracked as follow-up work for the release task. The command is not altered here.)
@@ -130,7 +129,7 @@ The complete version lives in [`docs/INSTALL.md` § Advanced: source build](docs
 > **One-line install prompt (source-audit path): send the complete sentence below to DeepSeek Harness**
 >
 > ```text
-> Install DSH Workbench from https://github.com/wanyexin1998/dsh-workbench: first ask me for a full 40-character Workbench commit obtained from an independent trusted channel and stop if I do not provide one; require a nonexistent target directory, use git clone --no-checkout and checkout --detach that commit, stop after every failed Git command, and verify detached HEAD, a completely clean worktree, and case-insensitive exact equality between git rev-parse --verify HEAD and the supplied commit; only after every check succeeds may you read executable repository instructions and run pnpm install --frozen-lockfile and pnpm release:check, then install the generated Workbench TGZ into the web profile; install Panel Compatibility only when a compatible Better Sidebar fork is already present, never install or replace a third-party plugin automatically, never publish to npm, and finally report the actual commits, TGZ SHA256 values, and verification results for Split Pane, Navigator, and shortcuts.
+> Install DSH Workbench from https://github.com/wanyexin1998/dsh-workbench: first ask me for a full 40-character Workbench commit obtained from an independent trusted channel and stop if I do not provide one; require a nonexistent target directory, use git clone --no-checkout and checkout --detach that commit, stop after every failed Git command, and verify detached HEAD, a completely clean worktree, and case-insensitive exact equality between git rev-parse --verify HEAD and the supplied commit; only after every check succeeds may you read executable repository instructions and run pnpm install --frozen-lockfile and pnpm release:check, then install the generated Workbench TGZ into the web profile; install Panel Compatibility only when a compatible Better Sidebar fork is already present, never install or replace a third-party plugin automatically, never publish to npm, and finally report the actual commits, TGZ SHA256 values, and verification results for Split Pane and shortcuts.
 > ```
 
 ### Requirements
@@ -169,8 +168,8 @@ pnpm release:check
 
 Successful verification writes these files under `dist/`:
 
-- `wanyexin1998-dsh-workbench-0.2.0-rc.3.tgz`
-- `wanyexin1998-dsh-workbench-panel-compat-0.1.0-rc.1.tgz`
+- `wanyexin1998-dsh-workbench-0.2.0-rc.4.tgz`
+- `wanyexin1998-dsh-workbench-panel-compat-0.1.0-rc.2.tgz`
 - `dsh-workbench-bootstrap.ps1`
 - `dsh-workbench-bootstrap.sh`
 - `release-manifest.json`
@@ -197,14 +196,13 @@ Successful verification writes these files under `dist/`:
 
 | Action | Default chord | Notes |
 | --- | --- | --- |
-| Toggle Navigator | `Primary+Shift+O` | |
 | Focus composer | `Primary+/` | |
 | Toggle sidebar | `Primary+B` | Conflicts with the browser bookmark shortcut; Settings surfaces a warning |
 | Stop current Session | `Primary+Shift+X` | |
 | Close focused Pane | `Primary+\` | Requires Presentation protocol 2 (Split Pane bootstrap path only) |
 | Workbench Ask | `Primary+Shift+C` | Conflicts with the browser DevTools "Inspect element" shortcut; Settings surfaces a warning; the default chord is unchanged |
 | New Session | `Primary+N` | A normal browser tab reserves this for "New window"; Settings surfaces a warning. Works as bound in a desktop shell environment |
-| Open / Toggle Settings | `Primary+,` | Three capability tiers: the pinned Harness fork (`82de604a`) exposes `ctx.layout.toggleSettings()`, so the same chord also dismisses the panel; a host on the older pin, which ships only `openSettings()`, keeps the open-only verb and the "Open Settings" label; stock Harness has neither, and the action is **not registered at all**. The earlier default `Primary+Space` was intercepted by most Chinese IMEs as their language-toggle hotkey and by Spotlight on macOS (confirmed unresponsive in testing), so it is no longer the default |
+| Open / Toggle Settings | `Primary+,` | Three capability tiers: the pinned Harness fork (`c5a387cd`) exposes `ctx.layout.toggleSettings()`, so the same chord also dismisses the panel; a host on the older pin, which ships only `openSettings()`, keeps the open-only verb and the "Open Settings" label; stock Harness has neither, and the action is **not registered at all**. The earlier default `Primary+Space` was intercepted by most Chinese IMEs as their language-toggle hotkey and by Spotlight on macOS (confirmed unresponsive in testing), so it is no longer the default |
 | Switch to previous Session | `Alt+Q` | Derived from `event.code` across platforms, so macOS Option-key character composition does not break it |
 | Jump to latest message | `Primary+Shift+L` | |
 
@@ -293,7 +291,7 @@ Read [`SECURITY.md`](SECURITY.md) before reporting a vulnerability. Never place 
 
 ```text
 packages/
-├─ dsh-workbench/               # Split Pane, Navigator, shortcuts, workspace warning
+├─ dsh-workbench/               # Split Pane, shortcuts, workspace warning
 └─ dsh-workbench-panel-compat/  # Optional Pane-local panel adapter layer
 docs/
 ├─ INSTALL.md                   # Complete installation flow
@@ -320,19 +318,19 @@ docs/
 <details>
 <summary><strong>Is Better Sidebar required?</strong></summary>
 
-No. Better Sidebar and Panel Compatibility only provide optional Pane-local right and bottom panels. Split Pane, Navigator, and shortcuts do not depend on them.
+No. Better Sidebar and Panel Compatibility only provide optional Pane-local right and bottom panels. Split Pane and shortcuts do not depend on them.
 </details>
 
 <details>
 <summary><strong>Can Workbench open five Panes?</strong></summary>
 
-The current public contract allows at most two visible Panes. Five Panes require new layout, capacity, and performance acceptance work and are outside `0.2.0-rc.3`.
+The current public contract allows at most two visible Panes. Five Panes require new layout, capacity, and performance acceptance work and are outside `0.2.0-rc.4`.
 </details>
 
 <details>
 <summary><strong>Why does this require a Harness fork?</strong></summary>
 
-Workbench relies on Session Presentation `protocol 2`, stable `visible` / `focused` state, and an independent SessionProvider for each Pane. Stock `0.1.1-rc.2` does not expose those interfaces.
+Workbench relies on Session Presentation `protocol 2`, stable `visible` / `focused` state, and an independent SessionProvider for each Pane. Stock `0.1.2-rc.1` does not expose those interfaces.
 </details>
 
 ## Project status

@@ -5,7 +5,7 @@ DSH Workbench is an independent source-preview plugin for DeepSeek Harness Web.
 ## Current truth
 
 - `release-contract.json` owns supported versions, fork commits, protocol numbers, distribution status, and the two-Pane product limit.
-- `packages/dsh-workbench` owns Split Pane activation, Navigator, shortcuts, and Same Workspace Warning.
+- `packages/dsh-workbench` owns Split Pane activation, shortcuts, selection quoting, and Same Workspace Warning.
 - `packages/dsh-workbench-panel-compat` is optional and may only use explicit versioned provider capabilities plus the public `data-session-pane*` host markers.
 - Harness protocol 2 and the optional Better Sidebar Pane capability are maintained in the pinned downstream forks named by the release contract.
 - This repository ships source and local TGZ artifacts only. Do not add npm publication, automatic third-party installation, or GitHub Actions without an explicit maintainer decision.

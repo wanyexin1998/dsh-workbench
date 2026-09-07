@@ -248,6 +248,37 @@ export const QUOTE_BADGE_MIN_WIDTH = 16
 const QUOTE_BADGE_GAP = 4
 /** 徽标与可见带右缘之间的留白（滚动条槽已由 `quoteBand` 扣掉）。 */
 const QUOTE_BADGE_EDGE_INSET = 4
+
+/**
+ * 宿主回合导航栏（`TurnNavigator`）在可见带右缘占掉的宽度。徽标、卡片一律
+ * 不进这条保留带。
+ *
+ * 数值出处（`dsh-v0.1.2-rc.1:packages/client/ui-chat/src/client/chat/
+ * TurnNavigator.module.css`）：外框 `width: 28px`，
+ * `right: calc(12px - (var(--dsh-composer-side-clearance) + 16px))`。
+ * 28 + 12 = 40：栏宽加上它自己朝内留的那 12px。栏挂在 `ChatView` 的 `.scroll`
+ * 容器内（`ChatView.tsx:755-762`，`position: sticky; top: 0; z-index: 7`），
+ * 也就是**我们量 `band` 的同一个容器**，所以「带子右缘往左 40px」量的正是它。
+ *
+ * 为什么是常量、不去 DOM 里找它：那个 DOM 上没有任何 `data-*` 属性、没有
+ * `role`，只有 CSS-module 生成的哈希类名和一条**本地化**的 `aria-label`。哈希
+ * 类名随上游每次构建变；按显示文字/无障碍名锚定就是社区卡 R-13 点名的坑
+ * （文案一改、语言一换，选择器当场失效，而且是静默失效——徽标不会报错，只会
+ * 悄悄压到栏上）。一个常量至少是错得可见、可测、可改的。
+ *
+ * `--dsh-composer-side-clearance` 是上游变量，我们不读：它只影响栏相对容器右
+ * 缘的偏移，而那部分变化由 `band.right` 每帧实测吸收。用户拖拽正文宽度改的是
+ * `rowRect`，也不是 `band`。
+ *
+ * rc.4 起只支持 0.1.2-rc.1 及以上，所以不做版本分支——低版本宿主里这条带子只
+ * 是 40px 的空白，代价是徽标往左挪一点，不是错位。
+ */
+const TURN_RAIL_RESERVE = 40
+
+/** 徽标 / 卡片可以占到的最右边界：可见带右缘扣掉宿主回合导航栏的保留带。 */
+function railClearRight(band: QuoteBand): number {
+  return band.right - TURN_RAIL_RESERVE
+}
 /** 避让重叠时最多挪几次。挪满还撞就收下最后一个位置——错开一点也远好过
  * 逐字节重合（那是"一个徽标完全消失"）。 */
 const QUOTE_BADGE_MAX_SHIFTS = 8
@@ -333,7 +364,7 @@ export function placeQuoteBadge(
   if (lastRect.bottom <= band.top || lastRect.top >= band.bottom) return null
   const centred = lastRect.top + (lastRect.bottom - lastRect.top - badge.height) / 2
   const top = Math.min(Math.max(centred, band.top), Math.max(band.top, band.bottom - badge.height))
-  const rightBound = band.right - QUOTE_BADGE_EDGE_INSET
+  const rightBound = railClearRight(band) - QUOTE_BADGE_EDGE_INSET
   const outside = rowRect.right + QUOTE_BADGE_GAP
   const left = outside + badge.width <= rightBound
     ? outside
@@ -347,7 +378,7 @@ function avoidTakenBadges(
   band: QuoteBand,
   taken: readonly QuoteBadgeBox[],
 ): QuoteBadgePoint {
-  const rightBound = band.right - QUOTE_BADGE_EDGE_INSET
+  const rightBound = railClearRight(band) - QUOTE_BADGE_EDGE_INSET
   let current = point
   for (let shift = 0; shift < QUOTE_BADGE_MAX_SHIFTS; shift += 1) {
     if (!collidesWithTaken(current, badge, taken)) return current
@@ -407,9 +438,14 @@ export function placeQuoteCard(
   const top = measured
     ? Math.min(Math.max(rawTop, band.top), Math.max(band.top, band.bottom - size.height))
     : rawTop
+  // 右钳用的是**扣掉宿主回合导航栏之后**的右缘（`railClearRight`）：卡片左缘
+  // 对齐正文列左缘，宽的卡片只会从右边越界，钳在这里就等于"右缘不进保留带"。
+  // 左钳仍是 `band.left`，保留带在右边，与左缘无关。带子窄到连卡片都放不下时
+  // 外层 `Math.max(band.left, …)` 仍然优先保证左缘在带内——与本函数既有的
+  // "先保证可见" 优先级一致。
   const wide = band.right > band.left
   const left = wide
-    ? Math.min(Math.max(rowRect.left, band.left), Math.max(band.left, band.right - size.width))
+    ? Math.min(Math.max(rowRect.left, band.left), Math.max(band.left, railClearRight(band) - size.width))
     : rowRect.left
   return { top, left, above }
 }
@@ -455,6 +491,10 @@ export interface QuoteCardPin {
  *     下缘，不是 `top` 本身，行为不变。
  * 带子量不出来（`measured` 为 false）时同上面几处一样不钳——那不是"没有空间"，
  * 是"还没量出来"。
+ *
+ * 宿主回合导航栏的保留带（`TURN_RAIL_RESERVE`）在这里**没有对应处理**，不是漏
+ * 了：这个函数只算 `top` 与 `maxHeight`，卡片的水平落点从头到尾由
+ * `placeQuoteCard` 一处决定，那条栏是竖的、只吃水平空间。
  */
 export function pinQuoteCard(
   lastRect: { readonly top: number; readonly bottom: number },

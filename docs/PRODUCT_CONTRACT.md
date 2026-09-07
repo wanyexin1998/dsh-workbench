@@ -28,6 +28,8 @@
 | Narrow viewport | Show only focus while keeping the other Pane mounted |
 | Shared Workspace | Show a non-blocking Same Workspace Warning |
 
+- Turn navigation is the host's own `TurnNavigator`, mounted inside each `ChatView` — one rail per Pane, including turns the Pane has not loaded yet. Workbench renders no conversation rail of its own and keeps a fixed reserve at the scroll container's right edge so quote badges and note cards never land underneath it.
+
 ## Workbench Ask
 
 | Action | Session and input contract | Stock Harness | Presentation protocol 2 |
@@ -37,8 +39,8 @@
 | More details | Fork at the selected node's `anchorSeq`; send one logged boundary + the quoted passage as plain text + localized explanation request in the child | Hidden | Available |
 | Ask in side chat | Fork identically; insert one side-chat reference into an empty ordinary draft; do not submit until the user does | Hidden | Available |
 
-- Workspace resolution prefers a Workspace titled `chat`, then the Workspace containing the captured source Session. Workbench does not create a Workspace automatically.
-- Same-day blank reuse requires `blank === true`, `agentPreset === 'chat'`, membership in the resolved Workspace, and the newest local-calendar-day timestamp.
+- Workspace resolution prefers a Workspace titled `chat`, then the Workspace containing the captured source Session, then the Workspace with the newest `updatedAt` — the host's last-mutation instant, which counts a retitle or a mounted Session, not only conversation activity. That last tier is what answers from the zero-Pane home state, where nothing is focused and no source Session exists to ask about. Resolution yields nothing at all only when there are no Workspaces, or none carries a parseable `updatedAt`; Workbench does not create a Workspace automatically.
+- Same-day blank reuse requires `blank === true`, an `agentPreset` of `chat` in the Session's projection values, membership in the resolved Workspace, and the newest local-calendar-day timestamp.
 - A legal selection is non-empty, at most 16 KiB UTF-8, and contained in one settled, model-visible business row. Cross-message, cross-Pane, streaming, interactive-control, stale, or ambiguous selections fail closed.
 - `parentSessionId`, node identity, `anchorSeq`, normalized visible-text offsets, and selection rectangle are frozen at capture. Mutating actions revalidate the same Session snapshot before proceeding.
 - Add-to-conversation and side-chat draft references are source-owned codecs. Missing owners, stale draft revisions, or serialization failures block submission rather than degrading to untracked plain text.

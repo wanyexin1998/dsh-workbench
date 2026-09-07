@@ -4,7 +4,6 @@ import type { UserConfig } from 'tsdown'
 
 const PLATFORM_MODULES = [
   'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client', '@deepseek-ai/cordis',
-  '@deepseek-ai/dsh-client-runtime/client',
 ] as const
 
 const packageJson = createRequire(import.meta.url)('./package.json') as { name?: unknown }

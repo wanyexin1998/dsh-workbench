@@ -10,7 +10,7 @@ import {
   type HarnessServices,
 } from './harness-adapter.js'
 import { settingsBindingSection } from './shortcuts.js'
-import { detectConversationDom, normalizeInputNode } from './conversation-dom.js'
+import { detectConversationDom } from './conversation-dom.js'
 
 function makeCtx(services: Record<string, unknown> = {}): HarnessContext {
   return {
@@ -27,11 +27,11 @@ describe('resolveHarnessServices (GA-040, §9A.1)', () => {
   it('narrows ctx.get() into the typed service bundle', () => {
     const sessions = { scope: vi.fn(() => ({ get: vi.fn(() => ({ cancel: vi.fn() })) })) }
     const layout = { toggleSidebar: vi.fn() }
-    const connection = { api: { sessions: { create: vi.fn() } } }
+    const remote = { session: { create: vi.fn() } }
     const workspaces = { list: { getSnapshot: vi.fn(), subscribe: vi.fn() } }
-    const ctx = makeCtx({ connection, sessions, layout, workspaces })
+    const ctx = makeCtx({ remote, sessions, layout, workspaces })
     const services = resolveHarnessServices(ctx)
-    expect(services.connection).toBe(connection)
+    expect(services.remote).toBe(remote)
     expect(services.sessions).toBe(sessions)
     expect(services.layout).toBe(layout)
     expect(services.workspaces).toBe(workspaces)
@@ -41,7 +41,7 @@ describe('resolveHarnessServices (GA-040, §9A.1)', () => {
 
   it('yields undefined members when a service is not injected', () => {
     const services = resolveHarnessServices(makeCtx())
-    expect(services.connection).toBeUndefined()
+    expect(services.remote).toBeUndefined()
     expect(services.layout).toBeUndefined()
     expect(services.sessions).toBeUndefined()
     expect(services.workspaces).toBeUndefined()
@@ -56,7 +56,7 @@ describe('chatActionServices', () => {
 
   it('accepts create + workspace list + session list/open without Presentation', () => {
     const services = {
-      connection: { api: { sessions: { create: vi.fn() } } },
+      remote: { session: { create: vi.fn() } },
       sessions: { scope: vi.fn(), list, open: vi.fn() },
       workspaces: { list },
     }
@@ -64,10 +64,10 @@ describe('chatActionServices', () => {
   })
 
   it.each([
-    ['connection', { sessions: { scope: vi.fn(), list, open: vi.fn() }, workspaces: { list } }],
-    ['session open', { connection: { api: { sessions: { create: vi.fn() } } }, sessions: { scope: vi.fn(), list }, workspaces: { list } }],
-    ['session list', { connection: { api: { sessions: { create: vi.fn() } } }, sessions: { scope: vi.fn(), open: vi.fn() }, workspaces: { list } }],
-    ['workspace list', { connection: { api: { sessions: { create: vi.fn() } } }, sessions: { scope: vi.fn(), list, open: vi.fn() } }],
+    ['remote', { sessions: { scope: vi.fn(), list, open: vi.fn() }, workspaces: { list } }],
+    ['session open', { remote: { session: { create: vi.fn() } }, sessions: { scope: vi.fn(), list }, workspaces: { list } }],
+    ['session list', { remote: { session: { create: vi.fn() } }, sessions: { scope: vi.fn(), open: vi.fn() }, workspaces: { list } }],
+    ['workspace list', { remote: { session: { create: vi.fn() } }, sessions: { scope: vi.fn(), list, open: vi.fn() } }],
   ])('rejects a bundle missing %s', (_label, services) => {
     expect(chatActionServices(services)).toBeUndefined()
   })
@@ -190,8 +190,8 @@ describe('currentSessionId / subscribeCurrentSessionId (MEDIUM 1: the sessions.l
 
 describe('settingsBindingSection (narrow unknown snapshot)', () => {
   it('reads the `user` section when present', () => {
-    expect(settingsBindingSection({ user: { 'conversation.navigator.toggle': 'Primary+Shift+O' } })).toEqual(
-      { 'conversation.navigator.toggle': 'Primary+Shift+O' },
+    expect(settingsBindingSection({ user: { 'conversation.composer.focus': 'Primary+Shift+O' } })).toEqual(
+      { 'conversation.composer.focus': 'Primary+Shift+O' },
     )
   })
 
@@ -203,20 +203,3 @@ describe('settingsBindingSection (narrow unknown snapshot)', () => {
   })
 })
 
-describe('normalizeInputNode (narrow unknown node → InputNodeView)', () => {
-  it('accepts the flat shape and the .data payload shape', () => {
-    expect(normalizeInputNode({ kind: 'user', key: 'k1', seq: 3, time: 100, content: [{ kind: 'text', text: 'hi' }] })).toEqual({
-      kind: 'user', key: 'k1', seq: 3, time: 100, content: [{ kind: 'text', text: 'hi' }],
-    })
-    expect(normalizeInputNode({ kind: 'steering', key: 'k2', data: { seq: 5, content: [] } })).toEqual({
-      kind: 'steering', key: 'k2', seq: 5, time: undefined, content: [],
-    })
-  })
-
-  it('returns null for non-objects and for nodes missing kind/key', () => {
-    expect(normalizeInputNode(null)).toBeNull()
-    expect(normalizeInputNode(42)).toBeNull()
-    expect(normalizeInputNode({ kind: 'user' })).toBeNull()
-    expect(normalizeInputNode({ key: 'k1' })).toBeNull()
-  })
-})

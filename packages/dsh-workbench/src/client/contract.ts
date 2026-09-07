@@ -8,6 +8,6 @@ export interface SupportedHarnessBuild {
 
 /** Workbench 0.2 targets the first latest-Harness presentation interface. */
 export const SUPPORTED_HARNESS: SupportedHarnessBuild = {
-  version: '0.1.1-rc.2',
+  version: '0.1.2-rc.1',
   protocol: 2,
 }

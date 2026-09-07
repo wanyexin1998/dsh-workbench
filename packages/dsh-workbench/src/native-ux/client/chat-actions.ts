@@ -5,6 +5,7 @@ import {
   type ChatActionServices,
   type ObservableSnapshotFace,
   type SessionListSnapshotFace,
+  type SessionSummaryFace,
   type WorkspaceListSnapshotFace,
   type WorkspaceSummaryFace,
 } from './harness-adapter.js'
@@ -225,26 +226,60 @@ function workspaceDisplayName(workspace: WorkspaceSummaryFace): readonly (string
 }
 
 /**
+ * 最后一档兜底：`updatedAt` 最大的那个 Workspace。
+ *
+ * 判据的语义差异要说清楚，因为它和这一档原来读的 `recentWorkspaceId` 不是同一
+ * 件事：旧字段是"最近**活跃**"，`updatedAt` 是"最近**被改动**"——挂载会话、改
+ * 标题都算一次改动（宿主的说法就是 "last-mutation instant"）。对随手问要回答的
+ * 问题（"用户刚才人在哪个 Workspace 里"）两者足够接近；能分开的场景是"用户在 A
+ * 里聊天，却刚在 B 里改了个标题"——这时会落到 B。接受这个偏差，因为这一档本来
+ * 就只在零 Pane（没有任何聚焦会话可问）时才轮得到。
+ *
+ * 解析不出时间的行（`Date.parse` 返回 NaN）整行跳过，而不是当成 0：宿主那头没
+ * 有运行时保证，一个坏值不该反而赢过所有好值。并列时保留宿主列表里靠前的那个
+ * （严格 `>`），与上游侧栏 "Stable tie-breaking follows Host Workspace order"
+ * 的做法一致。
+ */
+function mostRecentlyUpdatedWorkspace(
+  workspaces: readonly WorkspaceSummaryFace[],
+): WorkspaceSummaryFace | undefined {
+  let recent: WorkspaceSummaryFace | undefined
+  let recentAt = Number.NEGATIVE_INFINITY
+  for (const workspace of workspaces) {
+    const updatedAt = Date.parse(workspace.updatedAt)
+    if (Number.isNaN(updatedAt)) continue
+    if (recent === undefined || updatedAt > recentAt) {
+      recent = workspace
+      recentAt = updatedAt
+    }
+  }
+  return recent
+}
+
+/**
  * Frozen resolution chain: exact chat title/name first, then source
- * membership, then the host's own most-recently-active Workspace.
+ * membership, then the most recently updated Workspace.
  *
  * The third tier exists because the first two are both unreachable from the
  * zero-Pane home state — nothing is focused and `sessions.list.current` is
  * empty right after `sessions.clear()` (Workbench's own Primary+N) or on a
  * fresh launch — which left the whole action silently inert for every user
  * whose Workspaces are named after their work rather than literally "chat".
- * `recentWorkspaceId` is a real field of the stock workspace-list snapshot
- * (see its declaration on `WorkspaceListSnapshotFace` for the pinned-store
- * citation), so this stays a read of a declared seam, not a guess.
+ * It reads `WorkspaceSummaryFace.updatedAt`, a declared field of the host's
+ * own Workspace row (see that field for the pinned-tag citation and for how
+ * "most recently updated" differs from the "most recently active" this tier
+ * used to ask for), so it stays a read of a declared seam, not a guess.
  *
- * Still fail-closed at the end: a host that projects no `recentWorkspaceId`,
- * or one naming a Workspace absent from `items`, resolves to `undefined` and
- * the caller performs no create and no navigation.
+ * Still fail-closed at the end, though on a narrower condition than before:
+ * an empty Workspace list, or one where no row carries a parseable
+ * `updatedAt`, resolves to `undefined` and the caller performs no create and
+ * no navigation. Any host that projects real Workspace rows now resolves one
+ * — which is the point: this tier answering is what the zero-Pane chord
+ * needs, and refusing to answer is what made it look broken.
  */
 export function resolveChatWorkspace(
   workspaces: readonly WorkspaceSummaryFace[],
   sourceSessionId: string | undefined,
-  recentWorkspaceId?: string,
 ): WorkspaceSummaryFace | undefined {
   const named = workspaces.find(workspace =>
     workspaceDisplayName(workspace).some(name => name?.toLocaleLowerCase() === 'chat'))
@@ -253,8 +288,7 @@ export function resolveChatWorkspace(
     ? undefined
     : workspaces.find(workspace => workspace.sessionIds.includes(sourceSessionId))
   if (owning !== undefined) return owning
-  if (recentWorkspaceId === undefined) return undefined
-  return workspaces.find(workspace => workspace.workspaceId === recentWorkspaceId)
+  return mostRecentlyUpdatedWorkspace(workspaces)
 }
 
 export function isSameLocalCalendarDay(leftMs: number, rightMs: number): boolean {
@@ -264,6 +298,20 @@ export function isSameLocalCalendarDay(leftMs: number, rightMs: number): boolean
     && left.getFullYear() === right.getFullYear()
     && left.getMonth() === right.getMonth()
     && left.getDate() === right.getDate()
+}
+
+/**
+ * 读一行会话的 agent 预设。与上游同形——`dsh-v0.1.2-rc.1:packages/client/
+ * ui-agent-preset/src/client/seat-store.ts:183-188` 的 `presetOf` 逐字同一个
+ * 读法：预设住在 session projection 里，不在列表行的顶层（见
+ * `SessionSummaryFace.projectionValues` 的出处注释）。
+ *
+ * `null`（宿主的真值："这个部署没有编排任何预设"）与缺失都归为"读不出预设"，
+ * 于是都不等于 `'chat'`——复用只认真正报了 chat 预设的那些行。
+ */
+function presetOf(summary: SessionSummaryFace): string | undefined {
+  const value = summary.projectionValues?.agentPreset
+  return typeof value === 'string' ? value : undefined
 }
 
 /** Newest same-day blank `chat` Session accounted to the resolved Workspace. */
@@ -278,7 +326,7 @@ export function reusableChatSessionId(
     if (!sessions.ids.includes(id)
       || summary === undefined
       || summary.blank !== true
-      || summary.agentPreset !== 'chat'
+      || presetOf(summary) !== 'chat'
       || !isSameLocalCalendarDay(summary.updatedAt, nowMs)) continue
     if (newest === undefined || summary.updatedAt > newest.updatedAt) {
       newest = { id, updatedAt: summary.updatedAt }
@@ -346,11 +394,7 @@ export function createChatActions(options: ChatActionOptions): ChatActions {
         notifySafely(ui, t('chat.error.noWorkspace'))
         return { kind: 'no-workspace', sourceSessionId }
       }
-      const workspace = resolveChatWorkspace(
-        workspaceSnapshot.items,
-        sourceSessionId,
-        workspaceSnapshot.recentWorkspaceId,
-      )
+      const workspace = resolveChatWorkspace(workspaceSnapshot.items, sourceSessionId)
       if (workspace === undefined) {
         diagnostic('[dsh-workbench] workbench.chat.open skipped: no workspace resolved')
         // A console line is invisible to the person who just pressed the
@@ -364,15 +408,19 @@ export function createChatActions(options: ChatActionOptions): ChatActions {
       let created = false
       if (sessionId === undefined) {
         try {
-          const response = await services.connection.api.sessions.create({
+          // 0.1.2-rc.1：wire 从 `connection.api.sessions.create({…})` 换成
+          // `ctx.remote.session.create(request)`——恰好一个 request 参数，且
+          // promise 直接落在 `RemoteResult` 上，不再包一层 `{ result }`。
+          // 两条都由描述符定死，见 harness-adapter.ts 的 `RemoteService`。
+          const result = await services.remote.session.create({
             workspaceId: workspace.workspaceId,
             agentPreset: 'chat',
           })
-          if (!response.result.ok) {
+          if (!result.ok) {
             notifySafely(ui, t('chat.error.create'))
-            return { kind: 'create-failed', workspaceId: workspace.workspaceId, error: response.result.error }
+            return { kind: 'create-failed', workspaceId: workspace.workspaceId, error: result.error }
           }
-          sessionId = response.result.value.sessionId
+          sessionId = result.value.sessionId
           created = true
         } catch (error) {
           notifySafely(ui, t('chat.error.create'))

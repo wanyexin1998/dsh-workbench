@@ -33,6 +33,12 @@ No carrier removal or legacy installer command applies to this source preview.
 
 ## Split pane (bootstrap)
 
+> **Upgrading rather than removing?** Do not run this step as-is. Deleting
+> `<target>` deletes `<target>/home` with it — every Session, Workspace and
+> model setting created inside the isolated install. The installer refuses a
+> target that already exists, so an upgrade means moving that home aside
+> first: see [`docs/INSTALL.md` § Upgrading from `v0.2.0-rc.3`](INSTALL.md#upgrading-from-v020-rc3).
+
 Uninstall is a single step: delete the `<target>` directory the bootstrap installer was given (default: Windows `%USERPROFILE%\dsh-workbench`, macOS `$HOME/dsh-workbench`). By construction every file the installer ever wrote — the launcher, the patched Harness fork checkout, and the isolated `DSH_HOME` (profiles, Sessions, settings, and the seeded `chat` preset described above) — lives under that one root, so deleting it removes the bootstrap install completely.
 
 The official Harness install is never touched by the bootstrap installer or by this uninstall step — it keeps running exactly as it did before, on its own `~/.dsh` (or `%USERPROFILE%\.dsh`) and its own `dsh` launcher. The only thing the bootstrap installer writes outside `<target>` is its own use of your package manager's global store/cache (`pnpm`'s), which `pnpm` owns and manages independently of any single install; this uninstall step does not attempt to touch that shared store.

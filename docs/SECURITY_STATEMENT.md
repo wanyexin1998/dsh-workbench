@@ -1,6 +1,6 @@
 # Security statement
 
-This statement covers the `0.2.0-rc.3` source preview.
+This statement covers the `0.2.0-rc.4` source preview.
 
 ## Runtime boundary
 

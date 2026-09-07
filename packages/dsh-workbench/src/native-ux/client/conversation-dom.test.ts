@@ -1,22 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  anchorRectsFromCache, createHumanAnchorCache, detectConversationDom,
-  captureConversationRange, ensureQuoteHighlightStyles, findBusinessRow,
+  captureConversationRange, detectConversationDom, ensureQuoteHighlightStyles, findBusinessRow,
   locateConversationRoot, locateScrollport, quoteBand, resolveRowRange, tintableSubRanges,
 } from './conversation-dom.js'
 import { MAX_SELECTION_BYTES } from './selection-contract.js'
-
-// MutationObserver delivery (one microtask) + the coalesced refresh (the next
-// microtask) — a macrotask flush drains both turns.
-const flush = () => new Promise<void>((r) => setTimeout(r, 0))
-
-function anchor(key: string, kind: string): HTMLElement {
-  const el = document.createElement('div')
-  el.setAttribute('data-chat-anchor-key', key)
-  el.setAttribute('data-chat-flow-kind', kind)
-  return el
-}
 
 function makeScrollport() {
   const scrollport = document.createElement('div')
@@ -24,83 +12,6 @@ function makeScrollport() {
   document.body.appendChild(scrollport)
   return scrollport
 }
-
-describe('createHumanAnchorCache (GA-032, Roadmap §9A.7)', () => {
-  afterEach(() => {
-    document.body.innerHTML = ''
-  })
-
-  it('seeds with the anchors present at creation, user/steering only', () => {
-    const scrollport = makeScrollport()
-    const userA = anchor('a', 'user')
-    const step = anchor('s1', 'assistant-step')
-    const steeringB = anchor('b', 'steering')
-    scrollport.append(userA, step, steeringB)
-    const cache = createHumanAnchorCache(scrollport)
-    try {
-      const snapshot = cache.snapshot()
-      expect(snapshot.map((a) => a.key)).toEqual(['a', 'b'])
-      expect(snapshot[0]?.element).toBe(userA)
-      expect(snapshot[1]?.element).toBe(steeringB)
-    } finally {
-      cache.dispose()
-    }
-  })
-
-  it('refreshes coalesced when the structure changes (multiple mutations → one refresh)', async () => {
-    const scrollport = makeScrollport()
-    const original = anchor('a', 'user')
-    scrollport.append(original)
-    const cache = createHumanAnchorCache(scrollport)
-    try {
-      const added1 = anchor('b', 'user')
-      const added2 = anchor('c', 'steering')
-      const swapIn = anchor('a2', 'user')
-      scrollport.append(added1, added2)
-      scrollport.replaceChild(swapIn, original)
-      // Two structural mutations within the same turn → coalesced into one
-      // refresh; until the microtask flushes, the cache still holds the
-      // pre-mutation snapshot.
-      expect(cache.snapshot().map((a) => a.key)).toEqual(['a'])
-      await flush()
-      expect(cache.snapshot().map((a) => a.key)).toEqual(['a2', 'b', 'c'])
-    } finally {
-      cache.dispose()
-    }
-  })
-
-  it('dispose stops structural refreshes', async () => {
-    const scrollport = makeScrollport()
-    const cache = createHumanAnchorCache(scrollport)
-    cache.dispose()
-    scrollport.append(anchor('late', 'user'))
-    await flush()
-    expect(cache.snapshot().map((a) => a.key)).toEqual([])
-  })
-})
-
-describe('anchorRectsFromCache', () => {
-  afterEach(() => {
-    document.body.innerHTML = ''
-  })
-
-  it('maps cached elements to top-to-bottom rect entries, skipping detached ones', () => {
-    const scrollport = makeScrollport()
-    const userA = anchor('a', 'user')
-    const userB = anchor('b', 'user')
-    scrollport.append(userA, userB)
-    const cache = createHumanAnchorCache(scrollport)
-    try {
-      userA.remove() // detached mid-session (e.g. virtualization)
-      const rects = anchorRectsFromCache(cache.snapshot())
-      expect(rects).toHaveLength(1)
-      expect(rects[0]?.key).toBe('b')
-      expect(typeof rects[0]?.top).toBe('number')
-    } finally {
-      cache.dispose()
-    }
-  })
-})
 
 describe('locateConversationRoot (GA-031 scope, sdk-facts.md)', () => {
   afterEach(() => {

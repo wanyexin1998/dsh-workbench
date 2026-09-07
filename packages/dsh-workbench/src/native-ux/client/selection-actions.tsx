@@ -2366,9 +2366,9 @@ export function applySelectionActions(
     quoteNote: t('selection.quote.note'),
   }
   ctx.effect(() => () => controller.dispose(), 'dsh-workbench: selection controller')
-  // 就地高亮的 `::highlight()` 规则只能来自样式表（没有内联等价物）。注入点
-  // 与 navigator.tsx:547 的 reveal-highlight 同形，是既有适配器决策的延伸，
-  // 不是新机制；样式表刻意不随 dispose 撤回（模块级 once flag，同 ensureHighlightStyles）。
+  // 就地高亮的 `::highlight()` 规则只能来自样式表（没有内联等价物）。注入走
+  // conversation-dom.ts 的模块级 once flag，是既有适配器决策的延伸，不是新
+  // 机制；样式表刻意不随 dispose 撤回。
   ctx.effect(() => {
     ensureQuoteHighlightStyles()
     return () => {}

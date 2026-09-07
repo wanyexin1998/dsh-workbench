@@ -1,7 +1,6 @@
 // Adapter layer — the ONLY module allowed to touch conversation DOM
 // structure (ADR-0001). Everything here is replaceable when the upstream
 // ConversationNavigation service + overlay seat land (issue #1).
-import type { ContentBlockView, InputNodeView } from '../core/derive-index.js'
 
 export const SCROLLPORT_SELECTOR = '[data-conversation-scroll]'
 export const ANCHOR_SELECTOR = '[data-chat-anchor-key]'
@@ -488,31 +487,9 @@ export function locateScrollport(root: ParentNode = document): HTMLElement | nul
   return el instanceof HTMLElement ? el : null
 }
 
-export interface ScrollportRect {
-  top: number
-  bottom: number
-  right: number
-  height: number
-}
-
-export function scrollportRect(scrollport: HTMLElement): ScrollportRect {
-  const rect = scrollport.getBoundingClientRect()
-  return { top: rect.top, bottom: rect.bottom, right: rect.right, height: Math.max(0, rect.bottom - rect.top) }
-}
-
-/**
- * Right inset for a fixed-position rail: distance from the viewport's
- * right edge to the rail, kept clear of the system scrollbar gutter
- * (offsetWidth - clientWidth measures the classic scrollbar width).
- */
-export function railInset(scrollport: HTMLElement, rect: { right: number }, baseInset: number): number {
-  const scrollbarWidth = Math.max(0, scrollport.offsetWidth - scrollport.clientWidth)
-  return window.innerWidth - rect.right + scrollbarWidth + baseInset
-}
-
-/** 引用徽标的可见带：滚动容器的视口矩形，右缘已让开滚动条槽（同 `railInset`
- * 的 `offsetWidth - clientWidth` 量法）。徽标绝对定位在这条带子里，带外的行
- * 不画徽标（`offscreen`）。 */
+/** 引用徽标的可见带：滚动容器的视口矩形，右缘已让开滚动条槽
+ * （`offsetWidth - clientWidth` 就是经典滚动条的宽度）。徽标绝对定位在这条
+ * 带子里，带外的行不画徽标（`offscreen`）。 */
 export interface QuoteBand {
   readonly top: number
   readonly bottom: number
@@ -529,26 +506,6 @@ export function quoteBand(scrollport: HTMLElement): QuoteBand {
 }
 
 /**
- * Normalize a render-layer node (harness shape is `unknown`) to the core
- * `InputNodeView` the projection consumes. Render-layer ChatNodes carry their
- * domain payload under `.data` (ChatNodeDataMap); tolerate both shapes
- * defensively. Single narrowing point for the harness node boundary.
- */
-export function normalizeInputNode(node: unknown): InputNodeView | null {
-  if (typeof node !== 'object' || node === null) return null
-  const n = node as Record<string, unknown>
-  if (typeof n.kind !== 'string' || typeof n.key !== 'string') return null
-  const data = (typeof n.data === 'object' && n.data !== null ? n.data : n) as Record<string, unknown>
-  return {
-    kind: n.kind,
-    key: n.key,
-    seq: typeof data.seq === 'number' ? data.seq : 0,
-    time: typeof data.time === 'number' ? data.time : undefined,
-    content: (Array.isArray(data.content) ? data.content : []) as readonly ContentBlockView[],
-  }
-}
-
-/**
  * Conversation root for scoping the MutationObserver (sdk-facts.md:
  * `div.ConversationRoot_root[data-phase]`). Null on hosts without the
  * marker — the caller falls back to document.body.
@@ -559,7 +516,8 @@ export function locateConversationRoot(root: ParentNode = document): HTMLElement
   return root.querySelector<HTMLElement>('.ConversationRoot_root[data-phase]') ?? null
 }
 
-/** Static presence of the conversation DOM anchors the navigator depends on. */
+/** Static presence of the conversation DOM seams the selection layer and the
+ * DOM-backed shortcuts depend on. */
 export interface ConversationDomCapabilities {
   scrollport: boolean
   anchors: boolean
@@ -576,96 +534,18 @@ export function detectConversationDom(root: ParentNode = document): Conversation
   }
 }
 
-export interface HumanAnchorElement {
-  key: string
-  element: HTMLElement
-}
-
-/**
- * GA-032 (Roadmap §9A.7): human-anchor element cache. Structural changes
- * refresh a coalesced (queueMicrotask-merged) snapshot, so the scroll
- * handler only reads cached elements and never re-queries the full DOM
- * per frame.
- */
-export function createHumanAnchorCache(scrollport: HTMLElement) {
-  let anchors: HumanAnchorElement[] = []
-  let refreshQueued = false
-
-  const refresh = () => {
-    refreshQueued = false
-    anchors = []
-    for (const row of Array.from(scrollport.querySelectorAll(ANCHOR_SELECTOR))) {
-      const el = row as HTMLElement
-      const kind = el.dataset.chatFlowKind
-      const key = el.dataset.chatAnchorKey
-      if ((kind === 'user' || kind === 'steering') && key !== undefined) {
-        anchors.push({ key, element: el })
-      }
-    }
-  }
-
-  const queueRefresh = () => {
-    if (refreshQueued) return
-    refreshQueued = true
-    queueMicrotask(refresh)
-  }
-
-  refresh()
-  const observer = new MutationObserver(queueRefresh)
-  observer.observe(scrollport, { childList: true, subtree: true })
-
-  return {
-    snapshot: () => anchors,
-    dispose: () => observer.disconnect(),
-  }
-}
-
-/** Cached anchor elements → rect list for active-tracking (DOM order kept). */
-export function anchorRectsFromCache(anchors: readonly HumanAnchorElement[]): Array<{ key: string; top: number }> {
-  const rects: Array<{ key: string; top: number }> = []
-  for (const anchor of anchors) {
-    if (!anchor.element.isConnected) continue
-    rects.push({ key: anchor.key, top: anchor.element.getBoundingClientRect().top })
-  }
-  return rects
-}
-
-/** Anchor lookup for reveal (exact dataset match, scoped). */
-export function findAnchor(scrollport: HTMLElement, nodeKey: string): HTMLElement | null {
-  for (const row of Array.from(scrollport.querySelectorAll(ANCHOR_SELECTOR))) {
-    const el = row as HTMLElement
-    if (el.dataset.chatAnchorKey === nodeKey) return el
-  }
-  return null
-}
-
 /**
  * Business-row lookup by the identity `captureConversationRange` records.
  *
- * 刻意不是 `findAnchor`：那个比的是 `data-chat-anchor-key`，而选区身份里的
- * `nodeKey` 来自 `data-chat-flow-key`（`captureConversationRange:140`）。两个
- * 属性在宿主里不保证相等，混用会解析到别的行。
+ * 比的是 `data-chat-flow-key`——选区身份里的 `nodeKey` 就来自那个属性
+ * （`captureConversationRange:140`）。宿主同一行上还有一个
+ * `data-chat-anchor-key`，两个属性不保证相等，按锚点键找会解析到别的行。
  */
 export function findBusinessRow(scope: ParentNode, nodeKey: string): HTMLElement | null {
   for (const candidate of Array.from(scope.querySelectorAll<HTMLElement>(BUSINESS_ROW_SELECTOR))) {
     if (candidate.dataset.chatFlowKey === nodeKey) return candidate
   }
   return null
-}
-
-/**
- * Inject the reveal-highlight stylesheet once (harness has no CSS seam
- * for plugin styles; a scoped <style> tag is the adapter-level trade).
- */
-let highlightCssInjected = false
-export function ensureHighlightStyles(): void {
-  if (highlightCssInjected) return
-  highlightCssInjected = true
-  const style = document.createElement('style')
-  style.setAttribute('data-dsh-nux-styles', 'reveal-highlight')
-  style.textContent =
-    '[data-dsh-nux-reveal]{outline:2px solid var(--dsw-alias-brand-primary,#4f7cff);outline-offset:2px;border-radius:4px;transition:outline-color .15s ease}'
-  document.head.appendChild(style)
 }
 
 /**
@@ -750,10 +630,10 @@ const QUOTE_HIGHLIGHT_CSS = [
 ].join('')
 
 /**
- * Inject the quote-highlight stylesheet once. Same trade as
- * `ensureHighlightStyles` above (harness has no CSS seam for plugin styles);
- * `::highlight()` 规则**只能**来自样式表——高亮的绘制参数不在元素上，没有
- * 内联等价物，这是本包唯一一处内联样式做不到的视觉。
+ * Inject the quote-highlight stylesheet once. The harness has no CSS seam
+ * for plugin styles, so a module-scoped `<style>` tag is the adapter-level
+ * trade; `::highlight()` 规则**只能**来自样式表——高亮的绘制参数不在元素
+ * 上，没有内联等价物，这是本包唯一一处内联样式做不到的视觉。
  */
 let quoteHighlightCssInjected = false
 export function ensureQuoteHighlightStyles(): void {

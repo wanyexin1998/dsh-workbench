@@ -1,4 +1,7 @@
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+// 0.1.2-rc.1 删掉了 `@deepseek-ai/dsh-client-runtime`；`ClientContext` 本来就是
+// cordis `Context` 的别名，直接从 cordis 取。别名保留，`apply(ctx: ClientContext)`
+// 的签名因此不变。
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { WorkbenchPanels } from './types.ts'
 import { betterSidebarAdapter } from './better-sidebar.ts'
 import { PanePanelCoordinator } from './coordinator.ts'

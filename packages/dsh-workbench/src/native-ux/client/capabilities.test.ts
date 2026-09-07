@@ -73,12 +73,13 @@ describe('probeCapabilities (GA-030)', () => {
 
 describe('fail-soft: service-backed actions gate on service presence (GA-043)', () => {
   it('sidebar + session-stop register only when their service exists', () => {
-    // No services → only the always-on navigator/composer (+ favorites off) register.
+    // No services → only the always-on DOM-backed actions (+ favorites off)
+    // register. composer.focus is the one that stands for that class now.
     const none = buildShortcutRegistry()
     const ids = none.all().map((a) => a.id)
     expect(ids).not.toContain('workbench.layout.sidebar.toggle')
     expect(ids).not.toContain('workbench.session.stop')
-    expect(ids).toContain('workbench.conversation.navigator.toggle')
+    expect(ids).toContain('workbench.conversation.composer.focus')
 
     // Layout present → sidebar registers; sessions still absent.
     const layout = buildShortcutRegistry({ services: { layout: { toggleSidebar: () => {} } } })
@@ -207,33 +208,27 @@ describe('warnOnce (one-shot)', () => {
   })
 })
 
-describe('apply() fail-soft isolation (GA-043)', () => {
+describe('apply() fail-soft (GA-043)', () => {
   afterEach(() => {
     resetWarnOnce()
     vi.restoreAllMocks()
     document.body.innerHTML = ''
   })
 
-  it('one module throwing does not prevent the other from registering', () => {
+  // 这条测试原来钉的是「两个模块互不牵连」——Navigator 退役后只剩一个模块，
+  // 但 apply() 的 try/catch 契约没变，只是不变量收窄成了：模块塌了，activation
+  // 本身仍然不抛，warn 一次，能力探针的诊断照跑。
+  it('a seam failure inside the shortcuts module never crashes activation', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})
     const ctx = makeCtx()
-    // Simulate a navigator seam failure: applyNavigator calls
-    // ctx.locale.bind(NS) at its top; make the FIRST bind throw, the second
-    // (applyShortcuts) succeed. Each module is isolated by apply(), so the
-    // navigator failure must not prevent shortcuts from registering.
-    let first = true
-    const origBind = ctx.locale.bind
-    ctx.locale.bind = (ns: string) => {
-      if (first) {
-        first = false
-        throw new Error('simulated navigator seam failure')
-      }
-      return origBind(ns)
+    // applyShortcuts 一进门就 ctx.locale.bind(NS)；让它抛，模拟宿主本地化缝
+    // 在这个版本上消失。
+    ctx.locale.bind = () => {
+      throw new Error('simulated locale seam failure')
     }
     expect(() => apply(ctx)).not.toThrow()
-    // warn fired once for the navigator failure
-    expect(warn.mock.calls.some((c) => String(c[0]).includes('navigator-apply-failed'))).toBe(true)
+    expect(warn.mock.calls.some((c) => String(c[0]).includes('shortcuts-apply-failed'))).toBe(true)
     // capability probe diagnostics still ran (not blocked by the failure)
     expect(debug).toHaveBeenCalled()
   })

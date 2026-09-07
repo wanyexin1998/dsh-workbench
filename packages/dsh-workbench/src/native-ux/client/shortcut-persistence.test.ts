@@ -92,10 +92,10 @@ describe('parsePersistedState', () => {
   it('drops invalid chord specs and non-string disabled ids', () => {
     const state = parsePersistedState({
       schemaVersion: 1,
-      bindings: { 'workbench.conversation.navigator.toggle': 'Primary+Shift+O', bad: 'not-a-chord' },
+      bindings: { 'workbench.conversation.composer.focus': 'Primary+Shift+O', bad: 'not-a-chord' },
       disabled: ['workbench.session.stop', 42, null],
     })
-    expect(state.bindings).toEqual({ 'workbench.conversation.navigator.toggle': 'Primary+Shift+O' })
+    expect(state.bindings).toEqual({ 'workbench.conversation.composer.focus': 'Primary+Shift+O' })
     expect(state.disabled).toEqual(['workbench.session.stop'])
   })
 
@@ -212,6 +212,69 @@ describe('migrateLegacyActionIds (W1.2 id namespacing)', () => {
   })
 })
 
+// rc.4 — Navigator 退役。用户可能在磁盘上留着一条指向该动作的 override（改过
+// 键位，或把它禁用过）。读路径只按**值**过滤，从不按「动作还在不在注册表里」
+// 过滤，所以这条 override 不会自己消失——它会跟着下一次保存被原样写回去。
+// 这里钉的是：它在**读**的时候就被静默丢掉，而同一份文档里别的 override 一个
+// 不少。
+describe('parsePersistedState — a retired action id is dropped on read (Navigator, rc.4)', () => {
+  it('drops the namespaced retired binding, leaves every other override intact', () => {
+    const state = parsePersistedState({
+      schemaVersion: 1,
+      bindings: {
+        'workbench.conversation.navigator.toggle': 'Primary+Shift+O',
+        'workbench.session.stop': 'Primary+K',
+        'someplugin.custom-action': 'Primary+Shift+J',
+      },
+      disabled: ['workbench.layout.sidebar.toggle'],
+    })
+    expect(Object.keys(state.bindings)).not.toContain('workbench.conversation.navigator.toggle')
+    expect(state.bindings).toEqual({
+      'workbench.session.stop': 'Primary+K',
+      'someplugin.custom-action': 'Primary+Shift+J',
+    })
+    expect(state.disabled).toEqual(['workbench.layout.sidebar.toggle'])
+  })
+
+  it('drops the pre-namespacing (bare) spelling too — both can exist on disk', () => {
+    // A document written before the W1.2 rename carries the bare id. The
+    // rename migration no longer knows this id (it left
+    // LEGACY_BUILTIN_ACTION_IDS with the action), so the bare key reaches the
+    // retirement filter unchanged and must be dropped there.
+    const state = parsePersistedState({
+      schemaVersion: 1,
+      bindings: { 'conversation.navigator.toggle': 'Primary+Shift+O', 'session.stop': 'Primary+K' },
+      disabled: [],
+    })
+    expect(state.bindings).toEqual({ 'workbench.session.stop': 'Primary+K' })
+  })
+
+  it('drops the retired id from the disabled list as well, both spellings', () => {
+    const state = parsePersistedState({
+      schemaVersion: 1,
+      bindings: {},
+      disabled: [
+        'conversation.navigator.toggle',
+        'workbench.conversation.navigator.toggle',
+        'workbench.session.stop',
+      ],
+    })
+    expect(state.disabled).toEqual(['workbench.session.stop'])
+  })
+
+  it('silently: a document whose ONLY override was the retired one reads back as empty state', () => {
+    // No throw, no leftover key — the user did nothing wrong, so nothing is
+    // reported. isEmptyState() then treats it as a fresh install.
+    expect(
+      parsePersistedState({
+        schemaVersion: 1,
+        bindings: { 'workbench.conversation.navigator.toggle': 'Primary+Shift+O' },
+        disabled: ['workbench.conversation.navigator.toggle'],
+      }),
+    ).toEqual(EMPTY_SHORTCUT_STATE)
+  })
+})
+
 describe('HostShortcutPersistence', () => {
   it('loads the versioned envelope from a durable, ready snapshot', async () => {
     const scope = fixedScope(
@@ -308,11 +371,11 @@ describe('FallbackShortcutPersistence', () => {
   it('falls back to local when the host namespace is not exposed', async () => {
     localStorage.setItem(
       LOCAL_STORAGE_KEY,
-      JSON.stringify({ schemaVersion: 1, bindings: { 'workbench.conversation.navigator.toggle': 'Primary+Shift+P' }, disabled: [] }),
+      JSON.stringify({ schemaVersion: 1, bindings: { 'workbench.conversation.composer.focus': 'Primary+Shift+P' }, disabled: [] }),
     )
     const fallback = makeFallback(new HostShortcutPersistence(fixedScope({ status: 'unavailable', mode: 'host', user: undefined, value: undefined })))
     const state = await fallback.load()
-    expect(state.bindings['workbench.conversation.navigator.toggle']).toBe('Primary+Shift+P')
+    expect(state.bindings['workbench.conversation.composer.focus']).toBe('Primary+Shift+P')
   })
 
   it('CRITICAL: set() resolves but host is not durable -> local is preserved, not wiped', async () => {

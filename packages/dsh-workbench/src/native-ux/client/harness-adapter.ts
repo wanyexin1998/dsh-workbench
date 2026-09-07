@@ -52,7 +52,23 @@ export interface ObservableSnapshotFace<T> {
 /** Session-list row fields used by the fresh-chat reuse policy. */
 export interface SessionSummaryFace {
   readonly id: string
-  readonly agentPreset?: string
+  /**
+   * 会话预设。0.1.2-rc.1 起它**不再是列表行的顶层字段**——0.1.1-rc.2 上的
+   * `SessionSummary.agentPreset?: string`（旧 runtime 包
+   * `lib/types/client/sessions/service.d.ts:42`）与配套的
+   * `ISessions.noteAgentPreset` 一起删掉了——但信号本身没消失，只是搬进了
+   * session projection：`SessionSummary.projectionValues?:
+   * Readonly<Partial<SessionProjectionMap>>`
+   * （`dsh-v0.1.2-rc.1:packages/api/session-controller/src/client/sessions/
+   * service.ts:61`），而 `agentPreset: string | null` 由预设包并进
+   * `SessionProjectionMap`（同 tag
+   * `packages/preset/agent-presets/src/types.ts:65-68`）。
+   *
+   * 按本文件"只声明真正用到的字段"的既有做法，这里只声明我们读的那一个键。
+   * `null` 是宿主的真值（"这个部署没有编排任何预设"），与"根本没投影"一样都
+   * 不是 chat——判别见 chat-actions.ts 的 `presetOf`，与上游同形。
+   */
+  readonly projectionValues?: { readonly agentPreset?: string | null }
   readonly blank: boolean
   readonly updatedAt: number
 }
@@ -71,52 +87,81 @@ export interface WorkspaceSummaryFace {
   readonly title?: string
   readonly name?: string
   readonly sessionIds: readonly string[]
+  /**
+   * ISO-8601 last-mutation instant of this Workspace, declared exactly as the
+   * host declares it: `WorkspaceView.updatedAt: string`
+   * （`dsh-v0.1.2-rc.1:packages/api/workspace-controller/src/types.ts:26`，
+   * 注释原文 "ISO-8601 last-mutation instant"；同结构体还带一个 `createdAt`）。
+   * 宿主自己也拿它做真源——`ClientWorkspaceModel.upsert` 用
+   * `Date.parse(view.updatedAt)` 判两条竞争的投影谁更新
+   * （同 tag `src/client/model.ts`）。
+   *
+   * 随手问的 workspace 解析链拿它做**最后一档**（见 chat-actions.ts 的
+   * `resolveChatWorkspace`）。这里声明成必填是照抄宿主的声明；解析那一侧仍然
+   * 对解析失败的值做 NaN 跳过，因为 `ctx.get()` 那头没有任何运行时保证——
+   * 与本文件其余几处防御性收窄同一个理由。
+   */
+  readonly updatedAt: string
 }
 
 export interface WorkspaceListSnapshotFace {
   readonly items: readonly WorkspaceSummaryFace[]
-  /**
-   * Most recently active Workspace — the last resort of the fresh-chat
-   * workspace resolution chain (`resolveChatWorkspace`), used when no source
-   * Session was captured at all (zero-Pane home state: nothing focused and
-   * `sessions.list.current` empty, e.g. right after `sessions.clear()`).
-   * Verified as a real, always-projected field of the stock snapshot at the
-   * pinned 0.1.1-rc.2 store: `@deepseek-ai/dsh-client-runtime/lib/types/
-   * client/workspaces/service.d.ts:24-25` declares `WorkspaceListState.
-   * recentWorkspaceId: WorkspaceId | undefined` ("Most recently active
-   * Workspace, derived without changing `items` order"), reached through the
-   * `IWorkspaces.list` read face this plugin already injects.
-   * Optional here for the same reason every other host-provided member on
-   * this boundary is: the field is declared but its VALUE is legitimately
-   * `undefined` before any Workspace has been active, and a host that does
-   * not project it at all must degrade to "no workspace resolved"
-   * (fail-closed), never to an arbitrary pick.
-   */
-  readonly recentWorkspaceId?: string
 }
 
 export interface WorkspacesService {
   readonly list: ObservableSnapshotFace<WorkspaceListSnapshotFace>
 }
 
-export interface RpcErrorFace {
+/**
+ * One Remote call's failure. Mirrors `RemoteError`
+ * （`@deepseek-ai/dsh-typert-protocol/lib/types/remote-error.d.ts:10-22`）：
+ * 一个带稳定 `code` 与结构化 `details` 的真 Error，判别只看 `code`。
+ */
+export interface RemoteFailureFace {
   readonly code: string
   readonly message: string
   readonly details?: unknown
 }
 
-export type RpcResultFace<T> =
+/**
+ * `RemoteResult<T>` 的结构面
+ * （`@deepseek-ai/dsh-typert-protocol/lib/types/types.d.ts:65-72`）。形状与
+ * 迁移前那个 `RpcResultFace` 逐字相同——变的只是**外面那层包装没有了**，见
+ * {@link RemoteService}。
+ */
+export type RemoteResultFace<T> =
   | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly error: RpcErrorFace }
+  | { readonly ok: false; readonly error: RemoteFailureFace }
 
-/** The connection seam needed to create one chat-preset Session. */
-export interface ConnectionService {
-  readonly api: {
-    readonly sessions: {
-      create(payload: { workspaceId: string; agentPreset: 'chat' }): Promise<{
-        readonly result: RpcResultFace<{ readonly sessionId: string; readonly agentPreset?: string }>
-      }>
-    }
+/**
+ * The wire seam needed to create one chat-preset Session.
+ *
+ * 0.1.2-rc.1 的客户端不再有 `connection.api.*` 这条路（上游客户端代码里 0 处
+ * 使用；我们的基线上有 4 处），一律走 `ctx.remote.<命名空间>.<方法>()`。会话
+ * 创建落在 `session` 命名空间，签名由 Typert 生成器从宿主 FaceModel 生成，
+ * 见 `@deepseek-ai/dsh-api-session-controller/lib/typert.remote-client.d.ts`：
+ * `TypertRemoteMap['session/create']:
+ *  (request: SessionCreateRequest) => Promise<RemoteResult<SessionCreateValue>>`。
+ *
+ * 两处必须照抄描述符，不能凭印象：
+ * 1. **参数布局**——恰好一个 request 对象。网关按描述符逐参校验
+ *    （`assertExactArguments`，`@deepseek-ai/dsh-api-gateway/lib/index.js`），
+ *    多一个参数直接判 `arguments-invalid`，所以测试替身也得按同一张表编。
+ * 2. **返回值不再包 `{ result }`**——promise 直接落在 `RemoteResult` 上。
+ *
+ * 字段取自同包 `lib/types/types.d.ts` 的
+ * `SessionCreateRequest = { workspaceId?, cwd?, sessionId?, agentPreset? }`
+ * 与 `SessionCreateValue = { sessionId, agentPreset? }`。这里只声明我们真正
+ * 传的那两个字段：`agentPreset` 是这条动作存在的理由（宿主公开的
+ * `ISessions.create(opts)` 在 0.1.2-rc.1 上虽然已经上了 `ISessions` 面
+ * ——`.../client/contract/sessions.d.ts:33-37`——但它的 opts 只有
+ * workspaceId / cwd / sessionId，**没有 agentPreset**，播不了 chat 预设）。
+ */
+export interface RemoteService {
+  readonly session: {
+    create(request: { workspaceId: string; agentPreset: 'chat' }): Promise<
+      RemoteResultFace<{ readonly sessionId: string; readonly agentPreset?: string }>
+    >
   }
 }
 
@@ -129,10 +174,13 @@ export interface SessionsService {
     readonly protocol?: number
     /**
      * `state` is asserted to satisfy `ObservableSnapshot<T>` — verified at
-     * the pinned 0.1.1-rc.2 store: `@deepseek-ai/dsh-client-runtime/lib/
-     * types/client/contract/store.d.ts:4-7` (`{getSnapshot(): T;
-     * subscribe(fn: () => void): () => void}` — "Session objects and
-     * snapshot stores both satisfy it"). `subscribe` is optional here
+     * the pinned 0.1.2-rc.1 store, where that contract moved out of the
+     * deleted runtime package into its own one:
+     * `@deepseek-ai/dsh-client-store/lib/types/contract.d.ts:3-12`
+     * (`{getSnapshot(): T; subscribe(fn: () => void): () => void}` —
+     * "Minimal observable snapshot source shared by controllers, stores, and
+     * render adapters"; the shape is unchanged from the 0.1.1-rc.2
+     * declaration this comment used to cite). `subscribe` is optional here
      * (unlike the verified contract) for the same reason `presentation`
      * itself is optional one level up: this whole face is an undocumented,
      * RC-only surface with no published `.d.ts` backing it, so every
@@ -150,45 +198,27 @@ export interface SessionsService {
   /**
    * native-actions-pivot (workbench.session.new): mirrors the always-public
    * `ISessions.clear(): void` — "Clear the current selection into the
-   * no-session view state" — verified at the pinned 0.1.1-rc.2 store:
-   * `@deepseek-ai/dsh-client-runtime/lib/types/client/contract/
-   * sessions.d.ts:67-68`. This is the SAME fallback the fork's own
-   * `WorkspaceRuntime.startSession()` verb reaches for when it has no
-   * Workspace context to create into — NIT 6 (Opus review, round 2)
-   * corrected citation: `packages/client/runtime/src/client/workspaces/
-   * service.ts:172-183` (fork source): "...with no Workspace at all, clear
-   * the selection into the New Session view state" — `ISessions.create(...)`
-   * itself is NOT on the public `ISessions` interface (only on the concrete
-   * `SessionRuntime` class), so `clear()` is the narrowest honest path to
-   * "start a new session" reachable through a plugin's own `ctx.sessions`.
+   * no-session view state" — verified at the pinned 0.1.2-rc.1 store, where
+   * the sessions face moved out of the deleted runtime package into the
+   * session controller: `@deepseek-ai/dsh-api-session-controller/lib/types/
+   * client/contract/sessions.d.ts:67`.
    *
-   * Why not call `startSession()` itself (the sidebar 新会话 button's exact
-   * verb — "The New Session flow: connect the explicit, current-Session, or
-   * recent Workspace and open the resulting session") instead of landing on
-   * its no-Workspace fallback branch?
-   * NOT because that verb is out of reach. It IS reachable: `startSession`
-   * is declared on the public `IWorkspaces` face at the pinned 0.1.1-rc.2
-   * store — `@deepseek-ai/dsh-client-runtime/lib/types/client/contract/
-   * workspaces.d.ts:29` — and this plugin already injects and consumes
-   * `ctx.workspaces` (src/client/index.tsx's `inject` list; the
-   * `WorkspacesService` seam below, which fresh chat reads through
-   * `ChatActionServices`). An earlier revision of this comment asserted the
-   * opposite ("`ctx.workspaces` is simply not a seam this plugin can
-   * reach"); that claim was already false when it was written and is left
-   * recorded here only so the correction is not silently re-litigated.
-   * The real reason is a product one: this action is a keyboard chord whose
-   * whole contract is "put me on the New Session home". `clear()` does
-   * exactly that and nothing else, while `startSession()` additionally
-   * connects a Workspace the user did not choose and creates or reuses a
-   * Session inside it (`IWorkspaces.connectWorkspace`) as a side effect of
-   * pressing the chord.
-   * Switching to `startSession()` is therefore an open product decision, not
-   * a blocked one — it needs the `WorkspacesService` seam below widened past
-   * its current read-only `list`, a change in `shortcuts.tsx`'s
-   * `workbench.session.new` action, and its own test.
-   * User-visible consequence as shipped: Ctrl+N always lands on the plain
-   * New-Session (no-Workspace) home, exactly like `startSession()`'s own
-   * no-workspace branch.
+   * Ctrl+N 落在 `clear()` 上是个产品决定，不是够不着别的动词：这条快捷键的全部
+   * 契约就是"把我放到新会话首页"，`clear()` 恰好只做这一件事。
+   *
+   * 0.1.2-rc.1 上这段理由的**旁证换了两处**，记在这里免得下次重新争一遍：
+   * - `ISessions.create(opts)` 现在**已经在**公开面上了
+   *   （同文件 `:33-37`），不再是"只存在于具体类上"。但它的 opts 只有
+   *   workspaceId / cwd / sessionId，仍然不接 `agentPreset`，而且它会真的建一个
+   *   会话——两条都不是这条快捷键要的。
+   * - 旧注释拿来做对比的 `IWorkspaces.startSession(workspaceId?)`（0.1.1-rc.2
+   *   的 `@deepseek-ai/dsh-client-runtime/lib/types/client/contract/
+   *   workspaces.d.ts:29`）**在 0.1.2-rc.1 上已经不存在**：搬家后的
+   *   `IWorkspaces`（`@deepseek-ai/dsh-api-workspace-controller/lib/types/
+   *   client/service.d.ts:27-69`）只剩 list / create / rename / delete /
+   *   insertBefore / archiveSession / insertSessionBefore。所以"要不要改用
+   *   startSession"这个曾经开着的产品选项，现在连动词都没有了。
+   *
    * Optional: a `sessions` double predating this action (every existing test
    * fixture) legitimately lacks it.
    */
@@ -196,8 +226,9 @@ export interface SessionsService {
   /**
    * native-actions-pivot (workbench.session.previous): mirrors the
    * always-public `ISessions.open(id): void` — "Select a session as
-   * current" — verified at the pinned 0.1.1-rc.2 store: `.../contract/
-   * sessions.d.ts:31-35`. Unlike the fork-only `presentation.open`, this
+   * current" — verified at the pinned 0.1.2-rc.1 store:
+   * `@deepseek-ai/dsh-api-session-controller/lib/types/client/contract/
+   * sessions.d.ts:42`. Unlike the fork-only `presentation.open`, this
    * verb requires no split-pane presentation face at all: `SessionRuntime.
    * open()` itself is implemented as `openPresentation(id,
    * 'replace-focused')`, so calling the plain public `open(id)` produces
@@ -210,10 +241,11 @@ export interface SessionsService {
    * MEDIUM 1 (Opus review, round 2 of native-actions-pivot): the tracker
    * feed for workbench.session.previous. Mirrors the always-public
    * `ISessions.list: ObservableSnapshot<SessionListState>` — verified at the
-   * pinned 0.1.1-rc.2 store: `.../contract/sessions.d.ts:22` declares it
-   * unconditionally (no split-pane compatibility required, unlike
-   * `presentation` above); `SessionListState.current: SessionId | undefined`
-   * sits at `.../sessions/service.d.ts:67-85` (line 72). The original
+   * pinned 0.1.2-rc.1 store: `@deepseek-ai/dsh-api-session-controller/lib/
+   * types/client/contract/sessions.d.ts:21` declares it unconditionally (no
+   * split-pane compatibility required, unlike `presentation` above);
+   * `SessionListState.current: SessionId | undefined` sits at
+   * `.../client/sessions/service.d.ts:61-79` (line 66). The original
    * implementation fed the tracker from `presentation.state` instead — a
    * FORK-ONLY face genuinely absent from this pinned `ISessions` (it has no
    * `presentation` member at all) — so on a real stock Harness the action
@@ -243,7 +275,7 @@ export interface SessionsService {
 /**
  * The cross-plugin panel-action face (`ctx.layout`) — narrowed to the seams
  * this plugin actually consumes. Mirrors `ILayout`, whose surface differs by
- * baseline: stock 0.1.1-rc.2 declares exactly `toggleSidebar()` /
+ * baseline: stock 0.1.2-rc.1 declares exactly `toggleSidebar()` /
  * `openDetails()` / `closeDetails()` (verified at the pinned store,
  * `@deepseek-ai/dsh-client-ui-layout/lib/types/client/service.d.ts`), while
  * the currently pinned fork adds `openSettings()`, and a not-yet-pushed fork
@@ -263,7 +295,7 @@ export interface LayoutService {
    * introduced the verb). It is fail-soft by construction: before the shell
    * mounts, or under a replacement layout provider that implements only the
    * documented `ILayout`, calling it is a no-op rather than a throw.
-   * Stock Harness `0.1.1-rc.2` has no such verb — its `ILayout` declares
+   * Stock Harness `0.1.2-rc.1` has no such verb — its `ILayout` declares
    * exactly `toggleSidebar()` / `openDetails()` / `closeDetails()` — so this
    * stays `undefined` there and the action is never registered (fail-closed;
    * see `settingsOpenOn` in shortcuts.tsx for the gate this backs).
@@ -287,7 +319,7 @@ export interface LayoutService {
    * provider implementing only the documented `ILayout`, calling it is a
    * no-op rather than a throw.
    * Neither the currently pinned fork commit (the one `openSettings()`
-   * above documents) nor stock Harness `0.1.1-rc.2` ships this member, so it
+   * above documents) nor stock Harness `0.1.2-rc.1` ships this member, so it
    * stays `undefined` on both today. The action prefers this verb when
    * present and falls back to `openSettings()` otherwise — open-only on a
    * host that has not picked up `feat/toggle-settings-verb` yet, open-and-
@@ -300,7 +332,7 @@ export interface LayoutService {
 
 /** Aggregate of the injected services the plugin uses. */
 export interface HarnessServices {
-  connection?: ConnectionService
+  remote?: RemoteService
   layout?: LayoutService
   sessions?: SessionsService
   workspaces?: WorkspacesService
@@ -308,7 +340,7 @@ export interface HarnessServices {
 
 /** Capability-complete service bundle required by `workbench.chat.open`. */
 export interface ChatActionServices {
-  readonly connection: ConnectionService
+  readonly remote: RemoteService
   readonly sessions: Omit<SessionsService, 'list' | 'open'> & {
     readonly list: ObservableSnapshotFace<SessionListSnapshotFace>
     open(sessionId: string): void
@@ -335,7 +367,7 @@ export interface SideChatServices {
  * register the action and use `sessions.open()`.
  */
 export function chatActionServices(services: HarnessServices): ChatActionServices | undefined {
-  const create = services.connection?.api?.sessions?.create
+  const create = services.remote?.session?.create
   const sessionList = services.sessions?.list
   const workspaceList = services.workspaces?.list
   if (typeof create !== 'function'
@@ -436,7 +468,7 @@ export function subscribeFocusedSessionId(services: HarnessServices, listener: (
  * is correct on both stock and fork Harnesses). Deliberately a SEPARATE
  * function from `focusedSessionId` above, not a shared implementation:
  * `focusedSessionId`/`focusedPaneScope` back DOM pane-scoping (composer
- * focus, jump-latest, session-stop, navigator toggle), where "no
+ * focus, jump-latest, session-stop), where "no
  * `presentation` face" correctly means "fall back to document scope" — a
  * different, already-correct degradation this function must not disturb.
  * Same defensive-narrowing shape as `focusedSessionId`: a missing/malformed
@@ -520,7 +552,7 @@ export interface SlotService {
  * (via resolveHarnessServices or a local cast) rather than trusting `any`.
  */
 export interface HarnessContext {
-  get(name: 'connection' | 'layout' | 'sessions' | 'workspaces'): unknown
+  get(name: 'remote' | 'layout' | 'sessions' | 'workspaces'): unknown
   locale: LocaleService
   slots: SlotService
   settingsScope: { bind(options: { namespace: string }): SettingsScopeFace }
@@ -528,7 +560,7 @@ export interface HarnessContext {
   on(event: 'dispose', fn: () => void): void
   /**
    * Finding 2 (smoke test) — the active-locale-switch signal. Verified
-   * against the pinned 0.1.1-rc.2 store:
+   * against the pinned 0.1.2-rc.1 store:
    * `@deepseek-ai/dsh-client-locale/lib/types/client/index.d.ts:44-58`
    * declares this as a genuine cordis `Context` event (`declare module
    * '@deepseek-ai/cordis' { interface Events { 'locale/change'(snapshot):
@@ -560,7 +592,7 @@ export interface HarnessContext {
  */
 export function resolveHarnessServices(ctx: HarnessContext): HarnessServices {
   return {
-    connection: ctx.get('connection') as ConnectionService | undefined,
+    remote: ctx.get('remote') as RemoteService | undefined,
     layout: ctx.get('layout') as LayoutService | undefined,
     sessions: ctx.get('sessions') as SessionsService | undefined,
     workspaces: ctx.get('workspaces') as WorkspacesService | undefined,
