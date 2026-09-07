@@ -125,7 +125,7 @@ dsh plugin --profile web add "file:$PWD\$tgz"
 rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.5'
 tgz='wanyexin1998-dsh-workbench-0.2.0-rc.5.tgz'
 if curl -fsSLO "$rel/$tgz" && curl -fsSLO "$rel/SHA256SUMS"; then
-  expected=$(grep 'wanyexin1998-dsh-workbench-0\.2\.0-rc\.2\.tgz$' SHA256SUMS | awk '{print $1}')
+  expected=$(grep -F "$tgz" SHA256SUMS | awk '{print $1}')
   actual=$(shasum -a 256 "$tgz" | awk '{print $1}')
   if [ -n "$expected" ] && printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$' && [ "$actual" = "$expected" ]; then
     dsh plugin --profile web add "file:$PWD/$tgz"
@@ -474,6 +474,13 @@ Push-Location -LiteralPath 'deepseek-harness' -ErrorAction Stop
 try {
   pnpm install --frozen-lockfile
   if ($LASTEXITCODE -ne 0) { throw 'Harness dependency installation failed' }
+  # Updating a checkout that was previously built at an older upstream baseline
+  # requires this: stale lib/ output from the old layout is linked against the
+  # new src/, and the build fails with MISSING_EXPORT errors naming packages
+  # upstream moved (e.g. isJsonValue from core/session). A fresh clone does not
+  # need it, and running it there costs only a rebuild.
+  pnpm clean
+  if ($LASTEXITCODE -ne 0) { throw 'Harness clean failed' }
   pnpm build
   if ($LASTEXITCODE -ne 0) { throw 'Harness build failed' }
 } finally {

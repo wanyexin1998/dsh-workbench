@@ -397,9 +397,15 @@ const staleVersions = []
 for (const file of DOC_VERSION_SCAN) {
   const lines = read(file).split(/\r?\n/)
   for (const [index, line] of lines.entries()) {
+    // 反斜杠先剥掉再匹配。docs/INSTALL.md 的 macOS 命令块里，版本号写在一个
+    // shell grep 的正则里：`0\.2\.0-rc\.2\.tgz$`。带着转义，上面两个模式都
+    // 匹配不到，于是那一行从 rc.2 起一直硬编码着一个过期版本没人看见——macOS
+    // 用户照抄会拿到空的 expected，脚本判定"校验失败"直接拒装。这是这条检查
+    // 第三次栽在"看不见"上（前两次：inject 断言、前导 v），所以连这种写法一起扫。
+    const scanned = line.replace(/\\(?=[.\-])/g, '')
     const found = new Set([
-      ...(line.match(VERSION_PATTERN) ?? []),
-      ...(line.match(BADGE_PATTERN) ?? []).map(badge => badge.replace('--rc.', '-rc.')),
+      ...(scanned.match(VERSION_PATTERN) ?? []),
+      ...(scanned.match(BADGE_PATTERN) ?? []).map(badge => badge.replace('--rc.', '-rc.')),
     ].map(version => version.replace(/^v/, '')))
     for (const version of found) {
       if (version === contract.workbenchVersion) continue
