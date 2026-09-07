@@ -7,7 +7,7 @@
 | Workbench `0.2.0-rc.5` | Harness fork `1a8cf5ba` (`fix/plugin-spec-quoting`, the `v0.2.0-rc.2` pin; the `v0.2.0-rc.3` pin `82de604a` already carried the toggle verb) | `ctx.layout.openSettings()` only | Open Settings registers open-only and is labelled "Open settings" |
 | Workbench `0.2.0-rc.5` | Stock Harness `0.1.2-rc.1` | protocol 2 absent | Split Pane fails closed |
 | Workbench `0.2.0-rc.5` | Stock Harness `0.1.2-rc.1` | neither Settings verb | The Open Settings action is not registered at all |
-| Panel Compatibility `0.1.0-rc.2` | Better Sidebar fork `1685770` | Pane protocol 1 + actions protocol 1 | Supported optional adapter |
+| Panel Compatibility `0.1.0-rc.3` | Better Sidebar fork `1685770` | Pane protocol 1 + actions protocol 1 | Supported optional adapter |
 | Panel Compatibility absent | Any panel provider | n/a | Core Workbench remains functional |
 | Panel Compatibility + stock Better Sidebar 0.16.1 | Pane protocol absent | no attachment | Better Sidebar retains its global behavior |
 

@@ -501,7 +501,7 @@ try {
 
 Six files are written under `dsh-workbench/dist/`: the two TGZs
 (`wanyexin1998-dsh-workbench-0.2.0-rc.5.tgz` and
-`wanyexin1998-dsh-workbench-panel-compat-0.1.0-rc.2.tgz`), both bootstrap
+`wanyexin1998-dsh-workbench-panel-compat-0.1.0-rc.3.tgz`), both bootstrap
 installers (`dsh-workbench-bootstrap.ps1`, `dsh-workbench-bootstrap.sh`),
 `release-manifest.json`, and `SHA256SUMS` covering all four artifacts.
 
@@ -635,7 +635,7 @@ succeeds:
 
 1. Build the verified Better Sidebar checkout using its reviewed local instructions.
 2. Install that local fork into the same profile.
-3. Install `dsh-workbench/dist/wanyexin1998-dsh-workbench-panel-compat-0.1.0-rc.2.tgz`.
+3. Install `dsh-workbench/dist/wanyexin1998-dsh-workbench-panel-compat-0.1.0-rc.3.tgz`.
 
 The compatibility package does not download, install, update, or remove Better Sidebar. Stock Better Sidebar without Pane protocol 1 remains on its original global path. And — the decline path this whole section exists to protect — if the user never said yes, none of this runs at all: whatever Better Sidebar state was detected above (official, the pinned fork, or nothing) is exactly what remains, byte-for-byte, and Pane-local panels simply stay unavailable.
 

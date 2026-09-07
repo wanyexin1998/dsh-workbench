@@ -16,8 +16,8 @@ SHA256-verified, not GPG-signed. No npm package.
 > reused: this repository has immutable releases enabled, so a withdrawn tag
 > cannot be republished. **If you installed rc.4** (Workbench TGZ digest
 > `5bdaf6b2…`), install this release over it — see § Upgrading. Everything else
-> below describes work that first appeared in rc.4 and is unchanged here: the
-> Harness pin is the same commit, and the compatibility package is byte-identical.
+> below describes work that first appeared in rc.4 and is unchanged here — the
+> Harness pin is the same commit, and no source outside the client entry moved.
 
 **Upgrading from `0.2.0-rc.4` is the same procedure as from rc.3** — the
 installer refuses an existing target either way, so the steps in
@@ -229,9 +229,14 @@ The Harness pin (`rc4/presentation-on-0.1.2`,
 auditable; the tag `dsh-workbench-v0.2.0-rc.5-pin` marks it so a published
 installer keeps resolving. The `v0.2.0-rc.2` and `v0.2.0-rc.3` pin tags and
 their branches stay in place — those installers are still out there. Panel
-Compatibility moves to `0.1.0-rc.2`: its TGZ bytes changed with the peer
-list and the cordis floor, and `0.1.0-rc.1` already names a published
-digest. The Better Sidebar fork is unchanged.
+Compatibility moves to `0.1.0-rc.3`. Its source did not change, but its
+packed bytes did: the package declares the Workbench as a `workspace:*`
+dev dependency, and pnpm rewrites that to the concrete version when it
+packs — so **the compatibility package's bytes track the Workbench version
+and cannot stay still across a Workbench bump**. `0.1.0-rc.1` names the
+digest published with rc.3, and `0.1.0-rc.2` names the one published with
+the withdrawn rc.4; a name is bound to its bytes here, so this cut takes a
+new one. The Better Sidebar fork is unchanged.
 
 ## Upgrading
 

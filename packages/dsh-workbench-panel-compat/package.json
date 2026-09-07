@@ -1,6 +1,6 @@
 {
   "name": "@wanyexin1998/dsh-workbench-panel-compat",
-  "version": "0.1.0-rc.2",
+  "version": "0.1.0-rc.3",
   "description": "Pane-scoped compatibility adapters for DSH Workbench panel plugins",
   "private": true,
   "repository": {

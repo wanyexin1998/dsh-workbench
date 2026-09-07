@@ -73,7 +73,7 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 | DeepSeek Harness | 必需 | fork `rc4/presentation-on-0.1.2`，固定提交 `c5a387cd…` | 提供 Session Presentation `protocol 2`；提供 `ctx.layout.toggleSettings()`，让「打开设置」快捷键可以再按一次关掉 |
 | DSH Workbench | 必需 | `0.2.0-rc.5` | 最多两个可见 Pane |
 | Better Sidebar | 可选 | fork `0.16.1`，固定提交 `1685770…` | 提供 Pane capability `protocol 1`；含面板快捷键 actions（`actionsProtocol 1`） |
-| Panel Compatibility | 可选 | `0.1.0-rc.2` | 只连接显式兼容的面板提供方 |
+| Panel Compatibility | 可选 | `0.1.0-rc.3` | 只连接显式兼容的面板提供方 |
 
 完整 SHA、分支和分发状态以 [`release-contract.json`](release-contract.json) 为准。原版 Harness `0.1.2-rc.1` 尚未提供此分屏接口；原版 Better Sidebar `0.16.1` 也没有多实例 Pane capability。
 
@@ -164,7 +164,7 @@ pnpm release:check
 成功后，`dist/` 中会生成：
 
 - `wanyexin1998-dsh-workbench-0.2.0-rc.5.tgz`
-- `wanyexin1998-dsh-workbench-panel-compat-0.1.0-rc.2.tgz`
+- `wanyexin1998-dsh-workbench-panel-compat-0.1.0-rc.3.tgz`
 - `dsh-workbench-bootstrap.ps1`
 - `dsh-workbench-bootstrap.sh`
 - `release-manifest.json`

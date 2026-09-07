@@ -74,7 +74,7 @@ Shortcut labels follow the Harness global language, and every chord can be rebou
 | DeepSeek Harness | Yes | fork `rc4/presentation-on-0.1.2`, commit `c5a387cd…` | Provides Session Presentation `protocol 2`, plus `ctx.layout.toggleSettings()` so the Settings shortcut also closes the panel |
 | DSH Workbench | Yes | `0.2.0-rc.5` | Maximum two visible Panes |
 | Better Sidebar | Optional | fork `0.16.1`, commit `1685770…` | Provides Pane capability `protocol 1`, plus panel shortcut actions (`actionsProtocol 1`) |
-| Panel Compatibility | Optional | `0.1.0-rc.2` | Connects only explicit compatible providers |
+| Panel Compatibility | Optional | `0.1.0-rc.3` | Connects only explicit compatible providers |
 
 [`release-contract.json`](release-contract.json) is authoritative for full SHAs, branches, and distribution status. Stock Harness `0.1.2-rc.1` does not expose the required split interface, and stock Better Sidebar `0.16.1` has no multi-instance Pane capability.
 
@@ -169,7 +169,7 @@ pnpm release:check
 Successful verification writes these files under `dist/`:
 
 - `wanyexin1998-dsh-workbench-0.2.0-rc.5.tgz`
-- `wanyexin1998-dsh-workbench-panel-compat-0.1.0-rc.2.tgz`
+- `wanyexin1998-dsh-workbench-panel-compat-0.1.0-rc.3.tgz`
 - `dsh-workbench-bootstrap.ps1`
 - `dsh-workbench-bootstrap.sh`
 - `release-manifest.json`
