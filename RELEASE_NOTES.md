@@ -189,7 +189,7 @@ The package suite is 663 where rc.3 was 714: the Navigator retirement took
 its own tests with it, and the inject contract added three back.
 
 `SHA256SUMS` describes the stamped installers, and the digest they embed
-(`85e2751f…`) is the digest of the TGZ packed beside them.
+(`a751eeb7…`) is the digest of the TGZ packed beside them.
 `release-manifest.json` records the release commit. That digest was also
 reproduced from a second checkout at the same commit, byte for byte, for
 both packages.
