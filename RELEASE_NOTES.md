@@ -105,6 +105,21 @@ exists only in upstream `0.1.3-alpha.1`, which this release does not pin.
   Workspaces at all, or no parseable timestamp among them, still resolves
   nothing.
 
+- **The published TGZ digest was not reproducible.** Packing the same commit
+  in two checkouts of this repository produced two different digests. The
+  only difference was line endings: `THIRD_PARTY_NOTICES.md` was LF in one
+  and CRLF in the other, and `cordis.patch.yml` differed by a single CR.
+  `core.autocrlf=true` leaves the working-tree bytes to each checkout, npm
+  pack reads the working tree, and `.gitattributes` pinned only the bootstrap
+  scripts. That broke two promises at once: the installers embed a digest of
+  the TGZ, so which checkout packed the release decided whether any rebuild
+  matched it, and `docs/INSTALL.md` § Advanced tells auditors to build from
+  source and compare against the published hash, which could not succeed
+  while the bytes depended on the machine. Every git-tracked file that enters
+  a published TGZ is now pinned to LF, and the fix is verified the way the
+  bug was found: two checkouts at the same commit now pack byte-identical
+  artifacts.
+
 ## Release gates
 
 Three gates grew this release, each kill-tested against the mistake it is
@@ -144,8 +159,10 @@ The package suite is 660 where rc.3 was 714: the Navigator retirement took
 its own tests with it.
 
 `SHA256SUMS` describes the stamped installers, and the digest they embed
-(`6cf5bc9b…`) is the digest of the TGZ packed beside them.
-`release-manifest.json` records the release commit.
+(`5bdaf6b2…`) is the digest of the TGZ packed beside them.
+`release-manifest.json` records the release commit. That digest was also
+reproduced from a second checkout at the same commit, byte for byte, for
+both packages.
 
 **Not verified.** No isolated end-to-end run happened for this release, on
 any platform. The only such run that has ever happened was against the
