@@ -333,6 +333,12 @@ const DOC_VERSION_EXEMPT = [
     context: 'screenshot',
     reason: 'same screenshot caption, English side of the pair',
   },
+  {
+    file: 'docs/INSTALL.md',
+    version: '0.1.1-rc.2',
+    context: 'The pin moves from Harness',
+    reason: 'the upgrade section must name the upstream baseline being left behind, not only the one being adopted',
+  },
 ]
 // 版本形如 0.2.0-rc.3；shields.io 徽章里连字符要转义成 `--`，两种都扫。
 const VERSION_PATTERN = /\b\d+\.\d+\.\d+-rc\.\d+\b/g

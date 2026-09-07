@@ -35,11 +35,11 @@ byte themselves.
 Two independent paths, matching what your Harness supports. Both start from
 an immutable, hash-verified GitHub Release artifact rather than source.
 
-> **Availability:** the `v0.2.0-rc.3` GitHub Release is published, with both
+> **Availability:** the `v0.2.0-rc.4` GitHub Release is published, with both
 > TGZ assets, both bootstrap scripts, `SHA256SUMS`, and `release-manifest.json`
 > attached — both paths below work today. Artifacts are SHA256-verified, not
 > GPG-signed (`release-contract.json`'s `sourceVerification.signedReleaseAvailable`
-> is still `false`). `release-contract.json` still reports `0.2.0-rc.3` /
+> is still `false`). `release-contract.json` still reports `0.2.0-rc.4` /
 > `source-preview`: that reflects the distribution model (source plus local
 > TGZ, no npm), not an unavailable install path.
 > [Advanced: source build](#advanced-source-build) below remains available
@@ -101,8 +101,8 @@ for why `file:` is the right spec shape here).
 ```
 & {
 $ErrorActionPreference = 'Stop'
-$rel = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.3'
-$tgz = 'wanyexin1998-dsh-workbench-0.2.0-rc.3.tgz'
+$rel = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.4'
+$tgz = 'wanyexin1998-dsh-workbench-0.2.0-rc.4.tgz'
 try {
   Invoke-WebRequest "$rel/$tgz" -OutFile $tgz
   Invoke-WebRequest "$rel/SHA256SUMS" -OutFile SHA256SUMS
@@ -122,8 +122,8 @@ dsh plugin --profile web add "file:$PWD\$tgz"
 **macOS (Terminal):**
 
 ```
-rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.3'
-tgz='wanyexin1998-dsh-workbench-0.2.0-rc.3.tgz'
+rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.4'
+tgz='wanyexin1998-dsh-workbench-0.2.0-rc.4.tgz'
 if curl -fsSLO "$rel/$tgz" && curl -fsSLO "$rel/SHA256SUMS"; then
   expected=$(grep 'wanyexin1998-dsh-workbench-0\.2\.0-rc\.2\.tgz$' SHA256SUMS | awk '{print $1}')
   actual=$(shasum -a 256 "$tgz" | awk '{print $1}')
@@ -208,7 +208,7 @@ Harness 副本，与你的官方版并存——不会改动官方安装、配置
 Windows（需要 PowerShell 7+，即 `pwsh`）：
 
 ```
-& { $ErrorActionPreference = 'Stop'; $rel = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.3'; Invoke-WebRequest "$rel/dsh-workbench-bootstrap.ps1" -OutFile dsh-workbench-bootstrap.ps1; Invoke-WebRequest "$rel/SHA256SUMS" -OutFile SHA256SUMS; $expectedLine = (Select-String -Path SHA256SUMS -Pattern 'dsh-workbench-bootstrap\.ps1$').Line; if (-not $expectedLine) { throw 'SHA256SUMS 中未找到 dsh-workbench-bootstrap.ps1 的记录，已中止' }; $expected = ($expectedLine -split '\s+')[0].ToLower(); if ($expected -notmatch '^[0-9a-f]{64}$') { throw "SHA256SUMS 中的哈希格式不合法：$expected" }; $actual = (Get-FileHash dsh-workbench-bootstrap.ps1 -Algorithm SHA256).Hash.ToLower(); if ($actual -ne $expected) { throw "SHA256 校验失败：期望 $expected，实际 $actual" }; pwsh -NoProfile -ExecutionPolicy Bypass -File .\dsh-workbench-bootstrap.ps1 }
+& { $ErrorActionPreference = 'Stop'; $rel = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.4'; Invoke-WebRequest "$rel/dsh-workbench-bootstrap.ps1" -OutFile dsh-workbench-bootstrap.ps1; Invoke-WebRequest "$rel/SHA256SUMS" -OutFile SHA256SUMS; $expectedLine = (Select-String -Path SHA256SUMS -Pattern 'dsh-workbench-bootstrap\.ps1$').Line; if (-not $expectedLine) { throw 'SHA256SUMS 中未找到 dsh-workbench-bootstrap.ps1 的记录，已中止' }; $expected = ($expectedLine -split '\s+')[0].ToLower(); if ($expected -notmatch '^[0-9a-f]{64}$') { throw "SHA256SUMS 中的哈希格式不合法：$expected" }; $actual = (Get-FileHash dsh-workbench-bootstrap.ps1 -Algorithm SHA256).Hash.ToLower(); if ($actual -ne $expected) { throw "SHA256 校验失败：期望 $expected，实际 $actual" }; pwsh -NoProfile -ExecutionPolicy Bypass -File .\dsh-workbench-bootstrap.ps1 }
 ```
 ````
 
@@ -233,7 +233,7 @@ longer want it; your official Harness is left completely untouched:
 Windows (requires PowerShell 7+, i.e. `pwsh`):
 
 ```
-& { $ErrorActionPreference = 'Stop'; $rel = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.3'; Invoke-WebRequest "$rel/dsh-workbench-bootstrap.ps1" -OutFile dsh-workbench-bootstrap.ps1; Invoke-WebRequest "$rel/SHA256SUMS" -OutFile SHA256SUMS; $expectedLine = (Select-String -Path SHA256SUMS -Pattern 'dsh-workbench-bootstrap\.ps1$').Line; if (-not $expectedLine) { throw 'SHA256SUMS 中未找到 dsh-workbench-bootstrap.ps1 的记录，已中止' }; $expected = ($expectedLine -split '\s+')[0].ToLower(); if ($expected -notmatch '^[0-9a-f]{64}$') { throw "SHA256SUMS 中的哈希格式不合法：$expected" }; $actual = (Get-FileHash dsh-workbench-bootstrap.ps1 -Algorithm SHA256).Hash.ToLower(); if ($actual -ne $expected) { throw "SHA256 校验失败：期望 $expected，实际 $actual" }; pwsh -NoProfile -ExecutionPolicy Bypass -File .\dsh-workbench-bootstrap.ps1 }
+& { $ErrorActionPreference = 'Stop'; $rel = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.4'; Invoke-WebRequest "$rel/dsh-workbench-bootstrap.ps1" -OutFile dsh-workbench-bootstrap.ps1; Invoke-WebRequest "$rel/SHA256SUMS" -OutFile SHA256SUMS; $expectedLine = (Select-String -Path SHA256SUMS -Pattern 'dsh-workbench-bootstrap\.ps1$').Line; if (-not $expectedLine) { throw 'SHA256SUMS 中未找到 dsh-workbench-bootstrap.ps1 的记录，已中止' }; $expected = ($expectedLine -split '\s+')[0].ToLower(); if ($expected -notmatch '^[0-9a-f]{64}$') { throw "SHA256SUMS 中的哈希格式不合法：$expected" }; $actual = (Get-FileHash dsh-workbench-bootstrap.ps1 -Algorithm SHA256).Hash.ToLower(); if ($actual -ne $expected) { throw "SHA256 校验失败：期望 $expected，实际 $actual" }; pwsh -NoProfile -ExecutionPolicy Bypass -File .\dsh-workbench-bootstrap.ps1 }
 ```
 ````
 
@@ -256,7 +256,7 @@ Harness 副本，与你的官方版并存——不会改动官方安装、配置
 macOS（Terminal）：
 
 ```
-rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.3'; if curl -fsSLO "$rel/dsh-workbench-bootstrap.sh" && curl -fsSLO "$rel/SHA256SUMS"; then expected=$(grep 'dsh-workbench-bootstrap\.sh$' SHA256SUMS | awk '{print $1}'); actual=$(shasum -a 256 dsh-workbench-bootstrap.sh | awk '{print $1}'); if [ -n "$expected" ] && printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$' && [ "$actual" = "$expected" ]; then chmod +x dsh-workbench-bootstrap.sh && ./dsh-workbench-bootstrap.sh; else echo 'SHA256 校验失败，已中止，不会执行未校验脚本' >&2; false; fi; else echo '下载失败，已中止，不会执行未校验脚本' >&2; false; fi
+rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.4'; if curl -fsSLO "$rel/dsh-workbench-bootstrap.sh" && curl -fsSLO "$rel/SHA256SUMS"; then expected=$(grep 'dsh-workbench-bootstrap\.sh$' SHA256SUMS | awk '{print $1}'); actual=$(shasum -a 256 dsh-workbench-bootstrap.sh | awk '{print $1}'); if [ -n "$expected" ] && printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$' && [ "$actual" = "$expected" ]; then chmod +x dsh-workbench-bootstrap.sh && ./dsh-workbench-bootstrap.sh; else echo 'SHA256 校验失败，已中止，不会执行未校验脚本' >&2; false; fi; else echo '下载失败，已中止，不会执行未校验脚本' >&2; false; fi
 ```
 ````
 
@@ -281,7 +281,7 @@ longer want it; your official Harness is left completely untouched:
 macOS (Terminal):
 
 ```
-rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.3'; if curl -fsSLO "$rel/dsh-workbench-bootstrap.sh" && curl -fsSLO "$rel/SHA256SUMS"; then expected=$(grep 'dsh-workbench-bootstrap\.sh$' SHA256SUMS | awk '{print $1}'); actual=$(shasum -a 256 dsh-workbench-bootstrap.sh | awk '{print $1}'); if [ -n "$expected" ] && printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$' && [ "$actual" = "$expected" ]; then chmod +x dsh-workbench-bootstrap.sh && ./dsh-workbench-bootstrap.sh; else echo 'SHA256 校验失败，已中止，不会执行未校验脚本' >&2; false; fi; else echo '下载失败，已中止，不会执行未校验脚本' >&2; false; fi
+rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.4'; if curl -fsSLO "$rel/dsh-workbench-bootstrap.sh" && curl -fsSLO "$rel/SHA256SUMS"; then expected=$(grep 'dsh-workbench-bootstrap\.sh$' SHA256SUMS | awk '{print $1}'); actual=$(shasum -a 256 dsh-workbench-bootstrap.sh | awk '{print $1}'); if [ -n "$expected" ] && printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$' && [ "$actual" = "$expected" ]; then chmod +x dsh-workbench-bootstrap.sh && ./dsh-workbench-bootstrap.sh; else echo 'SHA256 校验失败，已中止，不会执行未校验脚本' >&2; false; fi; else echo '下载失败，已中止，不会执行未校验脚本' >&2; false; fi
 ```
 ````
 
@@ -305,13 +305,13 @@ here.
 **Windows (PowerShell 7+ / `pwsh`):**
 
 ```
-& { $ErrorActionPreference = 'Stop'; $rel = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.3'; Invoke-WebRequest "$rel/dsh-workbench-bootstrap.ps1" -OutFile dsh-workbench-bootstrap.ps1; Invoke-WebRequest "$rel/SHA256SUMS" -OutFile SHA256SUMS; $expectedLine = (Select-String -Path SHA256SUMS -Pattern 'dsh-workbench-bootstrap\.ps1$').Line; if (-not $expectedLine) { throw 'SHA256SUMS 中未找到 dsh-workbench-bootstrap.ps1 的记录，已中止' }; $expected = ($expectedLine -split '\s+')[0].ToLower(); if ($expected -notmatch '^[0-9a-f]{64}$') { throw "SHA256SUMS 中的哈希格式不合法：$expected" }; $actual = (Get-FileHash dsh-workbench-bootstrap.ps1 -Algorithm SHA256).Hash.ToLower(); if ($actual -ne $expected) { throw "SHA256 校验失败：期望 $expected，实际 $actual" }; pwsh -NoProfile -ExecutionPolicy Bypass -File .\dsh-workbench-bootstrap.ps1 }
+& { $ErrorActionPreference = 'Stop'; $rel = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.4'; Invoke-WebRequest "$rel/dsh-workbench-bootstrap.ps1" -OutFile dsh-workbench-bootstrap.ps1; Invoke-WebRequest "$rel/SHA256SUMS" -OutFile SHA256SUMS; $expectedLine = (Select-String -Path SHA256SUMS -Pattern 'dsh-workbench-bootstrap\.ps1$').Line; if (-not $expectedLine) { throw 'SHA256SUMS 中未找到 dsh-workbench-bootstrap.ps1 的记录，已中止' }; $expected = ($expectedLine -split '\s+')[0].ToLower(); if ($expected -notmatch '^[0-9a-f]{64}$') { throw "SHA256SUMS 中的哈希格式不合法：$expected" }; $actual = (Get-FileHash dsh-workbench-bootstrap.ps1 -Algorithm SHA256).Hash.ToLower(); if ($actual -ne $expected) { throw "SHA256 校验失败：期望 $expected，实际 $actual" }; pwsh -NoProfile -ExecutionPolicy Bypass -File .\dsh-workbench-bootstrap.ps1 }
 ```
 
 **macOS (Terminal):**
 
 ```
-rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.3'; if curl -fsSLO "$rel/dsh-workbench-bootstrap.sh" && curl -fsSLO "$rel/SHA256SUMS"; then expected=$(grep 'dsh-workbench-bootstrap\.sh$' SHA256SUMS | awk '{print $1}'); actual=$(shasum -a 256 dsh-workbench-bootstrap.sh | awk '{print $1}'); if [ -n "$expected" ] && printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$' && [ "$actual" = "$expected" ]; then chmod +x dsh-workbench-bootstrap.sh && ./dsh-workbench-bootstrap.sh; else echo 'SHA256 校验失败，已中止，不会执行未校验脚本' >&2; false; fi; else echo '下载失败，已中止，不会执行未校验脚本' >&2; false; fi
+rel='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.4'; if curl -fsSLO "$rel/dsh-workbench-bootstrap.sh" && curl -fsSLO "$rel/SHA256SUMS"; then expected=$(grep 'dsh-workbench-bootstrap\.sh$' SHA256SUMS | awk '{print $1}'); actual=$(shasum -a 256 dsh-workbench-bootstrap.sh | awk '{print $1}'); if [ -n "$expected" ] && printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$' && [ "$actual" = "$expected" ]; then chmod +x dsh-workbench-bootstrap.sh && ./dsh-workbench-bootstrap.sh; else echo 'SHA256 校验失败，已中止，不会执行未校验脚本' >&2; false; fi; else echo '下载失败，已中止，不会执行未校验脚本' >&2; false; fi
 ```
 
 Both commands omit `--target`/`-Target` and use the script's built-in
@@ -358,6 +358,19 @@ Running it opens Harness Web from the isolated install, with Split Pane
 available: Ctrl/Command-click a Session in the list to open it beside the
 focused one.
 
+**The URL it prints carries a token; use that URL, not a bare
+`localhost:<port>`.** The launcher prints and opens
+`dsh web: http://127.0.0.1:<port>/?token=…`. On the pinned fork's upstream
+baseline, the root request authenticates: a valid `?token=` mints a browser
+cookie and redirects to a clean `/`, a valid cookie serves the page, and
+**every other root request gets a 401** — so typing `http://127.0.0.1:<port>`
+by hand into a browser that has not been granted the cookie yet shows an
+unauthorized page, not the app. If the browser did not open on its own, copy
+the whole printed URL including `?token=`. The signing secret behind that
+cookie lives in the isolated home's own credentials (`client-connection` /
+`browser-session`), so it survives restarts of that install and never reaches
+your official one.
+
 **Expect an empty environment on the first launch.** The generated launcher
 pins `DSH_HOME` to `<target>/home`, a Harness home of its own
 (`dsh-workbench-bootstrap.ps1` line 463, `.sh` line 551). That isolation is
@@ -367,7 +380,36 @@ provider — you set those up once, here, and they stay inside `<target>`.
 Nothing is missing and nothing failed: your official install still holds all
 of its own data, under its own `~/.dsh`.
 
-Honest note on the hashes: `v0.2.0-rc.3` is now attached to a GitHub
+#### Upgrading from `v0.2.0-rc.3`
+
+The installer **refuses to write into a target that already exists**
+(`dsh-workbench-bootstrap.ps1` line 311, `.sh` line 399) — that fail-closed
+rule is what keeps it from overwriting anything, and it also means an
+upgrade is not an in-place operation. `docs/UNINSTALL.md` tells you to delete
+the whole `<target>`, and **that would take `<target>/home` with it**: the
+isolated Harness home holding every Session, Workspace and model setting you
+created inside this install.
+
+So move the home aside first:
+
+1. Close the launcher.
+2. Move `<target>/home` somewhere outside `<target>` (e.g. next to it, as
+   `dsh-workbench-home.bak`).
+3. Delete `<target>`.
+4. Run the `v0.2.0-rc.4` installer exactly as in the fresh-install steps
+   above.
+5. Move the saved `home` back to `<target>/home`, replacing the empty one the
+   new install created.
+
+Nothing in step 5 needs a migration. The pin moves from Harness `0.1.1-rc.2`
+to `0.1.2-rc.1`, and **that step performs no irreversible
+change to your data**: the Session log format is v0 on both sides, and the
+projection cache is rebuilt from the records rather than read as a fixed
+layout, so old cache files are simply ignored rather than deleted or
+rewritten. The v2 Session format exists only in upstream `0.1.3-alpha.1`,
+which this release does not pin and does not touch.
+
+Honest note on the hashes: `v0.2.0-rc.4` is now attached to a GitHub
 Release, so the real SHA256 values in `SHA256SUMS` are published and the
 download/verify step above checks against them. The Release is
 SHA256-verified, not GPG-signed.
@@ -411,7 +453,7 @@ if ($WorktreeState) { throw 'Workbench worktree is not clean' }
 The following commit is part of the verified Workbench release contract. Do not switch to its mutable branch before building.
 
 ```powershell
-$HarnessCommit = '82de604afc683cd8c7692d0736f26f9ebc0f1823'
+$HarnessCommit = 'c5a387cd2f781d4d9914ea0271ebb507984ca3f4'
 if ($HarnessCommit -notmatch '^[0-9a-f]{40}$') { throw 'Harness commit must be a full 40-character hexadecimal value' }
 if (Test-Path -LiteralPath 'deepseek-harness') { throw 'Target directory deepseek-harness already exists; retry from an empty directory' }
 git clone --no-checkout https://github.com/wanyexin1998/deepseek-harness.git deepseek-harness
@@ -458,8 +500,8 @@ try {
 ```
 
 Six files are written under `dsh-workbench/dist/`: the two TGZs
-(`wanyexin1998-dsh-workbench-0.2.0-rc.3.tgz` and
-`wanyexin1998-dsh-workbench-panel-compat-0.1.0-rc.1.tgz`), both bootstrap
+(`wanyexin1998-dsh-workbench-0.2.0-rc.4.tgz` and
+`wanyexin1998-dsh-workbench-panel-compat-0.1.0-rc.2.tgz`), both bootstrap
 installers (`dsh-workbench-bootstrap.ps1`, `dsh-workbench-bootstrap.sh`),
 `release-manifest.json`, and `SHA256SUMS` covering all four artifacts.
 
@@ -468,7 +510,7 @@ The bundle step requires a committed clean worktree, rebuilds both packages, sca
 Install the Workbench TGZ into the Web profile:
 
 ```powershell
-dsh plugin --profile web add file:C:\absolute\path\to\dsh-workbench\dist\wanyexin1998-dsh-workbench-0.2.0-rc.3.tgz
+dsh plugin --profile web add file:C:\absolute\path\to\dsh-workbench\dist\wanyexin1998-dsh-workbench-0.2.0-rc.4.tgz
 ```
 
 The Split Pane module fails closed unless Harness exposes `sessions.presentation` with `protocol === 2` *and* passes a structural probe of the actual interface shape it needs — a `requestCapacity` function and a `state.getSnapshot()` that returns `{ visible: Array, capacity: number }` without throwing. A matching protocol number alone is not accepted as proof (see `packages/dsh-workbench/src/client/guard.ts`).
@@ -593,7 +635,7 @@ succeeds:
 
 1. Build the verified Better Sidebar checkout using its reviewed local instructions.
 2. Install that local fork into the same profile.
-3. Install `dsh-workbench/dist/wanyexin1998-dsh-workbench-panel-compat-0.1.0-rc.1.tgz`.
+3. Install `dsh-workbench/dist/wanyexin1998-dsh-workbench-panel-compat-0.1.0-rc.2.tgz`.
 
 The compatibility package does not download, install, update, or remove Better Sidebar. Stock Better Sidebar without Pane protocol 1 remains on its original global path. And — the decline path this whole section exists to protect — if the user never said yes, none of this runs at all: whatever Better Sidebar state was detected above (official, the pinned fork, or nothing) is exactly what remains, byte-for-byte, and Pane-local panels simply stay unavailable.
 
