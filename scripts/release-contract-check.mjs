@@ -160,7 +160,15 @@ check('source verification precedes repository code',
   && contract.sourceVerification?.failClosedWorkingDirectory === true
   && contract.sourceVerification?.wholeDocumentExecutableScan === true
   && contract.sourceVerification?.instructionOrderAnchors === true)
-check('Workbench guard pins protocol 2', /protocol:\s*2\b/.test(read('packages/dsh-workbench/src/client/contract.ts')))
+const clientContract = read('packages/dsh-workbench/src/client/contract.ts')
+check('Workbench guard pins protocol 2', /protocol:\s*2\b/.test(clientContract))
+// SUPPORTED_HARNESS.version 是插件在**运行时**判断宿主够不够新的那个字面量。它和
+// 契约的 harness.upstreamVersion 各写一份，而此前只有 protocol 被查过：推进上游
+// 基线时漏改它，插件就会拿上一版的 Harness 版本号去做兼容判断。
+const supportedVersion = /version:\s*'([^']*)'/.exec(clientContract)?.[1]
+check('Workbench guard names the contract upstreamVersion',
+  supportedVersion === contract.harness.upstreamVersion,
+  `contract.ts says ${supportedVersion}, contract says ${contract.harness.upstreamVersion}`)
 check('Workbench guard requests capacity 2', /WORKBENCH_VISIBLE_CAPACITY\s*=\s*2\b/.test(guard))
 
 for (const [name, range] of Object.entries(workbench.peerDependencies ?? {})) {
@@ -176,6 +184,19 @@ check('Panel package pins Better Sidebar version',
   panelCompat.peerDependencies?.['dsh-better-sidebar'] === contract.panelCompatibility?.providerVersion)
 check('Panel package excludes Workbench 0.1',
   panelCompat.peerDependencies?.['@wanyexin1998/dsh-workbench'] === '>=0.2.0-rc.1 <0.3.0')
+// panel-compat 的 peer 此前没有被任何一条检查扫过。先按 workbench 那个循环同构写
+// 了一遍，然后拿"把某个 peer 改成上一版"去杀——**杀不掉**：panel-compat 今天一个
+// `@deepseek-ai/dsh*` peer 都没有，那个循环迭代零次。看起来有覆盖、其实一次都不会
+// 响，正是 doc-drift 那次踩过的坑。所以留下循环给将来（真加了 dsh peer 就自动生效），
+// 但真正会动的字段单独查：两个包各自声明 `@deepseek-ai/cordis`，rc.4 刚把它的下限
+// 从上游那边推上去，两处不一致会让 panel-compat 在宿主里挂不上。
+for (const [name, range] of Object.entries(panelCompat.peerDependencies ?? {})) {
+  if (!name.startsWith('@deepseek-ai/dsh')) continue
+  check(`Panel peer ${name} matches Harness baseline`, range === contract.harness.upstreamVersion, `range=${range}`)
+}
+check('both packages agree on the cordis peer range',
+  panelCompat.peerDependencies?.['@deepseek-ai/cordis'] === workbench.peerDependencies?.['@deepseek-ai/cordis'],
+  `panel=${panelCompat.peerDependencies?.['@deepseek-ai/cordis']}, workbench=${workbench.peerDependencies?.['@deepseek-ai/cordis']}`)
 
 check('npm publication is disabled by contract', contract.distribution?.npmPublished === false)
 check('automatic installer is disabled', contract.distribution?.automaticInstaller === false)
@@ -347,11 +368,12 @@ check('user-facing docs name the contract workbenchVersion', staleVersions.lengt
  * 只认长度 >= 7 的十六进制串——再短的容易撞上普通英文单词。 */
 const PINNED = [
   { label: 'Harness', commit: contract.harness.implementationCommit },
+  { label: 'Harness upstream baseline', commit: contract.harness.upstreamCommit },
   { label: 'Better Sidebar', commit: contract.panelCompatibility.implementationCommit },
 ]
 const COMMITISH = /`([0-9a-f]{7,40})[….]{0,3}`/g
 const stalePins = []
-for (const file of ['README.md', 'README_EN.md', 'docs/COMPATIBILITY_MATRIX.md']) {
+for (const file of ['README.md', 'README_EN.md', 'docs/COMPATIBILITY_MATRIX.md', 'e2e/harness-web/README.md']) {
   const text = read(file)
   for (const [, candidate] of text.matchAll(COMMITISH)) {
     const matchesSomePin = PINNED.some(pin => pin.commit.startsWith(candidate))

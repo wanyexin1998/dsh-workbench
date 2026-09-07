@@ -82,20 +82,20 @@ RESULT_EMITTED=0
 HARNESS_REPO_URL='https://github.com/wanyexin1998/deepseek-harness.git'
 # Informational only -- see the TRUST MODEL note above. Never used to select
 # what gets checked out; only the pinned commit below is.
-HARNESS_FORK_BRANCH='feat/toggle-settings-verb'
-HARNESS_COMMIT='82de604afc683cd8c7692d0736f26f9ebc0f1823'
+HARNESS_FORK_BRANCH='rc4/presentation-on-0.1.2'
+HARNESS_COMMIT='c5a387cd2f781d4d9914ea0271ebb507984ca3f4'
 # The upstream DeepSeek Harness commit the fork branch is based on
 # (release-contract.json harness.upstreamCommit). Recorded here only for
 # the self-consistency check and diagnostic output; never checked out.
-HARNESS_UPSTREAM_BASE_COMMIT='b150a551b8d465e31e418e1b2eaf5e79bbb7d28e'
-WORKBENCH_VERSION='0.2.0-rc.3'
+HARNESS_UPSTREAM_BASE_COMMIT='a66e4702047846cdaa10c66c9d3df3951f5ea70d'
+WORKBENCH_VERSION='0.2.0-rc.4'
 WORKBENCH_TGZ_FILENAME="wanyexin1998-dsh-workbench-${WORKBENCH_VERSION}.tgz"
 # Base URL for this script's own default TGZ download (B1): the GitHub
 # Release this script itself is attached to as an asset. Kept as its own
 # constant (rather than derived purely from WORKBENCH_VERSION) so the
 # self-consistency check below can catch a hand-edit that changes one but
 # not the other.
-RELEASE_BASE_URL='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.3'
+RELEASE_BASE_URL='https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.4'
 # STAMPED-AT-RELEASE: placeholder. Replaced with the real lowercase 64-hex
 # SHA256 of the release TGZ when this script is attached to the GitHub
 # Release (see plans/260827-workbench-v2/tasks.md §8). While this constant
