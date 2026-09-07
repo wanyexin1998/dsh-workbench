@@ -4,6 +4,16 @@ Status: source preview. Distribution is source plus a downloadable GitHub
 Release (two TGZs, two bootstrap scripts, `SHA256SUMS`, `release-manifest.json`),
 SHA256-verified, not GPG-signed. No npm package.
 
+> **A first cut of this tag was published and withdrawn on 2026-09-07.** It
+> installed cleanly and then did nothing: the client entry declared the
+> `remote` service without the `remote.session` namespace it dereferences, so
+> cordis refused the lookup, the plugin's only apply entry threw, and the
+> fail-soft catch swallowed it — no shortcuts, no Ask, no settings section, no
+> Split Pane, and no error beyond one console warning. The isolated
+> end-to-end run below is what found it. If you installed the withdrawn build
+> (TGZ digest `5bdaf6b2…`), reinstall: this release carries the fix, and its
+> digest differs.
+
 **Upgrading from `0.2.0-rc.3` re-pins the Harness fork onto a newer upstream.**
 The bootstrap installer now checks out
 `c5a387cd2f781d4d9914ea0271ebb507984ca3f4` on `rc4/presentation-on-0.1.2`,
@@ -138,6 +148,14 @@ meant to catch before being kept:
   It stays for the day it does, but the field that actually moved this
   release is guarded instead: both packages must declare the same
   `@deepseek-ai/cordis` range.
+- The client entry's inject list is now derived from the code rather than
+  asserted against a hand-written one. The withdrawn build had a green test
+  asserting the list contained `remote`, which was true and useless; the new
+  one scans the package's sources for every `ctx.remote.<namespace>` actually
+  dereferenced and requires the matching `remote.<namespace>`. The ctx test
+  double was also more permissive than a real host — it returned `undefined`
+  for every service — so it went green on a build that dies on boot. It now
+  models cordis's rule and throws the same way.
 
 ## Verified
 
@@ -151,22 +169,44 @@ meant to catch before being kept:
 | `install/result.test.mjs` | 47 / 47 |
 | `bootstrap/bootstrap.test.mjs` | 33 / 33 |
 | `pnpm typecheck` | passed |
-| `pnpm test` | 660 / 660 across 35 files |
+| `pnpm test` | 663 / 663 across 36 files |
 | `pnpm audit --audit-level=low` | no known vulnerabilities |
 | `build-release-bundle.mjs` | four artifacts packed, `SHA256SUMS` written |
 
-The package suite is 660 where rc.3 was 714: the Navigator retirement took
-its own tests with it.
+The package suite is 663 where rc.3 was 714: the Navigator retirement took
+its own tests with it, and the inject contract added three back.
 
 `SHA256SUMS` describes the stamped installers, and the digest they embed
-(`5bdaf6b2…`) is the digest of the TGZ packed beside them.
+(`DIGEST_PLACEHOLDER`) is the digest of the TGZ packed beside them.
 `release-manifest.json` records the release commit. That digest was also
 reproduced from a second checkout at the same commit, byte for byte, for
 both packages.
 
-**Not verified.** No isolated end-to-end run happened for this release, on
-any platform. The only such run that has ever happened was against the
-`v0.2.0-rc.2` installer. See
+**Isolated end-to-end, Windows.** The published
+`dsh-workbench-bootstrap.ps1` was downloaded from this release, verified
+against the published `SHA256SUMS`, and run against a clean target whose
+path contains a space, with no `-TgzSha256` argument. It reported
+`state: installed` / exit 0. Independently confirmed afterwards: the Harness
+checkout sits detached at the pinned commit with a clean worktree, the
+downloaded TGZ digest equals the published one, the generated launcher is
+self-relative, and the real `~/.dsh` was untouched. Launched from that
+launcher, the client boot graph carries `@wanyexin1998/dsh-workbench`, the
+console is clean, and Settings shows the Workbench's own shortcut section
+with its chords and Chinese strings — including "open or close settings",
+which is the pin's toggle verb being detected.
+
+Unlike the `v0.2.0-rc.2` run, this one cloned from GitHub directly rather
+than from a local mirror, so GitHub reachability is evidenced here. One
+attempt failed first on a transport reset; the installer failed closed with
+a valid result JSON and exit 1, and the retry succeeded.
+
+**Still not verified.** Split Pane itself (Ctrl/Command-click for a second
+pane), quote-badge placement against the host's turn rail, and whether the
+Settings chord actually toggles when pressed — the first two need a
+configured model to create sessions, which the isolated home has none of,
+and the third could not be driven through the automation surface, so only
+its registration is evidenced. macOS, read-only `$DSH_HOME`, and the
+stock-Harness general-plugin path remain unrun on every platform. See
 [`docs/COMPATIBILITY_MATRIX.md`](docs/COMPATIBILITY_MATRIX.md) § Platform
 support.
 

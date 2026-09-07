@@ -27,7 +27,7 @@ Neither downstream fork is republished under the upstream npm namespace.
 
 | Platform | Status |
 | --- | --- |
-| Windows | Split-pane bootstrap: isolated end-to-end verification complete, **against the `v0.2.0-rc.2` installer, which pinned Harness `1a8cf5ba`**. The unmodified `dsh-workbench-bootstrap.ps1`, run against a clean target with a deliberately space-containing path and no `-TgzSha256` argument, reported `state: installed` / exit 0; detached HEAD at the pinned Harness commit, profile-dependency/bundle registration, the materialized package, the installer's own load probe, a working self-relative launcher, and an untouched real `~/.dsh` profile were all independently confirmed afterward. That run's `git clone` was pointed at a local bare mirror of the same repository (via `url.<base>.insteadOf`, scoped to one process) after two attempts failed on GitHub transport resets; the installer still verified the checkout against its embedded 40-character commit hash, so content authenticity is proven, but GitHub reachability from that machine at that time is not evidenced. **Neither the `v0.2.0-rc.3` installer (which pinned `82de604a`) nor this `v0.2.0-rc.4` one (which pins `c5a387cd`) has been re-run end to end.** Each diff against the verified installer is the version, release URL, TGZ digest, and Harness commit constants; that is a small diff, but "small diff" is not evidence. |
+| Windows | Split-pane bootstrap: isolated end-to-end verification complete, **against the `v0.2.0-rc.4` installer, which pins Harness `c5a387cd`**. The published `dsh-workbench-bootstrap.ps1`, downloaded from the release and verified against the published `SHA256SUMS`, run against a clean target with a deliberately space-containing path and no `-TgzSha256` argument, reported `state: installed` / exit 0. Confirmed independently afterwards: detached HEAD at the pinned commit with a clean worktree, the downloaded TGZ digest equal to the published one, a self-relative launcher, and an untouched real `~/.dsh`. Launched from that launcher, the client boot graph carries `@wanyexin1998/dsh-workbench`, the console is clean, and Settings shows the Workbench's own shortcut section. **This run cloned from GitHub directly**, unlike the `v0.2.0-rc.2` run which fell back to a local mirror after transport resets, so GitHub reachability is evidenced here; one attempt did fail on a reset first, and the installer failed closed with a valid result JSON and exit 1. **Split Pane itself was not exercised**: the isolated home has no configured model, so no second session could be created, and quote-badge placement against the host's turn rail is unevidenced for the same reason. The Settings chord is evidenced as registered, not as working — the automation surface could not deliver the keypress. |
 | macOS | No isolated end-to-end run has ever happened, for any release. |
 | Linux | Unverified. No Workbench end-to-end evidence exists on Linux; support is not claimed until it is. |
 
@@ -36,9 +36,10 @@ Neither downstream fork is republished under the upstream npm namespace.
 These have been carried across two releases without running. They are listed here as open work,
 not as a plan attached to a version that already shipped:
 
+- Split Pane exercised in a browser: a second pane opened by Ctrl/Command-click, and quote-badge
+  placement against the host's turn rail. Both need a configured model in the isolated home.
 - Stock-Harness general-plugin install, on any platform.
 - Read-only-`$DSH_HOME` degradation.
 - macOS isolated end-to-end, exercised through a real user channel.
-- Windows isolated end-to-end **re-run against the `c5a387cd` pin**.
 
 Platform claims here track [`plans/260827-workbench-v2/tasks.md`](../plans/260827-workbench-v2/tasks.md) §8 (decision record) and the A5 task row. A platform is only listed as supported once its cold-environment install, upgrade, uninstall, and non-interference-with-official-Harness checks have actually run.
