@@ -1,18 +1,30 @@
-# DSH Workbench 0.2.0-rc.4
+# DSH Workbench 0.2.0-rc.5
 
 Status: source preview. Distribution is source plus a downloadable GitHub
 Release (two TGZs, two bootstrap scripts, `SHA256SUMS`, `release-manifest.json`),
 SHA256-verified, not GPG-signed. No npm package.
 
-> **A first cut of this tag was published and withdrawn on 2026-09-07.** It
-> installed cleanly and then did nothing: the client entry declared the
-> `remote` service without the `remote.session` namespace it dereferences, so
-> cordis refused the lookup, the plugin's only apply entry threw, and the
-> fail-soft catch swallowed it — no shortcuts, no Ask, no settings section, no
-> Split Pane, and no error beyond one console warning. The isolated
-> end-to-end run below is what found it. If you installed the withdrawn build
-> (TGZ digest `5bdaf6b2…`), reinstall: this release carries the fix, and its
-> digest differs.
+> **This release replaces `v0.2.0-rc.4`, which was published and withdrawn on
+> 2026-09-07.** That build installed cleanly and then did nothing: the client
+> entry declared the `remote` service without the `remote.session` namespace it
+> dereferences, so cordis refused the lookup, the plugin's only apply entry
+> threw, and the fail-soft catch swallowed it — no shortcuts, no Ask, no
+> settings section, no Split Pane, and no error beyond one console warning. The
+> isolated end-to-end run below is what found it.
+>
+> `v0.2.0-rc.4` has been deleted from the releases page, and its number is not
+> reused: this repository has immutable releases enabled, so a withdrawn tag
+> cannot be republished. **If you installed rc.4** (Workbench TGZ digest
+> `5bdaf6b2…`), install this release over it — see § Upgrading. Everything else
+> below describes work that first appeared in rc.4 and is unchanged here: the
+> Harness pin is the same commit, and the compatibility package is byte-identical.
+
+**Upgrading from `0.2.0-rc.4` is the same procedure as from rc.3** — the
+installer refuses an existing target either way, so the steps in
+[`docs/INSTALL.md`](docs/INSTALL.md#upgrading-from-v020-rc3) apply unchanged.
+The Harness pin does not move between rc.4 and rc.5, so the fork checkout
+inside your target is already at the right commit; only the Workbench package
+changes.
 
 **Upgrading from `0.2.0-rc.3` re-pins the Harness fork onto a newer upstream.**
 The bootstrap installer now checks out
@@ -214,7 +226,7 @@ support.
 
 The Harness pin (`rc4/presentation-on-0.1.2`,
 `c5a387cd2f781d4d9914ea0271ebb507984ca3f4`) is public and independently
-auditable; the tag `dsh-workbench-v0.2.0-rc.4-pin` marks it so a published
+auditable; the tag `dsh-workbench-v0.2.0-rc.5-pin` marks it so a published
 installer keeps resolving. The `v0.2.0-rc.2` and `v0.2.0-rc.3` pin tags and
 their branches stay in place — those installers are still out there. Panel
 Compatibility moves to `0.1.0-rc.2`: its TGZ bytes changed with the peer

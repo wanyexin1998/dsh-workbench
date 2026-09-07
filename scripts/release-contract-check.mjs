@@ -339,10 +339,60 @@ const DOC_VERSION_EXEMPT = [
     context: 'The pin moves from Harness',
     reason: 'the upgrade section must name the upstream baseline being left behind, not only the one being adopted',
   },
+  // 下面五条是把前导 `v` 纳入扫描后才第一次现形的历史引用。此前它们不是被豁免，
+  // 是**根本没被看见**——`\b\d+` 匹配不到 `v0.2.0-rc.N`。每条都是正当的历史陈述，
+  // 但仍然一行一条、连版本号和那句话一起钉住。
+  {
+    file: 'docs/INSTALL.md',
+    version: '0.2.0-rc.3',
+    context: 'Upgrading from',
+    reason: 'the upgrade section heading names the release being upgraded from',
+  },
+  {
+    file: 'docs/COMPATIBILITY_MATRIX.md',
+    version: '0.2.0-rc.2',
+    context: 'openSettings',
+    reason: 'the Settings capability tier names the older pin that shipped the open-only verb',
+  },
+  {
+    file: 'docs/COMPATIBILITY_MATRIX.md',
+    version: '0.2.0-rc.3',
+    context: 'openSettings',
+    reason: 'the same tier row notes which later pin already carried the toggle verb',
+  },
+  {
+    file: 'docs/COMPATIBILITY_MATRIX.md',
+    version: '0.2.0-rc.4',
+    context: 'withdrawn',
+    reason: 'the Windows evidence names the installer the run actually used, which was withdrawn before this release',
+  },
+  {
+    file: 'docs/KNOWN_ISSUES.md',
+    version: '0.2.0-rc.4',
+    context: 'withdrawn',
+    reason: 'same withdrawn-installer evidence, restated for readers of the issue list',
+  },
+  {
+    file: 'docs/KNOWN_ISSUES.md',
+    version: '0.2.0-rc.3',
+    context: 'installer was never run',
+    reason: 'the evidence bullet records which installer was never exercised',
+  },
+  {
+    file: 'docs/KNOWN_ISSUES.md',
+    version: '0.2.0-rc.3',
+    context: 'empty client module graph',
+    reason: 'the Node 24 entry names the last release exposed to the upstream loader bug',
+  },
 ]
 // 版本形如 0.2.0-rc.3；shields.io 徽章里连字符要转义成 `--`，两种都扫。
-const VERSION_PATTERN = /\b\d+\.\d+\.\d+-rc\.\d+\b/g
-const BADGE_PATTERN = /\b\d+\.\d+\.\d+--rc\.\d+\b/g
+//
+// 前导 `v` 必须显式允许。原来写的是 `\b\d+...`，而 `v0.2.0-rc.4` 里 `v` 和 `0`
+// 都是单词字符、中间没有词边界，于是这条扫描**看不见任何带 v 的写法**——而发布
+// tag 在文档里恰恰全写成 `v0.2.0-rc.N`。补这个洞的直接原因是 rc.4：那一版被一条
+// "绿但看不见"的断言放走了，同一个毛病不该在同一个门禁里留第二处。
+const VERSION_PATTERN = /v?\d+\.\d+\.\d+-rc\.\d+\b/g
+const BADGE_PATTERN = /v?\d+\.\d+\.\d+--rc\.\d+\b/g
 const staleVersions = []
 for (const file of DOC_VERSION_SCAN) {
   const lines = read(file).split(/\r?\n/)
@@ -350,7 +400,7 @@ for (const file of DOC_VERSION_SCAN) {
     const found = new Set([
       ...(line.match(VERSION_PATTERN) ?? []),
       ...(line.match(BADGE_PATTERN) ?? []).map(badge => badge.replace('--rc.', '-rc.')),
-    ])
+    ].map(version => version.replace(/^v/, '')))
     for (const version of found) {
       if (version === contract.workbenchVersion) continue
       // 下面两个是别的产物的版本号，形状相同而已，不归这条检查管。

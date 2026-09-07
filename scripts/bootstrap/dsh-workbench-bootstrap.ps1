@@ -120,14 +120,14 @@ $HarnessCommit = 'c5a387cd2f781d4d9914ea0271ebb507984ca3f4'
 # (release-contract.json harness.upstreamCommit). Recorded here only for
 # the self-consistency check and diagnostic output; never checked out.
 $HarnessUpstreamBaseCommit = 'a66e4702047846cdaa10c66c9d3df3951f5ea70d'
-$WorkbenchVersion = '0.2.0-rc.4'
+$WorkbenchVersion = '0.2.0-rc.5'
 $WorkbenchTgzFilename = "wanyexin1998-dsh-workbench-$WorkbenchVersion.tgz"
 # Base URL for this script's own default TGZ download (B1): the GitHub
 # Release this script itself is attached to as an asset. Kept as its own
 # constant (rather than derived purely from $WorkbenchVersion) so the
 # self-consistency check below can catch a hand-edit that changes one but
 # not the other.
-$ReleaseBaseUrl = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.4'
+$ReleaseBaseUrl = 'https://github.com/wanyexin1998/dsh-workbench/releases/download/v0.2.0-rc.5'
 # STAMPED-AT-RELEASE: placeholder. Replaced with the real lowercase 64-hex
 # SHA256 of the release TGZ when this script is attached to the GitHub
 # Release (see plans/260827-workbench-v2/tasks.md §8). While this constant
