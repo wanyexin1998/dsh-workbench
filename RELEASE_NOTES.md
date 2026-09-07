@@ -126,8 +126,32 @@ meant to catch before being kept:
 
 ## Verified
 
-VERIFIED-SECTION-PENDING — replaced with real gate output before the release
-is cut.
+`pnpm release:check`, all nine steps, on the release commit:
+
+| Step | Result |
+| --- | --- |
+| `scan-secrets.mjs` | high-confidence secret/privacy scan passed |
+| `release-contract-check.mjs` | 53 checks, all passed |
+| `scan-secrets.test.mjs` | 67 / 67 |
+| `install/result.test.mjs` | 47 / 47 |
+| `bootstrap/bootstrap.test.mjs` | 33 / 33 |
+| `pnpm typecheck` | passed |
+| `pnpm test` | 660 / 660 across 35 files |
+| `pnpm audit --audit-level=low` | no known vulnerabilities |
+| `build-release-bundle.mjs` | four artifacts packed, `SHA256SUMS` written |
+
+The package suite is 660 where rc.3 was 714: the Navigator retirement took
+its own tests with it.
+
+`SHA256SUMS` describes the stamped installers, and the digest they embed
+(`6cf5bc9b…`) is the digest of the TGZ packed beside them.
+`release-manifest.json` records the release commit.
+
+**Not verified.** No isolated end-to-end run happened for this release, on
+any platform. The only such run that has ever happened was against the
+`v0.2.0-rc.2` installer. See
+[`docs/COMPATIBILITY_MATRIX.md`](docs/COMPATIBILITY_MATRIX.md) § Platform
+support.
 
 ## Distribution boundary
 
