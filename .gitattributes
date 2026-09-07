@@ -2,3 +2,22 @@
 # it must carry LF line endings regardless of the committer's platform
 # (CRLF would break the shebang and every line continuation).
 scripts/bootstrap/*.sh text eol=lf
+
+# Every git-tracked file that ends up inside a published TGZ is pinned to LF.
+#
+# Found while cutting v0.2.0-rc.4: the same commit packed in two checkouts of
+# this repository produced two different TGZ digests. The only difference was
+# line endings — THIRD_PARTY_NOTICES.md was LF in one and CRLF in the other,
+# cordis.patch.yml differed by one CR — because core.autocrlf=true leaves the
+# working-tree bytes up to each checkout's history, and only the bootstrap
+# scripts above were pinned.
+#
+# That breaks two promises at once. The installers embed a digest of the TGZ,
+# so which checkout packed the release decides whether a rebuild matches; and
+# docs/INSTALL.md § Advanced tells auditors to build from source and compare
+# against the published hash, which cannot succeed while the bytes depend on
+# the machine. Pinning these makes the pack reproducible from any clone.
+packages/*/cordis.patch.yml text eol=lf
+packages/*/THIRD_PARTY_NOTICES.md text eol=lf
+packages/*/README.md text eol=lf
+packages/*/LICENSE text eol=lf
