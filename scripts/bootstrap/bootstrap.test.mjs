@@ -649,8 +649,20 @@ test('docs/SECURITY_STATEMENT.md describes the seeding write with the paths the 
   const presetRoot = /const USER_PRESET_ROOT = '([^']+)'/u.exec(hostEntrySource)
   assert.ok(marker && presetId && presetRoot, 'test setup: could not read the seeding constants out of the source')
 
-  const writtenFiles = [...presetSeedSource.matchAll(/io\.writeFile\(join\(presetDir, '([^']+)'\)/gu)].map(match => match[1])
-  assert.ok(writtenFiles.length > 0, 'test setup: could not read the seeded file names out of the source')
+  // rc.6: the seeded file names moved out of inline `join(presetDir, '...')`
+  // literals into exported constants, because the seeder now gates on the
+  // composition file and each name is referenced more than once. Read the
+  // constants, then prove each is still joined onto the preset directory --
+  // that link is what this test exists to hold.
+  const fileConstants = [...presetSeedSource.matchAll(/export const (CHAT_PRESET_(?:COMPOSITION|METADATA)_FILE) = '([^']+)'/gu)]
+  assert.equal(fileConstants.length, 2, 'test setup: could not read the seeded file names out of the source')
+  const writtenFiles = fileConstants.map(([, constantName, fileName]) => {
+    assert.ok(
+      presetSeedSource.includes(`join(presetDir, ${constantName})`),
+      `${constantName} must still be joined onto the preset directory`,
+    )
+    return fileName
+  })
 
   for (const fact of [presetRoot[1], `${presetId[1]}/`, marker[1], ...writtenFiles]) {
     assert.ok(securityStatement.includes(fact), `docs/SECURITY_STATEMENT.md must name '${fact}' when describing the chat-preset seeding write -- the code writes it`)

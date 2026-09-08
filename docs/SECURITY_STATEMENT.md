@@ -8,7 +8,7 @@ This statement covers the `0.2.0-rc.6` source preview.
 - Chat-preset seeding is that one exception, and nothing else in Workbench writes to the Host filesystem:
   - The Host entry attempts it once per Host composition. Everything it can write lives under the resolved Harness home's user preset root, `$DSH_HOME/.agent-presets/` (`~/.dsh/.agent-presets/` when `DSH_HOME` is unset): the directory `chat/` holding `preset.yml` and `agent.cordis.yml`, and a sibling marker file `.workbench-chat-seeded`. No other path is ever written.
   - The seeded preset is the bundled zero-tool, conversation-only `chat` composition. Seeding it adds no subprocess, credential, or network capability.
-  - Create-only. Only the existence of an existing `chat/` directory is probed; its contents are never opened, modified, or overwritten, and only the marker is added beside it when missing.
+  - Create-only at the file level. No existing file is ever opened, modified, or overwritten. Beyond the marker beside it, the only write into an existing `chat/` directory is the restoration of a file that is absent: the probe is for `agent.cordis.yml`, because without it the Harness refuses every Session create against the id (`agent-preset/invalid`) and no other path in the product can recover.
   - The marker makes seeding a one-time act. Once it exists and `chat/` does not, Workbench reads the absence as user intent and never re-creates the preset.
   - Seeding is fail-soft: any filesystem error degrades to a console warning and never blocks Host composition.
 - It does not create telemetry or persist prompt, tool, or Session content outside Harness-owned storage.

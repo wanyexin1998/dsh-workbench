@@ -66,7 +66,13 @@
 The one sanctioned exception to invariant 7:
 
 - The Host entry seeds the bundled `chat` agent preset (zero tools, conversation-only) into `$DSH_HOME/.agent-presets/chat/` at composition time.
-- Create-only: an existing `chat/` directory is never modified or overwritten.
+- Create-only at the file level: an existing file is never modified or overwritten.
+- One repair is in scope, and only one: a `chat/` directory that does not contain
+  the `agent.cordis.yml` the Harness mounts is not a preset, it is an occupied id
+  that fails every Session create against it (`agent-preset/invalid`). Workbench
+  writes the missing file — and only the missing file — so the id becomes usable
+  again. This is not a re-creation of a deleted preset; see the marker rule below,
+  which is unchanged.
 - A sibling marker (`.agent-presets/.workbench-chat-seeded`) records that seeding happened; deleting the preset directory is treated as user intent and Workbench never re-creates it.
 - Seeding failures degrade to a console warning and never block Host composition.
 - No other filesystem, subprocess, credential, or network capability is added.
