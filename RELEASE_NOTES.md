@@ -1,3 +1,159 @@
+# DSH Workbench 0.2.0-rc.6
+
+Status: source preview. Distribution is source plus a downloadable GitHub
+Release (two TGZs, two bootstrap scripts, `SHA256SUMS`, `release-manifest.json`),
+SHA256-verified, not GPG-signed. No npm package.
+
+> **`v0.2.0-rc.5` installed cleanly and then could not quote or ask.** Both of
+> the plugin's headline features were dead from boot on the very Harness it
+> pins, and neither said anything: no console error, no server log, no visible
+> failure. Selection quoting was refused on every drag; Quick ask raised a
+> dialog and stopped. Split Pane, the settings section, and the shared-workspace
+> warning all worked, which is why the release looked healthy. rc.6 fixes both.
+> If you are on rc.5, install this over it — see § Upgrading. The Harness pin
+> does not move, so the fork checkout inside your target is already correct;
+> only the Workbench package changes.
+
+## Fixed
+
+- **Selection quoting reads the chat node table from where it now lives.**
+  Upstream `0.1.2-rc.1` split the chat half of `ui-conversation` into a new
+  `ui-chat` package, and the node table went with it. The Session snapshot now
+  carries fifteen lifecycle fields and its contract opens by saying it excludes
+  Conversation target data. Workbench was still reading `snapshot.chat.nodes`
+  through an optional chain, so every lookup returned `undefined` and the
+  selection judge — which is deliberately fail-closed — refused every passage
+  in silence. The table now comes from
+  `uiConversation.binding(sessionId).target('chat')`, the same path `ui-chat`'s
+  own consumer takes, resolved through one narrowing point in the harness
+  adapter. `uiConversation` joins the cordis inject list; it is a different
+  service from the `conversation` already injected, and needs no sub-path entry.
+- **Interjected (`steering`) messages can be quoted.** The Harness renders a
+  steering row with the same component and the same DOM contract as an ordinary
+  user row — they are the same `user/message` event, differing only in whether
+  the agent claimed it mid-turn — but the judge's accepted-kind list named only
+  `user`. Some body rows quoted and some silently did not, which is worse to
+  diagnose than none of them working.
+- **A half-written `chat` preset repairs itself.** Quick ask
+  (`Ctrl`/`Command`+`Shift`+`C`) failed with "cannot create a chat-mode
+  Session" and nothing more. The cause was not the regression above: the RPC,
+  its request shape, the workspace and Session-list reads and the chord all
+  verified intact. The Harness was refusing the create with
+  `agent-preset/invalid` — `$DSH_HOME/.agent-presets/chat/` held `preset.yml`
+  and not the `agent.cordis.yml` the Harness mounts. Workbench's seeder asked
+  whether the directory existed, not whether a mountable preset was in it, so
+  it answered "already seeded" forever and no path through the product could
+  recover. It now gates on the composition file and writes only what is
+  missing, never overwriting a file that exists, and says so once when it
+  repairs. A deleted preset is still never re-created.
+- **A face that moved no longer looks like a face that is absent.** Both
+  rejections above were the same silent `return null`. Each now emits one
+  deduplicated diagnostic naming which of the two happened. That distinction is
+  the single thing that would have turned this from hours into minutes.
+
+## Changed
+
+- **The unit test doubles are built to the host's shape, not to the plugin's
+  convenience.** rc.4 and rc.5 were the same failure twice: the fakes were
+  looser than the Harness, so the suite was fully green on a build that was
+  broken at boot. A shared double now enumerates the Session snapshot's fifteen
+  real fields and throws on an unknown one, and serves chat nodes only through
+  a `uiConversation`-shaped binding that throws for unknown Sessions and
+  returns `undefined` for an unactivated target, exactly as the Harness does.
+  The selection tests reach the node table through the product's own adapter,
+  so the next time a face moves they go red instead of green.
+- `dsh.client.inject` names `@deepseek-ai/dsh-client-ui-chat`, matching
+  upstream consumers of the same target. It orders bundle-factory arrival and
+  is skipped when absent; it changes nothing at runtime.
+- Product contract invariant 7's carve-out is restated. It said an existing
+  `chat/` directory is never modified; it now says no existing *file* is ever
+  overwritten, and names the one repair above as the single exception.
+
+## Verified
+
+`pnpm release:check`, all nine steps, on the release commit:
+
+| Step | Result |
+| --- | --- |
+| `scan-secrets.mjs` | high-confidence secret/privacy scan passed |
+| `release-contract-check.mjs` | 53 checks, all passed |
+| `scan-secrets.test.mjs` | 67 / 67 |
+| `install/result.test.mjs` | 47 / 47 |
+| `bootstrap/bootstrap.test.mjs` | 33 / 33 |
+| `pnpm typecheck` | passed |
+| `pnpm test` | 672 / 672 across 36 files |
+| `pnpm audit --audit-level=low` | no known vulnerabilities |
+| `build-release-bundle.mjs` | four artifacts packed, `SHA256SUMS` written |
+
+The package suite is 672 where rc.5 was 663: the chat-source seam, the
+`steering` kind, the seeder repair and its no-overwrite rule are each pinned.
+
+`SHA256SUMS` describes the stamped installers, and the digest they embed
+(`f2482e09…`) is the digest of the TGZ packed beside them.
+`release-manifest.json` records the release commit.
+
+**End-to-end on a real Harness, in a browser, with real input.** This is what
+rc.5 did not have, and it is the only check that would have caught it. The
+packed rc.6 TGZ was installed into a profile, the pinned Harness booted against
+a real `~/.dsh` with real Sessions, and every item below was driven through the
+browser — `left_click_drag` for the gesture, real key events for the chords.
+Synthetic `click()` and programmatic range selection do not exercise these paths
+and were not accepted as evidence.
+
+| Check | Result |
+| --- | --- |
+| Boot graph carries `@wanyexin1998/dsh-workbench`, console clean | pass |
+| Real drag-select over assistant prose raises the selection toolbar | pass |
+| "Add to conversation" lands the badge, the quote band and the composer chip | pass |
+| The same inside a Pane in split mode, routed to that Pane's composer only | pass |
+| Real `Ctrl`+`Shift`+`C` opens a chat-mode Session beside the current one | pass |
+| `Ctrl`-click on a second Session yields two `[data-session-pane]` | pass |
+| The quote badge does not overlap the turn rail | pass — 145px clear |
+| The Settings chord actually toggles Settings when pressed | pass |
+
+The last two had never been verified before. The badge sits at x 1231–1247 and
+the turn rail at 1392–1420 in a 1440px viewport; in split mode the rail is not
+rendered at Pane width, so there is nothing to collide with. The Settings chord
+was exercised at the chord it is bound to on that machine, which a saved user
+override had moved off the `Primary+,` default; the default-chord dispatch path
+was confirmed separately with `Primary+/`, which is both a default and
+punctuation.
+
+**Still not verified.** macOS, a read-only `$DSH_HOME`, and the stock-Harness
+general-plugin path have never been run on any platform. The isolated installer
+end-to-end evidence is unchanged from rc.5 and is described there; this release
+does not repeat it, because the installer scripts changed only by their stamped
+version and digest. `Primary+,` as a *default* — on a machine carrying no saved
+override — remains unexercised.
+
+## Distribution boundary
+
+The Harness pin (`rc4/presentation-on-0.1.2`,
+`c5a387cd2f781d4d9914ea0271ebb507984ca3f4`) does not move. The tag
+`dsh-workbench-v0.2.0-rc.6-pin` marks the same commit so a published installer
+keeps resolving; every earlier pin tag and its branch stay in place, because
+those installers are still out there. Panel Compatibility moves to
+`0.1.0-rc.4`. Its source did not change, but its packed bytes did: the package
+declares the Workbench as a `workspace:*` dev dependency and pnpm rewrites that
+to the concrete version at pack time, so its bytes track the Workbench version
+and cannot stay still across a bump. A name is bound to its bytes here, so this
+cut takes a new one. The Better Sidebar fork is unchanged.
+
+`v0.2.0-rc.5` is not withdrawn and its tag is not reused; this repository has
+immutable releases, so a burned name can never come back. rc.5 stays published
+with this record of what was wrong with it.
+
+## Upgrading
+
+See [`docs/INSTALL.md` § Upgrading from `v0.2.0-rc.3`](docs/INSTALL.md#upgrading-from-v020-rc3).
+The installer refuses a target that already exists, and deleting the target
+would take its isolated Harness home — every Session, Workspace and model
+setting created inside it — along with it, so move that home aside first.
+
+Coming from rc.4 or rc.5 the Harness pin is unchanged, so only the Workbench
+package moves. If Quick ask was failing for you, the seeder repairs the preset
+on the next Host composition and logs one line when it does.
+
 # DSH Workbench 0.2.0-rc.5
 
 Status: source preview. Distribution is source plus a downloadable GitHub
