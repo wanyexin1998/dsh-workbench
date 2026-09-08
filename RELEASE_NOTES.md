@@ -46,6 +46,17 @@ SHA256-verified, not GPG-signed. No npm package.
   recover. It now gates on the composition file and writes only what is
   missing, never overwriting a file that exists, and says so once when it
   repairs. A deleted preset is still never re-created.
+- **Everything past the first quote works.** Saving a note on a quote answered
+  "the draft changed, please retry" and did nothing; so did adding a second
+  quote, and deleting one. The composer keeps two text projections of the same
+  document — in one, every chip expands to its display text; in the other,
+  every chip is exactly one character — and the two APIs involved disagree
+  about which they speak, in prose only. `occurrences[].offset/length` are
+  clipboard coordinates; the `TokenSpan` that `insertReference` takes is
+  resolved against the detect text. Workbench handed the first straight to the
+  second. With no chip in the draft the projections are identical character
+  for character, which is exactly why the first quote always worked and
+  nothing looked wrong. Every span is now converted before it is sent.
 - **A face that moved no longer looks like a face that is absent.** Both
   rejections above were the same silent `return null`. Each now emits one
   deduplicated diagnostic naming which of the two happened. That distinction is
@@ -81,12 +92,17 @@ SHA256-verified, not GPG-signed. No npm package.
 | `install/result.test.mjs` | 47 / 47 |
 | `bootstrap/bootstrap.test.mjs` | 33 / 33 |
 | `pnpm typecheck` | passed |
-| `pnpm test` | 672 / 672 across 36 files |
+| `pnpm test` | 673 / 673 across 36 files |
 | `pnpm audit --audit-level=low` | no known vulnerabilities |
 | `build-release-bundle.mjs` | four artifacts packed, `SHA256SUMS` written |
 
-The package suite is 672 where rc.5 was 663: the chat-source seam, the
-`steering` kind, the seeder repair and its no-overwrite rule are each pinned.
+The package suite is 673 where rc.5 was 663: the chat-source seam, the
+`steering` kind, the seeder repair and its no-overwrite rule, and the span
+coordinate system are each pinned. Two test doubles were rebuilt to the
+host's shape rather than the plugin's convenience — the session/chat face,
+and the composer input, which had modelled one text projection where the host
+keeps two and so accepted the wrong coordinates silently. Reverting either fix
+now turns cases red.
 
 `SHA256SUMS` describes the stamped installers, and the digest they embed
 (`f2482e09…`) is the digest of the TGZ packed beside them.
@@ -105,6 +121,9 @@ and were not accepted as evidence.
 | Boot graph carries `@wanyexin1998/dsh-workbench`, console clean | pass |
 | Real drag-select over assistant prose raises the selection toolbar | pass |
 | "Add to conversation" lands the badge, the quote band and the composer chip | pass |
+| A second quote lands beside the first | pass |
+| Saving a note on a quote | pass |
+| Deleting one quote of two, then the last one | pass — composer ends empty |
 | The same inside a Pane in split mode, routed to that Pane's composer only | pass |
 | Real `Ctrl`+`Shift`+`C` opens a chat-mode Session beside the current one | pass |
 | `Ctrl`-click on a second Session yields two `[data-session-pane]` | pass |

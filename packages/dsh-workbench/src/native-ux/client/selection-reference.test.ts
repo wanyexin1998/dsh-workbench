@@ -175,6 +175,25 @@ describe('selection aggregate reference', () => {
     expect(input.state.getSnapshot()).toMatchObject({ draft: 'draft', occurrences: [] })
   })
 
+  // rc.6 回归 pin。宿主的 `occurrences[].offset/length` 是 clipboard 坐标（chip
+  // 展开成显示文本），而 `insertReference` 收的 span 是 detect 坐标（chip 恒为
+  // 1 字符）。插件曾经把前者直接当后者传下去：空草稿时两者相等，所以
+  // 第一条引用总是成功；一旦草稿里有了 chip，宿主解不出这个区间、返回
+  // false，用户看到的是「草稿已变化，请重试」。
+  it('mutates an existing aggregate once the draft already holds a chip (rc.6 coordinate regression)', () => {
+    const { input } = fakeInput('draft')
+    expect(appendSelectionReference(input, selection('first'), 'one', 'Selected context').ok).toBe(true)
+    const withChip = input.state.getSnapshot()
+    // 两套投影已经分开了——这正是旧写法开始错位的那一刻。
+    expect(input.detectEnd()).toBeLessThan(withChip.draft.length)
+
+    expect(appendSelectionReference(input, selection('second', 6), 'two', 'Selected context').ok).toBe(true)
+    expect(updateSelectionComment(input, 'two', 'note', 'Selected context').ok).toBe(true)
+    expect(removeSelectionItem(input, 'one', 'Selected context').ok).toBe(true)
+    expect(removeSelectionItem(input, 'two', 'Selected context').ok).toBe(true)
+    expect(input.state.getSnapshot()).toMatchObject({ draft: 'draft', occurrences: [] })
+  })
+
   it('removes the last Workbench item without dropping or misplacing other-source occurrences', () => {
     const { input } = fakeInput('draft')
     expect(input.insertReference({
