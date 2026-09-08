@@ -57,3 +57,60 @@
 ## 5. 本地升级（用户机器）
 
 用户的 Harness 是 fork 主 checkout（`E:\wyx_code\Vibe coding\deepseek-harness`，现在 `82de604af`）。rc.4 发布后：`git fetch origin && git checkout rc4/presentation-on-0.1.2`（或直接 checkout 新 sha）→ `pnpm install --frozen-lockfile && pnpm build` → 把**已发布**的 rc.4 TGZ 装进真实 web profile → `--dump-config` 探针。他的 `~/.dsh` Session 格式不变，无需迁移。
+
+---
+
+## rc.6 之后补的三条（2026-09-08）
+
+这三条都是 rc.6 跑完才知道的，写在这里是因为**下一次不看这份就会重踩**。
+
+### 1. 盖章不是两趟，是「代码冻结之后才盖第一次章」
+
+rc.6 实际盖了**三趟**，每趟摘要都不一样：`d2e07c06…` → `f2482e09…` → `b329024e…`。
+规律很干净：**任何落进 `packages/dsh-workbench/src` 的改动都会作废已刻的摘要**
+（预设修复触发第二趟、span 修复触发第三趟；中间两个纯文档提交不触发）。
+
+所以 §3 那句「两趟盖章」应读成一条硬顺序：
+
+> **代码冻结 → 盖章 → 门禁。** 盖完章再改一行进包的源码，就得原样重走
+> 「打包拿摘要 → 写进两个 bootstrap → 不带 flag 再跑门禁」。
+
+顺带补一条这条流程赖以成立、却全仓没写过的前提：**源码不变时重打出来的 TGZ
+是逐字节可复现的**（pnpm 在 pack 时重新生成 `package.json`，tsdown 出的是 LF，
+其余进包文件由 `.gitattributes` 钉成 `eol=lf`），所以摘要才能当内容指纹用。
+本次实测：改了一批 `docs/` 之后重打，两个 TGZ 摘要与已发布的完全相同。
+
+### 2. 上游基线一动，契约点名的**每一个** fork 都要在新基线上真启动一次
+
+§3 步骤 6 写的是「Better Sidebar fork：不动」。**就是这条把一个砖放了过去。**
+
+流程里有「Harness fork 前进」的步骤，却没有「基线在一个我们不重建的 fork 底下
+移动了」这一步。Better Sidebar 的 pin（`1685770`）是对着 `0.1.1-rc.1` 建的，
+上游在 `0.1.2-rc.1` 删了 `settingsNamespace`，于是它一加载就抛、整棵插件树失败、
+**harness 起不来**。这个缺陷从 rc.4 一路带到 rc.6，三个版本的契约和 INSTALL 都在
+教用户去装它。
+
+现有门禁只查形状不查加载：`release-contract-check.mjs:181-199` 校验
+`packageVersion`、peer 范围、40 位提交格式——没有任何一条能发现那个 fork 起不来。
+
+**补一条硬闸**：只要 `harness.upstreamVersion` 变化，`release-contract.json` 里
+点名的每一个 fork 都必须在新基线上**真的启动一次**；起不来的，它那一行必须标成
+不兼容，并从 INSTALL 的安装路径里摘掉（保留代码块，加拦截警告——那个块被
+`release-contract-check.mjs:229-239` 要求原样存在，删了门禁会红）。
+
+### 3. `file:` TGZ 的 pnpm 缓存陷阱
+
+**换了内容但文件名没变时，pnpm 会命中缓存回一句「Already up to date」，
+profile 里装的还是旧插件。** 本次每一轮真实宿主验证都要绕开它。
+
+破解：删掉 profile 的 `node_modules` 与 `pnpm-lock.yaml` 再装。
+
+并且——**核已装产物的 sha256，不要信安装命令的输出**：
+
+```bash
+sha256sum ~/.dsh/profiles/web/node_modules/@wanyexin1998/dsh-workbench/lib/client.js
+# 必须等于 packages/dsh-workbench/lib/client.js
+```
+
+这与 rc6-brief §5「核产物用 `sha256sum` / `grep -c`，别用 Select-String」是同一条
+教训的另一半：那半说的是**怎么读**，这半说的是**读哪个**。

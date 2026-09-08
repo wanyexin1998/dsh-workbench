@@ -58,7 +58,7 @@
 - Providers own open state, size, active tabs, and internal controls.
 - Focus changes only route commands; they do not mount, open, close, or unmount panels.
 - Both Panes may display independent right and bottom panels simultaneously.
-- Better Sidebar support requires the exact 0.16.1 downstream commit and Pane protocol 1 in `release-contract.json`.
+- Better Sidebar support requires the exact 0.16.1 downstream commit and Pane protocol 1 in `release-contract.json`. **No commit currently satisfies both.** The pinned `1685770…` was built against upstream `0.1.1-rc.1` and does not load on the `0.1.2-rc.1` baseline this release pins — it prevents the harness from booting rather than degrading. Until a rebuilt fork is pinned, this section defines a contract with no live provider, and the bullets above describe behaviour nothing exercises.
 - Unknown overlays require their own explicit versioned adapter; private DOM inference is forbidden.
 
 ## Chat preset seeding

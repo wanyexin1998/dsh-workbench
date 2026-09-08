@@ -7,7 +7,7 @@ DSH Workbench is an independent source-preview plugin for DeepSeek Harness Web.
 - `release-contract.json` owns supported versions, fork commits, protocol numbers, distribution status, and the two-Pane product limit.
 - `packages/dsh-workbench` owns Split Pane activation, shortcuts, selection quoting, and Same Workspace Warning.
 - `packages/dsh-workbench-panel-compat` is optional and may only use explicit versioned provider capabilities plus the public `data-session-pane*` host markers.
-- Harness protocol 2 and the optional Better Sidebar Pane capability are maintained in the pinned downstream forks named by the release contract.
+- Harness protocol 2 is maintained in the pinned downstream Harness fork named by the release contract. The optional Better Sidebar Pane capability is named by that contract too, but its pinned commit was built against upstream `0.1.1-rc.1` and does not load on the `0.1.2-rc.1` baseline the Harness fork now carries — it takes the whole plugin tree down. Only the Harness fork tracks the baseline; see `docs/KNOWN_ISSUES.md`.
 - This repository ships source and local TGZ artifacts only. Do not add npm publication, automatic third-party installation, or GitHub Actions without an explicit maintainer decision.
 
 ## Commands
@@ -26,7 +26,7 @@ Run package-focused tests while developing; run `pnpm release:check` before any 
 - Reuse Harness Conversation under explicit `SessionProvider(sessionId)`; never copy it or patch private DOM/store state.
 - Maximum two visible Panes. `visible` owns stable membership; `focused` owns interaction routing.
 - Focus changes never open, close, mount, or unmount Pane panels.
-- Workbench adds no Host filesystem, subprocess, credential, or arbitrary network permission, with one exception: the Host entry seeds the bundled `chat` agent preset into `$DSH_HOME/.agent-presets/` (create-only, never overwrite, never re-create after user deletion — see `docs/PRODUCT_CONTRACT.md` "Chat preset seeding").
+- Workbench adds no Host filesystem, subprocess, credential, or arbitrary network permission, with one exception: the Host entry seeds the bundled `chat` agent preset into `$DSH_HOME/.agent-presets/` (create-only **at the file level** — an existing file is never overwritten, a deleted preset is never re-created, and the one repair is restoring a missing `agent.cordis.yml` into a directory that would otherwise fail every session create; see `docs/PRODUCT_CONTRACT.md` "Chat preset seeding").
 - Never commit credentials, private Session content, proprietary paths, personal machine paths, or company identity data.
 - Code comments are written in Simplified Chinese. This repository has one
   maintainer, who reads Chinese, and comments earn their keep by being read —

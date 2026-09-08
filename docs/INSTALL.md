@@ -532,11 +532,36 @@ runs without your own explicit, freshly-given yes. Wanting to be in this
 section at all is not itself consent to install anything; detection and the
 consent ask below still happen first.
 
+> **⛔ Do not work through this section on `v0.2.0-rc.6`. The pinned Better
+> Sidebar fork does not load on the pinned Harness.**
+>
+> The fork (`dsh-better-sidebar` 0.16.1, commit `1685770…`) was built against
+> the previous upstream baseline. It imports `settingsNamespace` from
+> `@deepseek-ai/dsh-settings`, an export upstream removed in the baseline this
+> release pins. Installing it does not degrade the sidebar: the plugin loader
+> throws while building the plugin tree and **the entire harness fails to
+> boot** — `plugin tree failed to load … does not provide an export named
+> 'settingsNamespace'` — taking every Workbench feature with it.
+>
+> Until a fork commit rebuilt against the current baseline is pinned in
+> `release-contract.json`, Pane-local panels are unavailable and all of §4 is
+> inert. Nothing else in this document is affected: paths (a) and (b) above
+> never touch Better Sidebar.
+>
+> Already installed it and the app will not start? Remove it from the profile
+> and restart: `dsh plugin --profile web remove dsh-better-sidebar` (and
+> `dsh plugin --profile web remove @wanyexin1998/dsh-workbench-panel-compat`
+> if you got that far).
+
 #### Detect what is already installed
 
 Before offering or installing anything, the installing agent checks whether
 the *official* Better Sidebar plugin (npm name `dsh-better-sidebar`) is
-already present in the target profile:
+already present in the target profile.
+
+On `v0.2.0-rc.6` this detection is a **diagnostic only**. None of its outcomes
+leads to an install: use it to tell the user what state they are in, then
+stop. The classification below has been rewritten accordingly.
 
 1. Confirm the profile directory already exists —
    `<DSH_HOME>/profiles/<profile>/package.json` (e.g.
@@ -561,12 +586,19 @@ already present in the target profile:
    its own. Prefer the direct file read: it cannot trigger the profile-init
    side effect described in step 1 even by accident.
 3. Classify what you found:
-   - No `dsh-better-sidebar` dependency at all → **nothing installed yet**.
+   - No `dsh-better-sidebar` dependency at all → **nothing installed, and
+     nothing to install today**. Go to [Nothing installed
+     yet](#nothing-installed-yet).
    - Present, and its resolution does not match this project's pinned fork
      commit (an npm-registry resolution is the common case) → **official**.
+     Leave it exactly as it is; it works, and it is the only Better Sidebar
+     state that boots on this baseline.
    - Present, and its resolution matches this project's pinned fork commit
-     (`168577078bf63a16cb514e879669298565991b07`) → **already have the
-     pinned fork** — nothing to offer or install; stop here.
+     (`168577078bf63a16cb514e879669298565991b07`) → **the incompatible fork is
+     installed**. On the baseline this release pins, that harness does not boot
+     at all. Tell the user, and offer to remove it —
+     `dsh plugin --profile <name> remove dsh-better-sidebar` — then restart.
+     Install nothing.
 
 This is a best-effort read, not a guarantee — `pnpm list --json`'s
 `resolved`/`from` fields distinguish an npm-registry resolution from a
@@ -587,6 +619,14 @@ otherwise touch the official plugin in any way. It keeps working exactly as
 before, and Pane-local panels simply stay unavailable — panels remain
 global, exactly as before this section was ever opened.
 
+**Do not show this script on `v0.2.0-rc.6`.** It offers panels the pinned fork
+cannot deliver on this release's Harness baseline (see the warning at the top
+of this section), so a "要" here costs the user a working sidebar and a
+bootable harness in exchange for nothing. It is reproduced below unmodified so
+it is ready the moment a compatible fork commit is pinned. Until then the
+correct handling of "the official plugin is installed" is: leave it alone, say
+nothing, offer nothing.
+
 ````text
 ℹ️ 检测到你的 profile 中已经安装了官方 Better Sidebar 插件（dsh-better-sidebar）。
 
@@ -598,6 +638,13 @@ global, exactly as before this section was ever opened.
 ````
 
 #### Nothing installed yet
+
+**Currently a dead end — ask nothing and install nothing.** With no Better
+Sidebar present there is nothing broken and nothing to fix, and the fork this
+section would otherwise offer does not load on this release's Harness pin.
+Tell the user Pane-local panels are unavailable on `0.2.0-rc.6` and stop. The
+rest of this subsection describes the flow that resumes once a compatible fork
+commit is pinned.
 
 If detection found no Better Sidebar at all — official or fork — there is
 nothing to *replace*, so the "Sidebar fork 征询话术" script's replacement
@@ -612,6 +659,11 @@ steps](#pinned-fork-install-steps-only-after-explicit-consent) only once
 they say yes.
 
 #### Pinned-fork install steps (only after explicit consent)
+
+These steps are unreachable on `0.2.0-rc.6` — every path above now stops
+before here. They are kept intact, and the commit they verify is still the one
+`release-contract.json` names, so that pinning a rebuilt fork is a one-line
+change rather than a rewrite.
 
 ```powershell
 $BetterSidebarCommit = '168577078bf63a16cb514e879669298565991b07'

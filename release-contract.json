@@ -48,7 +48,9 @@
     "repository": "https://github.com/wanyexin1998/DSH-better-sidebar",
     "branch": "feat/workbench-actions-consumer",
     "implementationCommit": "168577078bf63a16cb514e879669298565991b07",
-    "distribution": "optional-source-only"
+    "distribution": "optional-source-only",
+    "providerStatus": "incompatible-with-pinned-harness",
+    "providerStatusReason": "The pinned provider commit was built against the previous upstream baseline and imports settingsNamespace from @deepseek-ai/dsh-settings, an export deleted in the pinned baseline. The plugin loader fails the whole tree and the harness does not boot. Pane-local panels are unavailable until a rebuilt fork commit is pinned here. See docs/KNOWN_ISSUES.md."
   },
   "distribution": {
     "npmPublished": false,

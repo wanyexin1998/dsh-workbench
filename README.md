@@ -72,7 +72,7 @@ DeepSeek Harness 默认以单一当前 Session 驱动界面。DSH Workbench 在�
 | --- | --- | --- | --- |
 | DeepSeek Harness | 必需 | fork `rc4/presentation-on-0.1.2`，固定提交 `c5a387cd…` | 提供 Session Presentation `protocol 2`；提供 `ctx.layout.toggleSettings()`，让「打开设置」快捷键可以再按一次关掉 |
 | DSH Workbench | 必需 | `0.2.0-rc.6` | 最多两个可见 Pane |
-| Better Sidebar | 可选 | fork `0.16.1`，固定提交 `1685770…` | 提供 Pane capability `protocol 1`；含面板快捷键 actions（`actionsProtocol 1`） |
+| Better Sidebar | 可选 | fork `0.16.1`，固定提交 `1685770…` | **当前不可用**：该 fork 基于上一个上游基线构建，在本版所钉的基线上加载即失败，会导致整个 harness 起不来。见 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md) |
 | Panel Compatibility | 可选 | `0.1.0-rc.4` | 只连接显式兼容的面板提供方 |
 
 完整 SHA、分支和分发状态以 [`release-contract.json`](release-contract.json) 为准。原版 Harness `0.1.2-rc.1` 尚未提供此分屏接口；原版 Better Sidebar `0.16.1` 也没有多实例 Pane capability。
@@ -202,6 +202,12 @@ pnpm release:check
 | 跳到最新消息 | `Primary+Shift+L` | |
 
 ## 可选：Pane 独立面板
+
+> **⛔ 本节当前不可用。** 固定的 Better Sidebar fork 基于上一个上游基线构建，
+> 在本版所钉的基线上加载即抛，**整个 harness 起不来**（不是侧栏降级）。
+> 装了之后应用打不开的话：从 profile 里移除 `dsh-better-sidebar` 再重启。
+> 详见 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)。下面的步骤保留原样，
+> 等一个在当前基线上重建的 fork 提交被钉进契约后即可恢复。
 
 需要每个 Pane 独立显示右侧或底部面板时，再安装：
 
