@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   chatActionServices,
+  chatNodeSource,
   currentSessionId,
   resolveHarnessServices,
   sideChatServices,
@@ -29,14 +30,18 @@ describe('resolveHarnessServices (GA-040, §9A.1)', () => {
     const layout = { toggleSidebar: vi.fn() }
     const remote = { session: { create: vi.fn() } }
     const workspaces = { list: { getSnapshot: vi.fn(), subscribe: vi.fn() } }
-    const ctx = makeCtx({ remote, sessions, layout, workspaces })
+    const uiConversation = { binding: vi.fn() }
+    const ctx = makeCtx({ remote, sessions, layout, workspaces, uiConversation })
     const services = resolveHarnessServices(ctx)
     expect(services.remote).toBe(remote)
     expect(services.sessions).toBe(sessions)
     expect(services.layout).toBe(layout)
     expect(services.workspaces).toBe(workspaces)
-    // only the four business-service seams the plugin uses are read
-    expect(ctx.get).toHaveBeenCalledTimes(4)
+    expect(services.uiConversation).toBe(uiConversation)
+    // only the five business-service seams the plugin uses are read
+    // (`uiConversation` joined in rc.6: the chat node table lives on its
+    // `chat` Conversation target, not on the Session face — see chatNodeSource)
+    expect(ctx.get).toHaveBeenCalledTimes(5)
   })
 
   it('yields undefined members when a service is not injected', () => {
@@ -45,6 +50,41 @@ describe('resolveHarnessServices (GA-040, §9A.1)', () => {
     expect(services.layout).toBeUndefined()
     expect(services.sessions).toBeUndefined()
     expect(services.workspaces).toBeUndefined()
+    expect(services.uiConversation).toBeUndefined()
+  })
+})
+
+/**
+ * rc.6 新增的接缝。它本身就是 rc.5 回归的修复点：节点表从会话面搬到了
+ * `uiConversation` 的 `chat` 目标上（`ui-chat/src/client/apply.ts:59`）。
+ * 三种失败都得归一成 `undefined`，由划词层 fail-closed——特别是
+ * `binding()` 对未知会话是**抛**而不是返回 undefined（assembly.ts:213），
+ * 这一抛发生在 selectionchange 处理器里，漏接就是一次未捕获异常。
+ */
+describe('chatNodeSource (rc.6)', () => {
+  it('reads the node table off the chat Conversation target', () => {
+    const node = { key: 'n', kind: 'user' }
+    const target = { getSnapshot: () => ({ nodes: { get: (key: string) => key === 'n' ? node : undefined } }) }
+    const binding = vi.fn(() => ({ target: vi.fn(() => target) }))
+    const face = chatNodeSource({ binding } as never).face('s')
+    expect(binding).toHaveBeenCalledWith('s')
+    expect(face?.getSnapshot()?.nodes?.get('n')).toBe(node)
+  })
+
+  it('yields undefined when the service is absent, malformed, or has no chat target', () => {
+    expect(chatNodeSource(undefined).face('s')).toBeUndefined()
+    expect(chatNodeSource({} as never).face('s')).toBeUndefined()
+    expect(chatNodeSource({ binding: () => undefined } as never).face('s')).toBeUndefined()
+    expect(chatNodeSource({ binding: () => ({ target: () => undefined }) } as never).face('s')).toBeUndefined()
+    expect(chatNodeSource({ binding: () => ({ target: () => ({}) }) } as never).face('s')).toBeUndefined()
+  })
+
+  it('swallows the unknown-session throw instead of letting it escape a selectionchange handler', () => {
+    const source = chatNodeSource({
+      binding: (sessionId: string) => { throw new Error(`uiConversation.binding: unknown session "${sessionId}"`) },
+    } as never)
+    expect(() => source.face('gone')).not.toThrow()
+    expect(source.face('gone')).toBeUndefined()
   })
 })
 

@@ -13,7 +13,7 @@ import {
   type QuoteAnchorState, type QuoteHighlightRegistry,
 } from './quote-highlight.js'
 import { QuoteBadge, QuoteBadgeLayer, useQuoteAnchors } from './quote-overlay.js'
-import { SelectionController, type SelectionSessions } from './selection-controller.js'
+import { SelectionController, type SelectionChatSource, type SelectionSessions } from './selection-controller.js'
 import type { ConversationSelection } from './selection-contract.js'
 import {
   appendSelectionReference, createSelectionReferenceSource, createSideChatReferenceSource,
@@ -51,6 +51,12 @@ export interface SelectionApplyContext {
 
 export interface SelectionApplyServices {
   readonly sessions: SelectionSessions
+  /**
+   * chat 节点表的解析器（harness-adapter 的 `chatNodeSource`）。
+   * 与 `sessions` 分开是因为 0.1.2-rc.1 之后节点表不在会话面上了——
+   * 见 selection-controller.ts 的 `SelectionChatSource`。
+   */
+  readonly chat: SelectionChatSource
   readonly conversation: IConversation
   readonly inputTriggers: InputTriggerServiceContract
   readonly slots: SelectionSlots
@@ -2316,7 +2322,7 @@ export function applySelectionActions(
   locale = 'dsh-workbench',
   itemIdFactory: () => string = createSelectionItemId,
 ): SelectionController {
-  const controller = new SelectionController(services.sessions)
+  const controller = new SelectionController(services.sessions, services.chat)
   const sideChat = createSideChatActions({
     services: services.harness,
     revalidateSelection: (selection) => controller.revalidate(selection) !== null,

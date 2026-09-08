@@ -28,7 +28,7 @@ import { makeGuardFailureBanner } from './guard-failure.tsx'
 import { SameWorkspaceWarning, useWorkspacePathIndex, type PaneWorkspace, type WorkspaceFacts } from './same-workspace-warning.tsx'
 import { en, zh } from './dictionaries.ts'
 import { applyShortcuts } from '../native-ux/client/shortcuts.js'
-import { resolveHarnessServices, type HarnessContext } from '../native-ux/client/harness-adapter.js'
+import { chatNodeSource, resolveHarnessServices, type HarnessContext } from '../native-ux/client/harness-adapter.js'
 import { warnOnce } from '../native-ux/client/capabilities.js'
 import type { WorkbenchActionsService } from '../native-ux/client/actions-api.js'
 import { applySelectionActions } from '../native-ux/client/selection-actions.js'
@@ -72,10 +72,19 @@ declare module '@deepseek-ai/cordis' {
  * rc.4 发布版就漏了这一条：applyShortcuts 是 Navigator 退役后唯一的 apply 入口，
  * 它一抛，GA-043 的 fail-soft 把异常吞掉，插件静默地什么都不注册——页面照常，
  * 只在控制台留一行 warn。
+ *
+ * **`'uiConversation'` 是 rc.6 补的，与已有的 `'conversation'` 是两个服务。**
+ * 前者是 Conversation 装配层（`ui-conversation/src/client/conversation/assembly.ts:178`
+ * 的 `super(ctx, 'uiConversation')`），划词层从它身上取 chat 节点表；后者是
+ * 输入/提交那一块（同包的 `service.ts`）。rc.5 就是因为节点表搬家后没接
+ * 这一条，划词每次都被静默否决。它**不**需要子路径条目（不同于
+ * `remote` / `remote.session`）：`binding` 只是服务对象上的一个方法，不是
+ * 另一个注册服务，上游 `ui-chat` 自己的 inject 也只写了 `'uiConversation'`
+ * （`ui-chat/src/client/apply.ts:45-48`）。
  */
 export const inject = [
   'remote', 'remote.session', 'sessions', 'workspaces', 'slots', 'locale', 'layout',
-  'settingsScope', 'conversation', 'inputTriggers',
+  'settingsScope', 'conversation', 'uiConversation', 'inputTriggers',
 ] as const
 
 const NS = 'dsh-workbench'
@@ -204,6 +213,7 @@ export function apply(ctx: ClientContext): void {
   try {
     applySelectionActions(ctx, {
       sessions: guardedSessions as SelectionSessions,
+      chat: chatNodeSource(harness.uiConversation),
       conversation: platform.conversation as IConversation,
       inputTriggers: platform.inputTriggers as InputTriggerServiceContract,
       slots: slots as never,

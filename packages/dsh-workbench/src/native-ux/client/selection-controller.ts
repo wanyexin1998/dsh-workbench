@@ -14,12 +14,36 @@ interface SelectionNode {
   readonly data?: unknown
 }
 
-interface SelectionSessionSnapshot {
-  readonly sessionId?: unknown
-  readonly chat?: { readonly nodes?: { get(key: string): unknown } }
+/**
+ * 一个会话的 chat 节点表快照。
+ *
+ * **它不再是会话面上的一个字段。** 0.1.2-rc.1 把 chat 那半边从 `ui-conversation`
+ * 拆进了 `@deepseek-ai/dsh-client-ui-chat`，节点表现在是那个包发布到 Conversation
+ * `chat` 目标上的快照（`ui-chat/src/client/contract/snapshot.ts` 的
+ * `ChatSnapshot.nodes: ChatNodeStore`）。会话快照本身只剩 15 个生命周期字段，
+ * 契约头一行就写着 "Session-owned observable state **excluding Conversation
+ * target data**"（`dsh-api-session-controller/.../contract/snapshot.d.ts:1`）。
+ *
+ * 这里只声明真正读的那一个方法：`ChatNodeStore.get(key)`（同文件 :38）。
+ */
+interface SelectionChatSnapshot {
+  readonly nodes?: { get(key: string): unknown }
 }
 
-interface SelectionSessionFace extends SnapshotStore<SelectionSessionSnapshot> {}
+/** 一个会话的 chat 节点面：`uiConversation.binding(id).target('chat')` 的观察面。 */
+export interface SelectionChatFace extends SnapshotStore<SelectionChatSnapshot | undefined> {}
+
+/**
+ * 从 sessionId 解析到该会话 chat 节点面的窄口。
+ *
+ * 与 `SelectionSessions` 分开是刻意的：会话服务是宿主的对象，直接透传；
+ * 这一条是插件自己按 `uiConversation` 组装出来的适配层（见 harness-adapter.ts
+ * 的 `chatNodeSource`），两者的生命周期与失败模式都不同。
+ */
+export interface SelectionChatSource {
+  /** @returns 该会话的 chat 面；宿主没装 ui-chat / 会话不在册时返回 undefined。 */
+  face(sessionId: string): SelectionChatFace | undefined
+}
 
 /** Narrow host boundary consumed by the selection controller. */
 export interface SelectionSessions {
@@ -28,7 +52,6 @@ export interface SelectionSessions {
     readonly state?: SnapshotStore<{ readonly visible?: readonly string[]; readonly focused?: string }>
   }
   scope?(sessionId: string): unknown
-  sessionOf?(scope: unknown): SelectionSessionFace | undefined
 }
 
 type SelectionSource = 'pane' | 'presentation-single' | 'stock-current'
@@ -37,34 +60,78 @@ interface ActiveSelection {
   readonly selection: ConversationSelection
   readonly dom: ConversationRangeCapture
   readonly source: SelectionSource
-  readonly face: SelectionSessionFace
+  readonly face: SelectionChatFace
 }
 
 export interface SelectionControllerSnapshot {
   readonly selection: ConversationSelection | null
 }
 
+/** 诊断回调：默认 console.warn，测试注入自己的。 */
+export type SelectionDiagnostic = (message: string) => void
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null ? value as Record<string, unknown> : null
 }
 
-function validatedNode(face: SelectionSessionFace, sessionId: string, dom: ConversationRangeCapture): SelectionNode | null {
-  let snapshot: SelectionSessionSnapshot
+/**
+ * 可划词的正文行 kind。
+ *
+ * `steering` 与 `user` 是同一件东西的两个状态：同一条
+ * `user/message` 事件，被 agent 中途认领了就成 `steering`，没被认领就是
+ * `user`（`ui-chat/src/client/conversation-nodes/message.ts:62-77`，同一个
+ * definition 的两个分支，`chatNode(context, state.kind, state.seq, state)`
+ * 造出来的 anchorSeq / visibility / location 完全同形）。宿主用**同一个组件**
+ * 渲染它们（`register-node-renderers.ts:19-22`，两次 `UserMessageNodeView`；
+ * `MessageItem.tsx:275` 的签名就是 `ChatNodeViewProps<'user' | 'steering'>`），
+ * DOM 契约也同形。漏掉它意味着插话消息划不了词，而用户看到的是
+ * 一模一样的一行正文——“有时能划有时不能”比彻底不能更难排查。
+ *
+ * 删掉的那些 kind（`turn-tail` / `turn-process` / `command` / `compaction` /
+ * `system-prompt` / `unknown` 等）不是正文，是控件行与元信息行，引用它们
+ * 对模型没意义。
+ */
+const SELECTABLE_NODE_KINDS: ReadonlySet<string> = new Set(['user', 'steering', 'context', 'assistant-step'])
+
+/**
+ * 判官。fail-closed：任何一条不过就 `null`，划词层安静降级。
+ *
+ * `diagnostic` 是 rc.5 的直接教训：这条路径上「面缺失」和「面搬家」原来表现
+ * 完全一样——都是静默 `return null`。上游把节点表搬进 ui-chat 之后，每一次划词
+ * 都被否决，浏览器控制台干净、服务端日志干净，排查花了几个小时。现在「面在
+ * 但没有 nodes」会打一条日志（由调用方按 key 去重，不刷屏）；「节点查不到」
+ * 不打——后者在虚拟化换出、历史未加载时是正常的。
+ *
+ * 原来这里还有一条 `snapshot.sessionId !== sessionId` 的复核。它不是被顺手删掉
+ * 的：chat 快照上没有 sessionId 这个字段，而面本身现在是**按 sessionId 解析出来
+ * 的**（`SelectionChatSource.face(sessionId)`），会话归属由构造方式保证，不再需要
+ * 一条读值的复核。
+ */
+function validatedNode(
+  face: SelectionChatFace,
+  dom: ConversationRangeCapture,
+  diagnostic: SelectionDiagnostic,
+): SelectionNode | null {
+  let snapshot: SelectionChatSnapshot | undefined
   try {
     snapshot = face.getSnapshot()
   } catch {
     return null
   }
-  if (snapshot.sessionId !== undefined && snapshot.sessionId !== sessionId) return null
+  if (snapshot === undefined || typeof snapshot.nodes?.get !== 'function') {
+    diagnostic('[dsh-workbench] selection rejected: the chat target published no node store'
+      + ' — the host chat face moved or is absent')
+    return null
+  }
   let raw: unknown
   try {
-    raw = snapshot.chat?.nodes?.get(dom.nodeKey)
+    raw = snapshot.nodes.get(dom.nodeKey)
   } catch {
     return null
   }
   const node = asRecord(raw) as SelectionNode | null
   if (node === null || node.key !== dom.nodeKey || node.kind !== dom.nodeKind || node.visibility !== 'visible') return null
-  if (dom.nodeKind !== 'user' && dom.nodeKind !== 'context' && dom.nodeKind !== 'assistant-step') return null
+  if (!SELECTABLE_NODE_KINDS.has(dom.nodeKind)) return null
   if (dom.nodeKind === 'assistant-step' && asRecord(node.data)?.status !== 'settled') return null
   if (typeof node.anchorSeq !== 'number' || !Number.isSafeInteger(node.anchorSeq) || node.anchorSeq < 0) return null
   return node
@@ -87,6 +154,10 @@ function sameDomSelection(left: ConversationRangeCapture, right: ConversationRan
  */
 export class SelectionController {
   readonly #sessions: SelectionSessions
+  readonly #chat: SelectionChatSource
+  readonly #diagnostic: SelectionDiagnostic
+  /** 每条诊断只打一次；见 {@link validatedNode} 的说明。 */
+  readonly #warned = new Set<string>()
   readonly #document: Document
   readonly #window: Window
   readonly #listeners = new Set<() => void>()
@@ -96,8 +167,25 @@ export class SelectionController {
   #snapshot: SelectionControllerSnapshot = { selection: null }
   #disposed = false
 
-  constructor(sessions: SelectionSessions, rootDocument: Document = document) {
+  /**
+   * @param sessions - 宿主会话服务的窄面（list / presentation / scope）。
+   * @param chat - chat 节点面的解析器；由 harness-adapter 按 `uiConversation` 组装。
+   * @param rootDocument - 监听 selectionchange 的文档，测试注入。
+   * @param diagnostic - 诊断出口，默认 console.warn。
+   */
+  constructor(
+    sessions: SelectionSessions,
+    chat: SelectionChatSource,
+    rootDocument: Document = document,
+    diagnostic: SelectionDiagnostic = message => { console.warn(message) },
+  ) {
     this.#sessions = sessions
+    this.#chat = chat
+    this.#diagnostic = (message: string) => {
+      if (this.#warned.has(message)) return
+      this.#warned.add(message)
+      diagnostic(message)
+    }
     this.#document = rootDocument
     this.#window = rootDocument.defaultView ?? window
 
@@ -170,13 +258,19 @@ export class SelectionController {
       this.clear()
       return null
     }
-    const scope = this.#sessions.scope?.(source.sessionId)
-    const face = scope === undefined ? undefined : this.#sessions.sessionOf?.(scope)
+    let face: SelectionChatFace | undefined
+    try {
+      face = this.#chat.face(source.sessionId)
+    } catch {
+      face = undefined
+    }
     if (face === undefined) {
+      this.#diagnostic('[dsh-workbench] selection rejected: no chat face for the source session'
+        + ' — the host has no ui-chat conversation target')
       this.clear()
       return null
     }
-    const node = validatedNode(face, source.sessionId, dom)
+    const node = validatedNode(face, dom, this.#diagnostic)
     if (node === null) {
       this.clear()
       return null
@@ -278,7 +372,7 @@ export class SelectionController {
     const nextDom = captureConversationRange(active.dom.range, MAX_SELECTION_BYTES)
     if (nextDom === null || !sameDomSelection(active.dom, nextDom)) return false
     if (nextDom.paneSessionId !== undefined && nextDom.paneSessionId !== active.selection.parentSessionId) return false
-    const node = validatedNode(active.face, active.selection.parentSessionId, nextDom)
+    const node = validatedNode(active.face, nextDom, this.#diagnostic)
     return node !== null && node.anchorSeq === active.selection.atSeq
   }
 

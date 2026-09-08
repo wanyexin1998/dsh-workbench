@@ -8,6 +8,8 @@ import {
   type SelectionActionResult, type SelectionApplyContext, type SelectionApplyServices,
 } from './selection-actions.js'
 import { SelectionController } from './selection-controller.js'
+import { chatNodeSource } from './harness-adapter.js'
+import { hostChatNode, hostUiConversation } from '../../../tests/host-double.ts'
 import type { ConversationSelection } from './selection-contract.js'
 import type { QuoteHighlightRegistry } from './quote-highlight.js'
 import {
@@ -2466,11 +2468,11 @@ describe('createSelectionItemId', () => {
 
 describe('addSelectionToConversation routing', () => {
   it('writes to the captured left Session after focus switches right', () => {
-    const node = { key: 'left-node', kind: 'user', anchorSeq: 9, visibility: 'visible', data: {} }
-    const face = {
-      getSnapshot: () => ({ sessionId: 'left', chat: { nodes: { get: (key: string) => key === 'left-node' ? node : undefined } } }),
-      subscribe: () => () => {},
-    }
+    // 节点表来自 chat 目标，穿过产品自己的 chatNodeSource——与真宿主同一条路。
+    const chat = chatNodeSource(hostUiConversation({
+      left: [hostChatNode('left-node', 'user', { anchorSeq: 9 })],
+      right: [],
+    }))
     const leftScope = { id: 'left', bail: vi.fn() }
     const rightScope = { id: 'right', bail: vi.fn() }
     let focused = 'left'
@@ -2478,7 +2480,6 @@ describe('addSelectionToConversation routing', () => {
       list: { getSnapshot: () => ({ current: focused }) },
       presentation: { state: { getSnapshot: () => ({ visible: ['left', 'right'], focused }) } },
       scope: (id: string) => id === 'left' ? leftScope : rightScope,
-      sessionOf: (scope: unknown) => (scope as { id: string }).id === 'left' ? face : undefined,
     }
     const makeInput = () => {
       let snapshot = { draft: 'draft', draftRev: 0, occurrences: [] as Array<Record<string, unknown>> }
@@ -2500,6 +2501,7 @@ describe('addSelectionToConversation routing', () => {
     const rightInput = makeInput()
     const services = {
       sessions,
+      chat,
       conversation: { input: { for: (scope: unknown) => (scope as { id: string }).id === 'left' ? leftInput : rightInput } },
     } as unknown as SelectionApplyServices
 
@@ -2528,7 +2530,7 @@ describe('addSelectionToConversation routing', () => {
     range.setStart(text, 0)
     range.setEnd(text, text.length)
 
-    const controller = new SelectionController(sessions)
+    const controller = new SelectionController(sessions, chat)
     const captured = controller.captureRange(range)
     expect(captured?.parentSessionId).toBe('left')
     focused = 'right'
@@ -2551,19 +2553,12 @@ describe('applySelectionActions wires a genuine add through to the dock', () => 
     // `onAdd` 成功之后，记进 `pendingAdds` 的那笔账，能不能被同一次注册产出的
     // `inject(sessionId)` 里的 `consumeAddSignal` 正确认领——包括"认领一次之后
     // 不能再认领第二次"与"不匹配的 id 不会被误认领"。
-    const node = { key: 'n', kind: 'user', anchorSeq: 1, visibility: 'visible', data: {} }
-    const face = {
-      getSnapshot: () => (
-        { sessionId: 's', chat: { nodes: { get: (key: string) => key === 'n' ? node : undefined } } }
-      ),
-      subscribe: () => () => {},
-    }
+    const chat = chatNodeSource(hostUiConversation({ s: [hostChatNode('n', 'user', { anchorSeq: 1 })] }))
     const scope = { id: 's', bail: vi.fn() }
     const sessions = {
       list: { getSnapshot: () => ({ current: 's' }) },
       presentation: { state: { getSnapshot: () => ({ visible: ['s'], focused: 's' }) } },
       scope: () => scope,
-      sessionOf: () => face,
     }
     let snapshot = { draft: 'draft', draftRev: 0, occurrences: [] as Array<Record<string, unknown>> }
     const input = {
@@ -2582,6 +2577,7 @@ describe('applySelectionActions wires a genuine add through to the dock', () => 
     const registrations = new Map<string, { inject: (arg?: string) => unknown }>()
     const services = {
       sessions,
+      chat,
       conversation: { input: { for: () => input } },
       inputTriggers: { registerSource: () => () => {}, sessionOf: () => ({}) },
       slots: {
@@ -2657,6 +2653,7 @@ describe('applySelectionActions localizes the add-to-conversation projection', (
     const registered: CapturedSource[] = []
     const services = {
       sessions: {},
+      chat: chatNodeSource(undefined),
       conversation: {},
       inputTriggers: {
         registerSource: (src: CapturedSource) => { registered.push(src); return () => {} },

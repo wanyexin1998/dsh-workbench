@@ -9,6 +9,8 @@
 // Slot wiring stays on ctx.slots.inject/register (a slot's existence is not
 // probed via an invented ctx.slots.has / service.capabilities — §9A.1).
 
+import type { SelectionChatFace, SelectionChatSource } from './selection-controller.js'
+
 /** Conversation face exposed per session (the only methods the plugin calls). */
 export interface ConversationFace {
   cancel?(): Promise<unknown> | unknown
@@ -336,6 +338,72 @@ export interface HarnessServices {
   layout?: LayoutService
   sessions?: SessionsService
   workspaces?: WorkspacesService
+  /** Conversation 装配服务；划词层从它身上取 chat 节点表（见 {@link chatNodeSource}）。 */
+  uiConversation?: UiConversationService
+}
+
+/**
+ * `uiConversation` 服务上插件真正走的那一条路径。
+ *
+ * 0.1.2-rc.1 把 chat 半边拆进了 `@deepseek-ai/dsh-client-ui-chat`，节点表不再挂在
+ * 会话面上（`SessionSnapshot` 的契约头一行就写着 "excluding Conversation target
+ * data"）。上游自己的消费者这样读——`ui-chat/src/client/apply.ts:59-64`：
+ *
+ * ```ts
+ * const target = ctx.uiConversation.binding(binding).target('chat')
+ * source = { getSnapshot: () => target.getSnapshot() ?? EMPTY_CHAT_SNAPSHOT,
+ *            subscribe: listener => target.subscribe(listener) }
+ * ```
+ *
+ * 三点照抄，不能凭印象：
+ * 1. **服务名是 `uiConversation`**，与插件已经注入的 `conversation` 是两个服务。
+ *    注册处是 `ui-conversation/src/client/conversation/assembly.ts:178` 的
+ *    `super(ctx, 'uiConversation')`（cordis `Service` 构造即注册）。
+ * 2. **`binding()` 收 SessionId 字符串**（同文件 :207-211：`typeof source ===
+ *    'string'` 分支），不必先拿 `sessions.binding()`。**会话不在册时它 throw**
+ *    （:213 `uiConversation.binding: unknown session`），所以这里必须包 try。
+ * 3. **`target('chat')` 的读是 identity-stable 且便宜的**（:64-77 按 target 缓存
+ *    source；`getSnapshot()` 只是 `views.get('chat')` 一次查表）。目标未激活时
+ *    返回 `undefined` 而不是空快照——判官那侧按 undefined 处理。
+ *
+ * 激活由宿主负责，插件不主动 `activate()`：shell 恢复视图时就调了
+ * （`ui-conversation/src/client/apply.ts:135` 的
+ * `uiConversation.binding(sessionId).activate(active.id)`），而且只要屏幕上有一行
+ * chat 正文，ChatView 的 `useChatNode` 早已通过 `target('chat').subscribe` 激活过
+ * 它——划词的前提就是屏幕上有那行正文。插件去 `activate()` 会在宿主的单调激活集
+ * 上留下一条它自己不需要的记录，不做。
+ */
+export interface UiConversationService {
+  binding(sessionId: string): {
+    target(name: 'chat'): {
+      getSnapshot(): unknown
+      subscribe?(listener: () => void): () => void
+    } | undefined
+  } | undefined
+}
+
+/**
+ * 把 `uiConversation` 服务收窄成划词层要的那一个解析器。
+ *
+ * 宿主没装 ui-conversation（服务缺失）、会话不在册（binding 抛）、没装 ui-chat
+ * （`target('chat')` 给不出面）——三种都归一成 `undefined`，由调用方 fail-closed。
+ * @param uiConversation - `ctx.get('uiConversation')` 的结果，可能是 undefined。
+ * @returns 划词控制器要的 chat 面解析器。
+ */
+export function chatNodeSource(uiConversation: UiConversationService | undefined): SelectionChatSource {
+  return {
+    face: (sessionId: string) => {
+      if (typeof uiConversation?.binding !== 'function') return undefined
+      let target: ReturnType<NonNullable<ReturnType<UiConversationService['binding']>>['target']>
+      try {
+        target = uiConversation.binding(sessionId)?.target('chat')
+      } catch {
+        return undefined
+      }
+      if (target === undefined || typeof target.getSnapshot !== 'function') return undefined
+      return target as SelectionChatFace
+    },
+  }
 }
 
 /** Capability-complete service bundle required by `workbench.chat.open`. */
@@ -552,7 +620,7 @@ export interface SlotService {
  * (via resolveHarnessServices or a local cast) rather than trusting `any`.
  */
 export interface HarnessContext {
-  get(name: 'remote' | 'layout' | 'sessions' | 'workspaces'): unknown
+  get(name: 'remote' | 'layout' | 'sessions' | 'workspaces' | 'uiConversation'): unknown
   locale: LocaleService
   slots: SlotService
   settingsScope: { bind(options: { namespace: string }): SettingsScopeFace }
@@ -596,5 +664,6 @@ export function resolveHarnessServices(ctx: HarnessContext): HarnessServices {
     layout: ctx.get('layout') as LayoutService | undefined,
     sessions: ctx.get('sessions') as SessionsService | undefined,
     workspaces: ctx.get('workspaces') as WorkspacesService | undefined,
+    uiConversation: ctx.get('uiConversation') as UiConversationService | undefined,
   }
 }
