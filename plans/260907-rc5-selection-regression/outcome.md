@@ -88,7 +88,7 @@ mount 的 `agent.cordis.yml`（09-06 事故的残留），宿主回 `agent-prese
 
 | 项 | 状态 |
 |---|---|
-| 桌面 Tauri 壳（就绪探测认 200 / 窗口 URL 不带 token） | **仍未做**，`launch-harness.cmd` 继续绕开 |
+| 桌面 Tauri 壳（就绪探测认 200 / 窗口 URL 不带 token） | **已修**，见 §7 |
 | 三个文档修复没推 | **已完成**，`4215409` 已在 `origin/main` |
 | macOS / 只读 `$DSH_HOME` / stock 通用插件路径 | **仍未跑** |
 | — 缺的第四条 → | **固定的 Better Sidebar fork 在当前基线上根本加载不了** |
@@ -109,3 +109,35 @@ fork 从没做过这一遍。已在 `release-contract.json`、`docs/INSTALL.md` 
 `pnpm release:check` 九步里**没有任何一步碰浏览器、碰真实宿主、或跑 `e2e/`**。
 所以「rc.6 已端到端验证」在本仓库里**不可复现**——重跑门禁只能证明单测和打包。
 写结论时不要把 RELEASE_NOTES 那张手工表说成门禁产物。
+
+## 7. 桌面 Tauri 壳已修（2026-09-08）
+
+`E:\wyx_code\dsh-desktop`（**不是 git 仓库**，这份修复没有版本控制）。
+
+brief §6 记的两处，实际是同一个病根的两面：**`0.1.2-rc.1` 之后裸 `GET /` 返回
+401**——根路径要鉴权，只有带 `?token=` 的 URL 才会种 cookie。
+
+- `http_ready` 只认 `HTTP/1.x 200` → 就绪永远不成立 → 90 秒超时后 `handle.exit(1)`，
+  窗口从来没机会打开。这就是「点了图标什么都没有」的真相。
+- 窗口 URL 是裸的 `http://127.0.0.1:{port}/` → 就算开了也是 401。
+
+**修法没有去猜 token，而是去读它。** CLI 每次运行都会把
+`dsh web: http://127.0.0.1:<port>/?token=<token>` 打到 stdout（壳本来就把 stdout
+重定向进日志），所以：
+
+- `wait_for_ready_url()` 轮询日志尾部拿这一行——**就绪信号和 URL 一次拿到**。
+  只读本次运行追加的部分（记下 spawn 前的文件长度），且按端口匹配，
+  免得上一次运行恰好复用同一端口时读到旧行。
+- `http_ready` → `http_answering`：接受**任何** HTTP 状态行。实测证明这是必须的：
+  裸根 401，而带 token 的 URL 返回 **303**（种完 cookie 再跳 `/`）——
+  **两个都不是 200**，旧判据两条路都走不通。
+- 加了 4 个单元测试钉 `parse_ready_url`（取对端口、忽略别的端口、拒绝空 token、
+  行没出现时返回 None）。
+
+实测：`cargo test` 4/4 绿；release 构建出 `dsh-desktop.exe`；真跑一次——
+壳进程存活（旧代码此刻早已退出）、WebView2 起来了、日志里有 token URL、
+`curl` 跟随重定向落到 `200` 且页面是 `DSH Local Build`、boot 图里有
+`dsh-workbench`。
+
+**桌面快捷方式仍指向 `launch-harness.cmd`**（绕行方案），没有动它——
+Tauri 壳和浏览器各有取舍，改指向是用户的选择。
