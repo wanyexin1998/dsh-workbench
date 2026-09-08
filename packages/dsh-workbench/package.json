@@ -1,6 +1,6 @@
 {
   "name": "@wanyexin1998/dsh-workbench",
-  "version": "0.2.0-rc.5",
+  "version": "0.2.0-rc.6",
   "description": "DSH Workbench — split pane, selection quoting, and app shortcuts for DeepSeek Harness Web",
   "private": true,
   "repository": {

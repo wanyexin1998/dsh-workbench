@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
   "releaseStatus": "source-preview",
-  "workbenchVersion": "0.2.0-rc.5",
+  "workbenchVersion": "0.2.0-rc.6",
   "presentationProtocol": 2,
   "maxVisiblePanes": 2,
   "thirdSessionDisposition": "replace-focused",
@@ -40,7 +40,7 @@
     "respectsUserDeletion": true
   },
   "panelCompatibility": {
-    "packageVersion": "0.1.0-rc.3",
+    "packageVersion": "0.1.0-rc.4",
     "provider": "dsh-better-sidebar",
     "providerVersion": "0.16.1",
     "paneProtocol": 1,
