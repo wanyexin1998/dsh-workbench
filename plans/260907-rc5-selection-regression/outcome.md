@@ -112,7 +112,7 @@ fork 从没做过这一遍。已在 `release-contract.json`、`docs/INSTALL.md` 
 
 ## 7. 桌面 Tauri 壳已修（2026-09-08）
 
-`E:\wyx_code\dsh-desktop`（**不是 git 仓库**，这份修复没有版本控制）。
+`E:\wyx_code\dsh-desktop`（当时**不是 git 仓库**；已于同日 `git init`，见文末）。
 
 brief §6 记的两处，实际是同一个病根的两面：**`0.1.2-rc.1` 之后裸 `GET /` 返回
 401**——根路径要鉴权，只有带 `?token=` 的 URL 才会种 cookie。
@@ -139,5 +139,23 @@ brief §6 记的两处，实际是同一个病根的两面：**`0.1.2-rc.1` 之�
 `curl` 跟随重定向落到 `200` 且页面是 `DSH Local Build`、boot 图里有
 `dsh-workbench`。
 
-**桌面快捷方式仍指向 `launch-harness.cmd`**（绕行方案），没有动它——
-Tauri 壳和浏览器各有取舍，改指向是用户的选择。
+### 部署与版本控制（同日完成）
+
+- exe 从 `src-tauri/target/release/` **复制到 `dsh-desktop/` 根目录**再让快捷方式
+  指过去——`target/` 是构建产物目录，`cargo clean` 一下快捷方式就断了。
+  日志也跟着写在 exe 旁边。
+- **桌面快捷方式已切回 Tauri 壳**，并通过快捷方式本身跑通验证（不是只验 exe）。
+  旧的 cmd 启动器备份成 `DeepSeek Harness (launch-harness.cmd).lnk`——原来那个
+  `.lnk.bak` 扩展名不合法，Windows 的 COM 接口读不出来。
+- `git init`（`7c5a040`，62 文件 / 522K）。忽略 `target/`、`gen/schemas`、
+  部署用的 exe 与日志、以及所有 `.lnk`（二进制且写死本机绝对路径）。
+  补了 `src-tauri/empty/.gitkeep`——`frontendDist` 指着那个空目录，
+  git 不跟踪空目录，少了它新克隆构建会失败。
+- 新增 `README.md` 记住三件不写下来就会丢的事：**401/303 那条宿主契约**、
+  本机 `~/.cargo` 已失而 `~/.rustup` 完好因而工具链可直接用、
+  以及**验证时 curl 必须开 cookie 引擎**（`-c`/`-b`），否则 303 种的 cookie 被丢、
+  跟到 `/` 报 401，看着像壳坏了——这个坑我踩过一次。
+
+**工具链没有重装。** `~/.rustup/toolchains/stable-x86_64-pc-windows-msvc` 完好，
+09-06 事故只带走了 `~/.cargo`（shim 与 registry 缓存），`target/` 那 3.3G 也在，
+所以只重下了依赖源码。
