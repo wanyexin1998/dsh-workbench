@@ -105,7 +105,7 @@ keeps two and so accepted the wrong coordinates silently. Reverting either fix
 now turns cases red.
 
 `SHA256SUMS` describes the stamped installers, and the digest they embed
-(`f2482e09…`) is the digest of the TGZ packed beside them.
+(`b329024e…`) is the digest of the TGZ packed beside them.
 `release-manifest.json` records the release commit.
 
 **End-to-end on a real Harness, in a browser, with real input.** This is what
