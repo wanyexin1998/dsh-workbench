@@ -134,7 +134,7 @@ $ReleaseBaseUrl = 'https://github.com/wanyexin1998/dsh-workbench/releases/downlo
 # still holds the placeholder, a real run REQUIRES -TgzSha256 on the command
 # line and refuses to install (or even download) an unverified artifact
 # otherwise.
-$WorkbenchTgzSha256 = 'd2e07c068dec495491637180326cab6d19453a865bf24ace195df08030843178'
+$WorkbenchTgzSha256 = 'f2482e09feb7e56e5b4046d6ebdffb94987a785ce84f1212c4e72a53905c44fc'
 $ResultSchema = 1
 
 # NOTE: -Target normalization and the write paths derived from it are NOT
