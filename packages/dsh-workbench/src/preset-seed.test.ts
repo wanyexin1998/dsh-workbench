@@ -38,17 +38,47 @@ describe('seedChatPreset', () => {
     expect(entries.has(join(ROOT, SEED_MARKER))).toBe(true)
   })
 
-  it('never touches an existing chat directory, but records the marker', async () => {
+  it('never touches a mountable chat directory, but records the marker', async () => {
     const { io, entries } = memoryIo(
       new Map([
         [join(ROOT, 'chat'), null],
         [join(ROOT, 'chat', 'preset.yml'), 'name: 用户自定义\n'],
+        [join(ROOT, 'chat', 'agent.cordis.yml'), '- id: persona\n'],
       ]),
     )
     const outcome = await seedChatPreset(ROOT, io)
     expect(outcome).toBe('already-present')
     expect(entries.get(join(ROOT, 'chat', 'preset.yml'))).toBe('name: 用户自定义\n')
+    expect(entries.get(join(ROOT, 'chat', 'agent.cordis.yml'))).toBe('- id: persona\n')
     expect(entries.has(join(ROOT, SEED_MARKER))).toBe(true)
+  })
+
+  // 这条钉的是真实机器上出现过的状态：`chat/` 里只剩 `preset.yml`，宿主报
+  // `agent-preset/invalid`，随手问每次都失败。旧判据只看目录在不在，会把它判成
+  // already-present，于是永远修不好——而那条旧测试当时是绿的。
+  it('repairs a directory that is missing the composition file', async () => {
+    const { io, entries } = memoryIo(
+      new Map([
+        [join(ROOT, 'chat'), null],
+        [join(ROOT, 'chat', 'preset.yml'), 'name: 用户自定义\n'],
+        [join(ROOT, SEED_MARKER), 'chat\n'],
+      ]),
+    )
+    const outcome = await seedChatPreset(ROOT, io)
+    expect(outcome).toBe('repaired')
+    expect(entries.get(join(ROOT, 'chat', 'agent.cordis.yml'))).toBe(CHAT_PRESET_COMPOSITION)
+    // 已经在的文件一个都不覆盖。
+    expect(entries.get(join(ROOT, 'chat', 'preset.yml'))).toBe('name: 用户自定义\n')
+  })
+
+  it('restores the metadata file too when only the directory survived', async () => {
+    const { io, entries } = memoryIo(new Map([[join(ROOT, 'chat'), null]]))
+    expect(await seedChatPreset(ROOT, io)).toBe('repaired')
+    expect(entries.get(join(ROOT, 'chat', 'agent.cordis.yml'))).toBe(CHAT_PRESET_COMPOSITION)
+    expect(entries.get(join(ROOT, 'chat', 'preset.yml'))).toBe(CHAT_PRESET_METADATA)
+    expect(entries.has(join(ROOT, SEED_MARKER))).toBe(true)
+    // 修完之后再跑一次就该安静了。
+    expect(await seedChatPreset(ROOT, io)).toBe('already-present')
   })
 
   it('respects user deletion: marker without directory means no re-seed', async () => {

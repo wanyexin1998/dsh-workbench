@@ -45,7 +45,15 @@ export function apply(ctx: Context): void {
     // `as SettingsNamespace` —— 那个断言会把宿主刚给我们的这层校验绕过去。
     settingsCtx.settings.register(LEGACY_SHORTCUT_NAMESPACE, z.dict(z.string()))
   })
-  void seedChatPreset(dshHomePath(USER_PRESET_ROOT), nodeSeedIo).catch((error: unknown) => {
+  void seedChatPreset(dshHomePath(USER_PRESET_ROOT), nodeSeedIo).then((outcome) => {
+    // 只有修复值得说一句：它意味着这台机器上的 `chat/` 之前是坏的（宿主会报
+    // `agent-preset/invalid`，随手问每次都失败），而现在补回来了。'seeded' /
+    // 'already-present' / 'user-removed' 都是正常态，不出声。
+    if (outcome === 'repaired') {
+      console.warn('[dsh-workbench] chat preset repaired: the composition file was missing'
+        + ' and has been restored; Quick ask works again')
+    }
+  }).catch((error: unknown) => {
     console.warn('[dsh-workbench] chat preset seeding failed:', error)
   })
 }
