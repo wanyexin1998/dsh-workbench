@@ -210,6 +210,62 @@ export function readSelectionAggregate(snapshot: SelectionInputSnapshot): {
   }
 }
 
+/**
+ * clipboard 投影的偏移 → detect 投影的偏移。
+ *
+ * 宿主的输入机同时维护**两个**纯文本视图
+ * （`ui-conversation/src/client/input/editor/projection.ts:1-8`）：
+ * **clipboard** 投影里每个 chip 展开成它的 `clipboardText`，
+ * **detect** 投影里每个 chip 恒等于一个 U+FFFC。
+ *
+ * 两个 API 各用一个，而且都只在文档里写明：
+ * - `InputState.occurrences[].offset/length` 是 **clipboard** 坐标
+ *   （`contract/input.ts:306-309`：“Offset in the clipboard-text projection”）；
+ * - `insertReference(ref, span)` 与 `consumeToken({kind:'span'})` 收的 `TokenSpan`
+ *   是 **detect** 坐标（`input/facade.ts:493-505`：`detectText.slice(span.end, …)`
+ *   与 `$replaceDetectSpanWithNodes(span, …)`）。
+ *
+ * 草稿里没有 chip 时两个投影逐字相等，所以**第一条引用怎么写都对**；
+ * 一旦草稿里有了 chip，把 occurrence 的 clipboard 区间直接当 span 传下去就错位，
+ * 宿主解不出这个区间、返回 false，而插件把它归成 CAS 失败，报「草稿已变化」。
+ * 加第二条引用、存备注、删除引用——三条路径全死在这里。
+ *
+ * 语义与宿主自己的 `detectOffsetOfClipboardOffset`（projection.ts:142-151）一致：
+ * 落在 chip 内部的偏移吸附到该 chip 的后缘。
+ * @param snapshot - 当前输入快照；`occurrences` 是编辑器里**全部** chip 的视图。
+ * @param clipboardOffset - clipboard 投影（即 `snapshot.draft`）上的偏移。
+ * @returns detect 投影上的同位置偏移。
+ */
+function detectOffsetOf(snapshot: SelectionInputSnapshot, clipboardOffset: number): number {
+  let shift = 0
+  for (const occurrence of [...snapshot.occurrences].sort((left, right) => left.offset - right.offset)) {
+    const end = occurrence.offset + occurrence.length
+    if (end <= clipboardOffset) {
+      shift += occurrence.length - 1
+      continue
+    }
+    if (occurrence.offset < clipboardOffset) return occurrence.offset - shift + 1
+    break
+  }
+  return clipboardOffset - shift
+}
+
+/**
+ * 一条 occurrence 在 detect 投影里占据的区间（chip 在那边恒为 1 个字符）。
+ * @param snapshot - 当前输入快照。
+ * @param occurrence - clipboard 坐标下的引用占位。
+ * @returns 可直接交给宿主的 detect 区间。
+ */
+function detectSpanOf(
+  snapshot: SelectionInputSnapshot,
+  occurrence: SelectionOccurrence,
+): { readonly start: number; readonly end: number } {
+  return {
+    start: detectOffsetOf(snapshot, occurrence.offset),
+    end: detectOffsetOf(snapshot, occurrence.offset + occurrence.length),
+  }
+}
+
 function replaceAggregate(
   input: SelectionInput,
   snapshot: SelectionInputSnapshot,
@@ -218,8 +274,7 @@ function replaceAggregate(
   label: string,
 ): SelectionMutationResult {
   const applied = input.insertReference(aggregateReference(aggregate, label), {
-    start: occurrence.offset,
-    end: occurrence.offset + occurrence.length,
+    ...detectSpanOf(snapshot, occurrence),
     draftRev: snapshot.draftRev,
   })
   return applied ? { ok: true, aggregate } : { ok: false, reason: 'stale-draft' }
@@ -238,9 +293,10 @@ export function appendSelectionReference(
   const item = selectionItem(selection, itemId, comment)
   if (occurrences.length === 0) {
     const aggregate: SelectionAggregateV1 = { version: SELECTION_AGGREGATE_VERSION, items: [item] }
+    const at = detectOffsetOf(snapshot, snapshot.draft.length)
     const applied = input.insertReference(aggregateReference(aggregate, label), {
-      start: snapshot.draft.length,
-      end: snapshot.draft.length,
+      start: at,
+      end: at,
       draftRev: snapshot.draftRev,
     })
     return applied ? { ok: true, aggregate } : { ok: false, reason: 'stale-draft' }
@@ -306,16 +362,18 @@ export function removeSelectionItem(input: SelectionInput, itemId: string, label
   // input machine's fallback diff cannot mistake an adjacent same-label
   // occurrence for the deleted one.
   const removed = input.consumeSpan({
-    start: occurrence.offset,
-    end: occurrence.offset + occurrence.length,
+    ...detectSpanOf(snapshot, occurrence),
     draftRev: snapshot.draftRev,
   })
   if (!removed) return { ok: false, reason: 'stale-draft' }
   const afterRemoval = input.state.getSnapshot()
   if (afterRemoval.draft[occurrence.offset] === ' ') {
+    // chip 已经不在了，但它前面可能还有别的 chip，所以这一步要对着
+    // **删除后**的快照重算一次坐标，不能沿用上一步的。
+    const separator = detectOffsetOf(afterRemoval, occurrence.offset)
     input.consumeSpan({
-      start: occurrence.offset,
-      end: occurrence.offset + 1,
+      start: separator,
+      end: separator + 1,
       draftRev: afterRemoval.draftRev,
     })
   }

@@ -13,18 +13,68 @@ import {
   type SideChatCopy,
 } from './side-chat-actions.js'
 
+/**
+ * 宿主输入机的**两套投影**。这是这个替身里唯一重要的一件事：
+ *
+ * - `state.draft` / `occurrences[].offset` 是 **clipboard** 投影，
+ *   chip 展开成它的完整显示文本；
+ * - `insertReference` / `consumeSpan` 收的 `TokenSpan` 是 **detect** 投影，
+ *   chip 恒等于 1 个字符（`input/editor/projection.ts:17` 的 `ATOMIC_CHAR`）。
+ *
+ * 上一版替身只有一套坐标，把 span 当成 `state.draft` 的偏移校验，于是
+ * “把 clipboard 区间当 detect span 传下去”这个 bug 在测试里**完全不可见**：
+ * 第二条引用、存备注、删除引用三条路径在真宿主上全报「草稿已变化」，
+ * 而这里全绿。现在两套坐标各归各位，误用就越界、就红。
+ */
+function detectLengthOf(state: SelectionInputSnapshot): number {
+  return state.draft.length - state.occurrences.reduce((total, o) => total + (o.length - 1), 0)
+}
+
+/**
+ * detect 偏移 → clipboard 偏移。chip 在 detect 里只占 1 个字符，所以每一个
+ * detect 偏移都落在段边界上，映射无歧义；越界返回 null，调用方当失败处理。
+ */
+function clipboardOffsetOfDetect(state: SelectionInputSnapshot, detectOffset: number): number | null {
+  if (detectOffset < 0) return null
+  const chips = [...state.occurrences].sort((a, b) => a.offset - b.offset)
+  let clipboard = 0
+  let detect = 0
+  for (const chip of chips) {
+    const textRun = chip.offset - clipboard
+    if (detectOffset <= detect + textRun) return clipboard + (detectOffset - detect)
+    detect += textRun
+    clipboard = chip.offset
+    if (detectOffset === detect) return clipboard
+    detect += 1
+    clipboard += chip.length
+    if (detectOffset === detect) return clipboard
+  }
+  const tail = state.draft.length - clipboard
+  return detectOffset <= detect + tail ? clipboard + (detectOffset - detect) : null
+}
+
 function fakeInput(initialDraft = '') {
   let state: SelectionInputSnapshot = { draft: initialDraft, draftRev: 0, occurrences: [] }
   let rejectNext = false
   const notify = vi.fn()
-  const input: SelectionInput & { setDraft(text: string): void; rejectOnce(): void } = {
+  const input: SelectionInput & {
+    setDraft(text: string): void
+    rejectOnce(): void
+    /** 草稿末尾在 **detect** 投影里的偏移——向宿主传 span 时该用的就是它。 */
+    detectEnd(): number
+  } = {
     state: { getSnapshot: () => state },
     insertReference(reference: ReferenceInsert, span: TokenSpan) {
       if (rejectNext) {
         rejectNext = false
         return false
       }
-      if (span.draftRev !== state.draftRev || span.start < 0 || span.end < span.start || span.end > state.draft.length) return false
+      if (span.draftRev !== state.draftRev || span.start < 0 || span.end < span.start) return false
+      if (span.end > detectLengthOf(state)) return false
+      const spanStart = clipboardOffsetOfDetect(state, span.start)
+      const spanEnd = clipboardOffsetOfDetect(state, span.end)
+      if (spanStart === null || spanEnd === null) return false
+      span = { ...span, start: spanStart, end: spanEnd }
       const tail = state.draft.slice(span.end)
       const gap = tail.length === 0 || tail[0] !== ' ' ? ' ' : ''
       const display = '@' + reference.label
@@ -67,14 +117,19 @@ function fakeInput(initialDraft = '') {
       state = { draft: nextDraft, draftRev: state.draftRev + 1, occurrences }
     },
     consumeSpan(span: TokenSpan) {
-      if (span.draftRev !== state.draftRev || span.start >= span.end || span.end > state.draft.length) return false
-      input.setDraft(state.draft.slice(0, span.start) + state.draft.slice(span.end))
+      if (span.draftRev !== state.draftRev || span.start >= span.end) return false
+      if (span.end > detectLengthOf(state)) return false
+      const start = clipboardOffsetOfDetect(state, span.start)
+      const end = clipboardOffsetOfDetect(state, span.end)
+      if (start === null || end === null) return false
+      input.setDraft(state.draft.slice(0, start) + state.draft.slice(end))
       return true
     },
     notify,
     rejectOnce() {
       rejectNext = true
     },
+    detectEnd: () => detectLengthOf(state),
   }
   return { input, notify }
 }
@@ -130,8 +185,9 @@ describe('selection aggregate reference', () => {
     expect(input.insertReference({
       source: 'other.after', ref: 'after', label: 'Selected context', clipboardText: 'after',
     }, {
-      start: beforeAfterInsert.draft.length,
-      end: beforeAfterInsert.draft.length,
+      // 末尾位置要用 detect 坐标：此时草稿里已经有两个 chip，两套投影不再相等。
+      start: input.detectEnd(),
+      end: input.detectEnd(),
       draftRev: beforeAfterInsert.draftRev,
     })).toBe(true)
 
